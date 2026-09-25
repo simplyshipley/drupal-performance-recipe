@@ -7,9 +7,13 @@ devel: false
 chunk_size: 50
 chunk_delay: 0
 api_version: '2024-02-01'
+# Needs the Azure Government patch (patches/). azureCloud = commercial,
+# azureUSGovernmentCloud = Azure Government. Empty scope = the cloud's
+# Resource Manager scope.
+azure_environment: azureCloud
 tenant_id: ''
 client_id: ''
-scope: 'https://management.azure.com/.default'
+scope: ''
 client_secret: ''
 endpoint_name: ''
 profile_name: ''

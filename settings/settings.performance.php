@@ -53,7 +53,12 @@
  *   AZURE_CDN_TENANT_ID, AZURE_CDN_CLIENT_ID, AZURE_CDN_CLIENT_SECRET,
  *   AZURE_CDN_SUBSCRIPTION_ID, AZURE_CDN_RESOURCE_GROUP, AZURE_CDN_PROFILE,
  *   AZURE_CDN_ENDPOINT, AZURE_CDN_API_VERSION, AZURE_CDN_ENDPOINT_TYPE
- *   (afdEndpoints for Front Door), AZURE_CDN_SCOPE.
+ *   (afdEndpoints for Front Door), AZURE_CDN_SCOPE (empty = derived from the
+ *   cloud).
+ *   AZURE_CLOUD             usgovernment | public. Needs the azure_cdn_purge
+ *                           Azure Government patch (patches/).
+ *   AZURE_LOGIN_HOST, AZURE_MANAGEMENT_HOST
+ *                           Explicit host URLs (override AZURE_CLOUD).
  *
  * Fast 404
  *   PERF_FAST404             1 = apply the Fast 404 settings below and the
@@ -170,6 +175,13 @@ $perf_azure_map = [
   'AZURE_CDN_API_VERSION' => 'api_version',
   'AZURE_CDN_ENDPOINT_TYPE' => 'endpoint_type',
 ];
+// Cloud: AZURE_CLOUD=usgovernment|public (needs the patch in patches/).
+$perf_cloud = strtolower((string) $perf_env('AZURE_CLOUD', ''));
+if ($perf_cloud !== '') {
+  $config['azure_cdn_purge.settings']['azure_environment'] = in_array($perf_cloud, ['usgovernment', 'azureusgovernment', 'azureusgovernmentcloud'], TRUE) ? 'azureUSGovernmentCloud' : 'azureCloud';
+}
+$perf_azure_map['AZURE_LOGIN_HOST'] = 'login_host';
+$perf_azure_map['AZURE_MANAGEMENT_HOST'] = 'management_host';
 foreach ($perf_azure_map as $perf_var => $perf_key) {
   if ($perf_env($perf_var) !== NULL) {
     $config['azure_cdn_purge.settings'][$perf_key] = $perf_env($perf_var);
@@ -243,5 +255,5 @@ if ($perf_env('PERF_FAST404') === '1') {
 }
 
 unset($perf_env, $perf_patterns, $perf_host, $perf_pattern, $perf_redis_dir, $perf_scheme,
-  $perf_azure_map, $perf_var, $perf_key, $perf_public, $perf_404_pages, $perf_file, $perf_lang,
+  $perf_azure_map, $perf_cloud, $perf_var, $perf_key, $perf_public, $perf_404_pages, $perf_file, $perf_lang,
   $perf_fast404_inc);

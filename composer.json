@@ -7,8 +7,11 @@
         "drupal/core": "^10.6 || ^11",
         "drupal/redis": "^1.11",
         "drupal/purge": "^3.7",
-        "drupal/azure_cdn_purge": "^1.0.4",
+        "drupal/azure_cdn_purge": "1.0.4",
         "drupal/fast_404": "^3.7",
         "drupal/themed_fast_404": "^1.0"
+    },
+    "suggest": {
+        "cweagans/composer-patches": "Apply patches/azure_cdn_purge-3427718-azure-government.patch from the ROOT composer.json (see docs/install.md); required for Azure Government."
     }
 }

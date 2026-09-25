@@ -1,0 +1,112 @@
+diff --git a/config/schema/azure_cdn_purge.schema.yml b/config/schema/azure_cdn_purge.schema.yml
+new file mode 100644
+index 0000000..fb80249
+--- /dev/null
++++ b/config/schema/azure_cdn_purge.schema.yml
+@@ -0,0 +1,52 @@
++azure_cdn_purge.settings:
++  type: config_object
++  label: 'Azure CDN Purge settings'
++  mapping:
++    endpoint_type:
++      type: string
++      label: 'Endpoint type (endpoints or afdEndpoints)'
++    devel:
++      type: boolean
++      label: 'Debug mode'
++    chunk_size:
++      type: integer
++      label: 'Purges per request'
++    chunk_delay:
++      type: integer
++      label: 'Delay between requests'
++    azure_environment:
++      type: string
++      label: 'Azure cloud environment (azureCloud or azureUSGovernmentCloud)'
++    login_host:
++      type: string
++      label: 'Optional Entra ID authority host URL override'
++    management_host:
++      type: string
++      label: 'Optional Resource Manager host URL override'
++    tenant_id:
++      type: string
++      label: 'Tenant ID'
++    client_id:
++      type: string
++      label: 'Client ID'
++    scope:
++      type: string
++      label: 'Scope (empty = Resource Manager scope of the selected cloud)'
++    client_secret:
++      type: string
++      label: 'Client secret'
++    endpoint_name:
++      type: string
++      label: 'Endpoint name'
++    profile_name:
++      type: string
++      label: 'Profile name'
++    resource_group_name:
++      type: string
++      label: 'Resource group name'
++    subscription_id:
++      type: string
++      label: 'Subscription ID'
++    api_version:
++      type: string
++      label: 'API version'
+diff --git a/src/Form/AzureCdnSettingsForm.php b/src/Form/AzureCdnSettingsForm.php
+index 5ff3aba..293c382 100755
+--- a/src/Form/AzureCdnSettingsForm.php
++++ b/src/Form/AzureCdnSettingsForm.php
+@@ -99,7 +99,7 @@ class AzureCdnSettingsForm extends ConfigFormBase {
+         'azureCloud' => $this->t('Azure Commercial'),
+         'azureUSGovernmentCloud' => $this->t('Azure US Government'),
+       ],
+-      '#default_value' => $config->get('azure_environment'),
++      '#default_value' => $config->get('azure_environment') ?: 'azureCloud',
+     ];
+ 
+     $form['authentication']['tenant_id'] = [
+diff --git a/src/Plugin/Purge/Purger/AzurePurger.php b/src/Plugin/Purge/Purger/AzurePurger.php
+index 73c4c2d..1885872 100644
+--- a/src/Plugin/Purge/Purger/AzurePurger.php
++++ b/src/Plugin/Purge/Purger/AzurePurger.php
+@@ -142,16 +142,27 @@ class AzurePurger extends PurgerBase implements PurgerInterface {
+         $scope = $this->config->get('scope');
+         $client_secret = $this->config->get('client_secret');
+ 
+-        // Added to support multiple cloud environments.
++        // Added to support multiple cloud environments. Unknown or missing
++        // values fall back to Azure Commercial so existing sites are unchanged.
++        // Endpoints: https://learn.microsoft.com/en-us/azure/azure-government/compare-azure-government-global-azure
++        $environments = [
++          'azureCloud' => [
++            'login' => 'https://login.microsoftonline.com',
++            'management' => 'https://management.azure.com',
++          ],
++          'azureUSGovernmentCloud' => [
++            'login' => 'https://login.microsoftonline.us',
++            'management' => 'https://management.usgovcloudapi.net',
++          ],
++        ];
+         $azure_environment = $this->config->get('azure_environment');
+-        if ($azure_environment == 'azureCloud') {
+-          $base_auth_url = 'https://login.microsoftonline.com';
+-          $base_api_url = 'https://management.azure.com';
+-        }
+-
+-        if ($azure_environment == 'azureUSGovernmentCloud') {
+-          $base_auth_url = 'https://login.microsoftonline.us';
+-          $base_api_url = 'https://management.usgovcloudapi.net';
++        $endpoints = $environments[$azure_environment] ?? $environments['azureCloud'];
++        // Optional explicit hosts (other sovereign clouds, testing).
++        $base_auth_url = rtrim($this->config->get('login_host') ?: $endpoints['login'], '/');
++        $base_api_url = rtrim($this->config->get('management_host') ?: $endpoints['management'], '/');
++        // An empty scope defaults to the Resource Manager scope of the cloud.
++        if (empty($scope)) {
++          $scope = $base_api_url . '/.default';
+         }
+ 
+         // Updated to support multiple cloud environments.

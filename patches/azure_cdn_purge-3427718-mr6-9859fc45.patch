@@ -1,0 +1,78 @@
+diff --git a/src/Form/AzureCdnSettingsForm.php b/src/Form/AzureCdnSettingsForm.php
+index d416754e305a8c268a577965d5c9149643057bf0..5ff3abaae92c24f5f4b8e164e70acaa847605170 100755
+--- a/src/Form/AzureCdnSettingsForm.php
++++ b/src/Form/AzureCdnSettingsForm.php
+@@ -89,6 +89,19 @@ class AzureCdnSettingsForm extends ConfigFormBase {
+       '#markup' => '<div>' . $this->t('Please refer to <a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-oauth2-client-creds-grant-flow#first-case-access-token-request-with-a-shared-secret" target="_blank">Access token request with a shared secret</a>.') . '</div>',
+     ];
+ 
++    // Added to support multiple cloud environments.
++    $form['authentication']['azure_environment'] = [
++      '#type' => 'select',
++      '#title' => $this->t('Azure Cloud Environment'),
++      '#description' => $this->t('The Azure Cloud environment where the app and cdn resources are located.'),
++      '#required' => TRUE,
++      '#options' => [
++        'azureCloud' => $this->t('Azure Commercial'),
++        'azureUSGovernmentCloud' => $this->t('Azure US Government'),
++      ],
++      '#default_value' => $config->get('azure_environment'),
++    ];
++
+     $form['authentication']['tenant_id'] = [
+       '#type' => 'textfield',
+       '#title' => $this->t('Tenant ID'),
+@@ -202,6 +215,8 @@ class AzureCdnSettingsForm extends ConfigFormBase {
+     $chunk_delay = $form_state->getValue('chunk_delay');
+ 
+     // Authentication config.
++    // Added to support multiple cloud environments.
++    $azure_environment = $form_state->getValue('azure_environment');
+     $tenant_id = $form_state->getValue('tenant_id');
+     $client_id = $form_state->getValue('client_id');
+     $scope = $form_state->getValue('scope');
+@@ -222,6 +237,8 @@ class AzureCdnSettingsForm extends ConfigFormBase {
+       ->set('tenant_id', $tenant_id)
+       ->set('client_id', $client_id)
+       ->set('scope', $scope)
++      // Added to support multiple cloud environments.
++      ->set('azure_environment', $azure_environment)
+       ->set('client_secret', $client_secret)
+       ->set('endpoint_name', $endpoint_name)
+       ->set('profile_name', $profile_name)
+diff --git a/src/Plugin/Purge/Purger/AzurePurger.php b/src/Plugin/Purge/Purger/AzurePurger.php
+index a1087d58143c43fb0f4afd7ab5baefffde0b1480..73c4c2d680dd683d9e8e988825afef852c8cb761 100644
+--- a/src/Plugin/Purge/Purger/AzurePurger.php
++++ b/src/Plugin/Purge/Purger/AzurePurger.php
+@@ -142,7 +142,20 @@ class AzurePurger extends PurgerBase implements PurgerInterface {
+         $scope = $this->config->get('scope');
+         $client_secret = $this->config->get('client_secret');
+ 
+-        $auth_url = 'https://login.microsoftonline.com/' . $tenant_id . '/oauth2/v2.0/token';
++        // Added to support multiple cloud environments.
++        $azure_environment = $this->config->get('azure_environment');
++        if ($azure_environment == 'azureCloud') {
++          $base_auth_url = 'https://login.microsoftonline.com';
++          $base_api_url = 'https://management.azure.com';
++        }
++
++        if ($azure_environment == 'azureUSGovernmentCloud') {
++          $base_auth_url = 'https://login.microsoftonline.us';
++          $base_api_url = 'https://management.usgovcloudapi.net';
++        }
++
++        // Updated to support multiple cloud environments.
++        $auth_url = $base_auth_url . '/' . $tenant_id . '/oauth2/v2.0/token';
+         $auth_data = [
+           'form_params' => [
+             'client_id' => $client_id,
+@@ -162,7 +175,8 @@ class AzurePurger extends PurgerBase implements PurgerInterface {
+ 
+         $access_token = $response_auth['access_token'];
+ 
+-        $url = "https://management.azure.com/subscriptions/" . $subscription_id . "/resourceGroups/" . $resource_group_name . "/providers/Microsoft.Cdn/profiles/" . $profile_name . "/$endpoint_type/" . $endpoint_name . "/purge?api-version=" . $api_version;
++        // Updated to support multiple cloud environments.
++        $url = $base_api_url . "/subscriptions/" . $subscription_id . "/resourceGroups/" . $resource_group_name . "/providers/Microsoft.Cdn/profiles/" . $profile_name . "/$endpoint_type/" . $endpoint_name . "/purge?api-version=" . $api_version;
+ 
+         $body_contents = [
+           'contentPaths' => $targets_to_purge,
