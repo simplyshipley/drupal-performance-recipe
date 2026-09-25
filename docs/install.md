@@ -106,6 +106,8 @@ Do **not** run `composer update <recipe> -W` to pick up recipe changes: in the l
 upgraded twig/twig to 3.30.0, which broke every page on Drupal 10.6.17 with
 `EscaperRuntime::escape(): Argument #4 ($autoescape) must be of type bool, null given`
 [V: DDEV lab; fixed by `composer require twig/twig:3.28.0`]. Update only the recipe package.
+That hard pin is a stopgap: remove it (`composer require twig/twig:^3` or drop the root
+requirement) once a Twig release or Drupal core update fixes the incompatibility, and re-test.
 
 ## 6. Export config
 

@@ -91,8 +91,11 @@ available for `afdEndpoints` purge in Azure Government is [ASSUMED], not verifie
 
 Settings (environment variables, read by `settings.performance.php`):
 
-- `AZURE_CLOUD=usgovernment` sets `azure_environment: azureUSGovernmentCloud`
-  (`public` sets `azureCloud`) [V: purge_send_gov checks the mapping].
+- `AZURE_CLOUD` (case-insensitive): `usgovernment`, `azureusgovernment` or
+  `azureusgovernmentcloud` set `azureUSGovernmentCloud`; `public`, `commercial` or `azurecloud`
+  set `azureCloud`. Any other value (for example the typo `usgov`) is ignored with a PHP
+  warning and the stored setting is left alone [V: purge_send_gov checks the mapping and the
+  typo warning].
 - `AZURE_LOGIN_HOST`, `AZURE_MANAGEMENT_HOST`: explicit host URLs (override the cloud).
 - Leave `AZURE_CDN_SCOPE` unset and the stored `scope` empty so the scope follows the cloud.
   An existing site that saved `https://management.azure.com/.default` keeps sending the
