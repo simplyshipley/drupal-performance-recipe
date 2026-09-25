@@ -1,0 +1,123 @@
+# Azure configuration
+
+Nothing in this file was run against Azure: the lab never contacts Azure. Everything here is
+[ASSUMED] unless it names lab evidence. Confirm each Azure service is in FedRAMP scope for
+your cloud before use (see the caching guide).
+
+## App Service application settings (environment variables)
+
+App Service exposes "Application settings" to the container as environment variables
+[ASSUMED: standard App Service behaviour]. `settings.performance.php` reads only these.
+Put secrets in Key Vault references, not plain values [ASSUMED].
+
+| Variable | Example | Notes |
+|---|---|---|
+| `REDIS_HOST` | `myredis.redis.cache.usgovcloudapi.net` | Unset = no Redis |
+| `REDIS_SCHEME` | `tls` | Managed Redis requires TLS [ASSUMED] |
+| `REDIS_PORT` | `6380` (Azure Cache for Redis) or `10000` (Azure Managed Redis) | [ASSUMED] |
+| `REDIS_PASSWORD` | Key Vault reference | Access key |
+| `REDIS_PREFIX` | `oig-cpsc-prod` | Required if one Redis serves several sites |
+| `DRUPAL_TRUSTED_HOSTS` | `www.example.gov,example.gov` | Anchored and escaped by the settings file [V: code] |
+| `DRUPAL_REVERSE_PROXY` | `1` | Trust `X-Forwarded-*` |
+| `DRUPAL_REVERSE_PROXY_ADDRESSES` | App Service front-end ranges | Comma-separated IPs/CIDRs of the hop Drupal sees as `REMOTE_ADDR` |
+| `DRUPAL_CACHE_TTL_4XX` | `3600` | Core default; see guide "Why 403s arrive in batches" |
+| `DRUPAL_DATABASE_CACHE_MAX_ROWS` | `5000` | Only matters for bins still in MySQL |
+| `THEMED_FAST404_BASE_URL` | `http://localhost` (whatever reaches the site from inside the container) | See the self-request warning below |
+| `AZURE_CDN_TENANT_ID` | tenant GUID | Service principal's tenant |
+| `AZURE_CDN_CLIENT_ID` | app GUID | Service principal |
+| `AZURE_CDN_CLIENT_SECRET` | Key Vault reference | Never in config |
+| `AZURE_CDN_SCOPE` | `https://management.azure.com/.default` | Default in recipe config. Azure Government uses `https://management.usgovcloudapi.net/.default` [ASSUMED], but see the next section |
+| `AZURE_CDN_SUBSCRIPTION_ID` | GUID | |
+| `AZURE_CDN_RESOURCE_GROUP` | `rg-...` | |
+| `AZURE_CDN_PROFILE` | Front Door profile name | |
+| `AZURE_CDN_ENDPOINT` | Front Door endpoint name | |
+| `AZURE_CDN_ENDPOINT_TYPE` | `afdEndpoints` | Recipe default |
+| `AZURE_CDN_API_VERSION` | `2024-02-01` | Recipe default [ASSUMED valid for afdEndpoints purge; check Microsoft's REST reference] |
+
+Never set `PERF_MOCK_AFD_PROXY` outside a local lab: it routes all Drupal outbound HTTP to the
+mock and turns TLS verification off.
+
+## Azure Government: the module hard-codes commercial Azure hosts
+
+`azure_cdn_purge` 1.0.4 builds its URLs from fixed strings [V: AzurePurger.php lines 145 and 165]:
+
+- token: `https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token`
+- purge: `https://management.azure.com/subscriptions/.../{endpoint_type}/{endpoint}/purge?api-version=...`
+
+Azure Government uses `login.microsoftonline.us` and `management.usgovcloudapi.net`
+[ASSUMED: Microsoft sovereign-cloud endpoints]. If the OIG sites are in Azure Government, this
+module cannot purge without a code change (a patch making the two base URLs configurable).
+This is an open decision for Bo, not solved here.
+
+## Service principal for purging
+
+Create an app registration with a client secret and grant it a role on the Front Door profile
+that allows `Microsoft.Cdn/profiles/afdEndpoints/purge/action` (for example "CDN Endpoint
+Contributor", or a custom role with only that action) [ASSUMED]. Test against a non-production
+profile first.
+
+What the module sends [V: mock log, tmp/ddev/run3-final.log]:
+
+1. `POST .../oauth2/v2.0/token` with `client_id`, `client_secret`, `scope`,
+   `grant_type=client_credentials` (a new token on **every** purge chunk; no token caching).
+2. `POST .../providers/Microsoft.Cdn/profiles/{profile}/afdEndpoints/{endpoint}/purge?api-version=...`
+   with `{"contentPaths": ["/node/1"]}` and `Authorization: Bearer ...`.
+
+## What gets purged (path-based, no tags)
+
+Front Door has no cache tags, so only paths are purged. In this module that means:
+
+- On **node update only**, `hook_node_update` queues the node's alias (or `/node/N`)
+  [V: azure_cdn_purge.module; queue item `path:node/1` in the lab]. New nodes, deletes, taxonomy
+  terms, media, menus and listing pages are **not** queued.
+- The core tags queuer (`purge_queuer_coretags`) is installed and enabled, but it queues
+  nothing, because no enabled purger supports the `tag` type (it catches
+  `TypeUnsupportedException` and returns) [V: CacheTagsQueuer.php; lab queue held only the
+  path item after a node save].
+- Listing pages, the front page and views rely on a short HTML lifetime (900 s here) or a
+  manual purge (`az afd endpoint purge`, or the Purge UI block).
+- `wildcardpath` invalidations are marked SUCCEEDED without any request being sent, because
+  the purger only handles the batch when the first item is type `path` [V: code read,
+  AzurePurger.php purgeChunk]. Do not rely on wildcard purges.
+
+## Front Door
+
+See the caching guide sections "Azure Front Door for Drupal" and "Client IP pass-through".
+The recipe's part: Drupal sends `Cache-Control: max-age=900, public` for anonymous pages and
+`must-revalidate, no-cache, private` for logged-in users [V: headers_anon / headers_auth].
+Front Door must honour origin cache headers and bypass the cache for `SESS*` cookies
+[ASSUMED].
+
+## Redis: managed or container
+
+Recommendation from the caching guide: managed Azure Cache for Redis / Azure Managed Redis
+(check FedRAMP status and retirement timelines). With TLS set `REDIS_SCHEME=tls` and the TLS
+port. drupal/redis 1.11 connects with `tls://host` and offers no option to set a CA file or
+peer-verification options [V: redis/src/Client/PhpRedis.php getClient()], so the container's
+system CA store must trust the Redis certificate [ASSUMED].
+
+A Redis sidecar in App Service only works with one instance; with several instances each has
+its own cache and tag invalidations are missed (guide, "Container vs managed service").
+
+Server settings: explicit `maxmemory`, `maxmemory-policy allkeys-lru`, persistence off.
+Items Drupal marks permanent get a one-year TTL in Redis (`31536000` s observed) [V: lab key
+TTLs], and `drush cr` does not delete keys (see troubleshooting), so without an LRU policy
+Redis fills up.
+
+**Redis down = site down.** Plan Redis availability accordingly (see troubleshooting).
+
+## Client IP
+
+Unchanged from the caching guide. `settings.performance.php` implements Option A
+(`DRUPAL_REVERSE_PROXY*` variables). Option B (web server `real_ip_header X-Azure-ClientIP`)
+lives in the container image and is outside this package.
+
+## Themed Fast 404 on Azure
+
+Cron fetches `/page-not-found` over HTTP from `THEMED_FAST404_BASE_URL` (or the module's
+`base_url`) and saves it to `public://page-not-found-{lang}.html` [V: ThemedFast404Manager].
+Separately, the module's config override reads that file **over HTTP by its absolute public
+URL** on every request that is not a page-cache hit [V: 20 non-cached requests produced 20
+extra GETs of the file in the DDEV nginx access log, tmp/ddev/themed404-self-requests.txt].
+Behind Front Door the absolute URL is the public host, so each of those requests goes out
+through Front Door and back [ASSUMED]. See troubleshooting before enabling it in production.
