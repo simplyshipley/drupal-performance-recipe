@@ -4,6 +4,26 @@ Nothing in this file was run against Azure: the lab never contacts Azure. Everyt
 [ASSUMED] unless it names lab evidence. Confirm each Azure service is in FedRAMP scope for
 your cloud before use (see the caching guide).
 
+> **WARNING: with `REDIS_HOST` set, Redis becomes a hard dependency.** Every cache bin
+> (`cache.default = cache.backend.redis`), the cache-tag checksum, the lock backend and the
+> flood backend (`settings/redis.services.yml`) all move to Redis. When Redis is unreachable
+> (outage, failover, patching, DNS), **every request returns HTTP 500** and Drush cannot
+> bootstrap: `RedisException: php_network_getaddresses: getaddrinfo ... failed` from
+> `redis/src/Client/PhpRedis.php` line 32 [V: `redis_down` in both labs,
+> tmp/ddev/run5-final.log and tmp/lando-run4-final.log]. The site recovered by itself when
+> Redis returned [V].
+>
+> **OPEN DECISION for Bo (nothing implemented):**
+> - (a) Managed Redis with high availability (zone-redundant / replica) plus monitoring and
+>   alerts, and accept that a Redis outage is a site outage.
+> - (b) Keep lock, flood and the cache-tag checksum in the database (drop
+>   `settings/redis.services.yml`), so only cache reads/writes depend on Redis.
+> - (c) Use Redis only for the high-churn bins (`render`, `page`, `dynamic_page_cache`,
+>   `data`, `entity`) and leave everything else in the database.
+>
+> Whether (b) or (c) would let the site survive a Redis outage has not been tested; the
+> bins that stay on Redis would still throw [ASSUMED].
+
 ## App Service application settings (environment variables)
 
 App Service exposes "Application settings" to the container as environment variables
@@ -16,12 +36,13 @@ Put secrets in Key Vault references, not plain values [ASSUMED].
 | `REDIS_SCHEME` | `tls` | Managed Redis requires TLS [ASSUMED] |
 | `REDIS_PORT` | `6380` (Azure Cache for Redis) or `10000` (Azure Managed Redis) | [ASSUMED] |
 | `REDIS_PASSWORD` | Key Vault reference | Access key |
-| `REDIS_PREFIX` | `oig-cpsc-prod` | Required if one Redis serves several sites |
+| `REDIS_PREFIX` | `oig-cpsc-prod` | Required if one Redis serves several sites. Optional otherwise (the redis module then uses its own default prefix); the test suite matches any prefix when it is unset |
 | `DRUPAL_TRUSTED_HOSTS` | `www.example.gov,example.gov` | Anchored and escaped by the settings file [V: code] |
 | `DRUPAL_REVERSE_PROXY` | `1` | Trust `X-Forwarded-*` |
 | `DRUPAL_REVERSE_PROXY_ADDRESSES` | App Service front-end ranges | Comma-separated IPs/CIDRs of the hop Drupal sees as `REMOTE_ADDR` |
 | `DRUPAL_CACHE_TTL_4XX` | `3600` | Core default; see guide "Why 403s arrive in batches" |
 | `DRUPAL_DATABASE_CACHE_MAX_ROWS` | `5000` | Only matters for bins still in MySQL |
+| `PERF_FAST404` | `1` | Turns on the Fast 404 settings and the pre-boot static-file check. Unset = the settings file does nothing for Fast 404 |
 | `THEMED_FAST404_BASE_URL` | `http://localhost` (whatever reaches the site from inside the container) | See the self-request warning below |
 | `AZURE_CDN_TENANT_ID` | tenant GUID | Service principal's tenant |
 | `AZURE_CDN_CLIENT_ID` | app GUID | Service principal |
@@ -35,7 +56,8 @@ Put secrets in Key Vault references, not plain values [ASSUMED].
 | `AZURE_CDN_API_VERSION` | `2024-02-01` | Recipe default [ASSUMED valid for afdEndpoints purge; check Microsoft's REST reference] |
 
 Never set `PERF_MOCK_AFD_PROXY` outside a local lab: it routes all Drupal outbound HTTP to the
-mock and turns TLS verification off.
+mock and turns TLS verification off. The settings file only honours it when `IS_DDEV_PROJECT=true`
+or `LANDO=ON`; elsewhere it is ignored and a warning goes to the PHP error log.
 
 ## Azure Government: the module hard-codes commercial Azure hosts
 
@@ -92,9 +114,11 @@ Front Door must honour origin cache headers and bypass the cache for `SESS*` coo
 
 Recommendation from the caching guide: managed Azure Cache for Redis / Azure Managed Redis
 (check FedRAMP status and retirement timelines). With TLS set `REDIS_SCHEME=tls` and the TLS
-port. drupal/redis 1.11 connects with `tls://host` and offers no option to set a CA file or
-peer-verification options [V: redis/src/Client/PhpRedis.php getClient()], so the container's
-system CA store must trust the Redis certificate [ASSUMED].
+port; the settings file then passes `tls://host` to phpredis. That this connects through
+drupal/redis 1.11 is [ASSUMED: not tested; no TLS Redis in the lab]. The module's
+`getClient()` passes only host and port to `connect()`, with no CA or peer-verification
+options [V: code read, redis/src/Client/PhpRedis.php], so the container's system CA store
+must trust the Redis certificate [ASSUMED].
 
 A Redis sidecar in App Service only works with one instance; with several instances each has
 its own cache and tag invalidations are missed (guide, "Container vs managed service").
