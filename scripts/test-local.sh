@@ -217,6 +217,21 @@ t_redis_down() {
   fi
 }
 
+# Run while the Redis container is PAUSED (accepts TCP, never answers). The
+# first request pays at most the connect/read timeout, later ones skip Redis.
+t_redis_hang() {
+  local t1 t2 t3 c1 c2 c3 bound="${PERF_HANG_BOUND:-5}"
+  read -r c1 t1 <<<"$(curl -s -o /dev/null --max-time 90 -w '%{http_code} %{time_total}' "$BASE_URL/node/3?hang=$RANDOM")"
+  read -r c2 t2 <<<"$(curl -s -o /dev/null --max-time 90 -w '%{http_code} %{time_total}' "$BASE_URL/node/4?hang=$RANDOM")"
+  read -r c3 t3 <<<"$(curl -s -o /dev/null --max-time 90 -w '%{http_code} %{time_total}' "$BASE_URL/?hang=$RANDOM")"
+  say INFO redis_hang "Redis paused: first $c1 in ${t1}s, second $c2 in ${t2}s, third $c3 in ${t3}s (bound ${bound}s first, 1s after)"
+  if [[ "$c1" == 200 && "$c2" == 200 && "$c3" == 200 ]] && awk -v a="$t1" -v b="$t2" -v c="$t3" -v m="$bound" 'BEGIN{exit !(a<m && b<1 && c<1)}'; then
+    say PASS redis_hang "hung Redis costs the first request ${t1}s, then pages are served without waiting"
+  else
+    say FAIL redis_hang "codes $c1/$c2/$c3, times ${t1}/${t2}/${t3}s"
+  fi
+}
+
 # Run after Redis is started again: wait out the retry interval, then check
 # that pages are cached in Redis again.
 t_redis_recover() {
@@ -421,7 +436,7 @@ t_cache_4xx() {
 }
 
 # --- Runner -------------------------------------------------------------------
-if [[ "${1:-}" == "--list" ]]; then printf '%s\n' "${ALL_TESTS[@]}" redis_down redis_recover; exit 0; fi
+if [[ "${1:-}" == "--list" ]]; then printf '%s\n' "${ALL_TESTS[@]}" redis_down redis_recover redis_hang; exit 0; fi
 TESTS=("$@"); [[ ${#TESTS[@]} -eq 0 ]] && TESTS=("${ALL_TESTS[@]}")
 echo "# perf test-local.sh $(date -u +%FT%TZ) BASE_URL=$BASE_URL MOCK=$MOCK PREFIX=$PREFIX"
 for t in "${TESTS[@]}"; do

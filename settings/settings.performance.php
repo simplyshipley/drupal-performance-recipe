@@ -39,6 +39,10 @@
  *                           redis backend (outage = HTTP 500); tests only.
  *   PERF_REDIS_RETRY_INTERVAL  Seconds Redis is skipped after an error
  *                           (default 30), then retried.
+ *   PERF_REDIS_CONNECT_TIMEOUT  Connect timeout in seconds (default 1). 0 =
+ *                           no timeout (drupal/redis default; a hung Redis then
+ *                           stalls requests up to default_socket_timeout).
+ *   PERF_REDIS_READ_TIMEOUT Read timeout in seconds (default 2).
  *   PERF_REDIS_LOG_INTERVAL Seconds between outage warnings (default 60).
  *   REDIS_LOCK_FLOOD_TAGS   1 = also move cache tag checksum, lock and flood
  *                           to Redis (settings/redis.services.yml). Default
@@ -167,6 +171,10 @@ if ($perf_env('REDIS_HOST') !== NULL
   // redis backend (only for tests of the failure mode).
   $perf_failopen = $perf_env('PERF_REDIS_FAILOPEN', '1') !== '0';
   $settings['perf_redis_failopen_retry_interval'] = (int) $perf_env('PERF_REDIS_RETRY_INTERVAL', '30');
+  // Bounded timeouts (seconds) for connecting to and reading from Redis;
+  // drupal/redis 1.11 sets none. 0 = the module's own client (no timeout).
+  $settings['perf_redis_connect_timeout'] = (float) $perf_env('PERF_REDIS_CONNECT_TIMEOUT', '1');
+  $settings['perf_redis_read_timeout'] = (float) $perf_env('PERF_REDIS_READ_TIMEOUT', '2');
   $settings['perf_redis_failopen_log_interval'] = (int) $perf_env('PERF_REDIS_LOG_INTERVAL', '60');
   $perf_backend = $perf_failopen ? 'cache.backend.redis_failopen' : 'cache.backend.redis';
   foreach ($perf_bins as $perf_bin) {

@@ -19,6 +19,10 @@ fails=0
     docker start "ddev-$NAME-redis" >/dev/null
     sleep 2
     ddev exec "BASE_URL=http://localhost bash $SCRIPT redis_recover"; fails=$((fails + $?))
+    echo "# redis_hang: pausing ddev-$NAME-redis (TCP accepted, no answers)"
+    docker pause "ddev-$NAME-redis" >/dev/null
+    ddev exec "BASE_URL=http://localhost bash $SCRIPT redis_hang"; fails=$((fails + $?))
+    docker unpause "ddev-$NAME-redis" >/dev/null
     echo "# after restarting Redis: home HTTP $(ddev exec "curl -s -o /dev/null -w '%{http_code}' http://localhost/")"
   fi
   echo "# total FAIL lines: $fails"
