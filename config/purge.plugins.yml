@@ -1,0 +1,29 @@
+purgers:
+  -
+    order_index: 2
+    instance_id: azurecdn
+    plugin_id: azurecdn
+processors:
+  -
+    plugin_id: cron
+    status: true
+  -
+    plugin_id: drush_purge_queue_work
+    status: true
+  -
+    plugin_id: drush_purge_invalidate
+    status: true
+  -
+    plugin_id: azure_processor
+    status: true
+queuers:
+  -
+    plugin_id: coretags
+    status: true
+  -
+    plugin_id: path_queuer
+    status: true
+  -
+    plugin_id: drush_purge_queue_add
+    status: true
+queue: database

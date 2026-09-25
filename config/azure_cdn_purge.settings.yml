@@ -1,0 +1,17 @@
+# Non-secret defaults only. Identity and credential values (tenant_id,
+# client_id, client_secret, scope, subscription_id, resource_group_name,
+# profile_name, endpoint_name) are left empty here and are supplied at runtime
+# by settings/settings.performance.php from environment variables.
+endpoint_type: afdEndpoints
+devel: false
+chunk_size: 50
+chunk_delay: 0
+api_version: '2024-02-01'
+tenant_id: ''
+client_id: ''
+scope: 'https://management.azure.com/.default'
+client_secret: ''
+endpoint_name: ''
+profile_name: ''
+resource_group_name: ''
+subscription_id: ''
