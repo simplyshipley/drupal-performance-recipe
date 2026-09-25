@@ -7,7 +7,7 @@ RUN apk add --no-cache openssl \
  && mkdir -p /opt/mock /data \
  && openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
       -subj "/CN=mock-afd" \
-      -addext "subjectAltName=DNS:management.azure.com,DNS:login.microsoftonline.com,DNS:mock-afd" \
+      -addext "subjectAltName=DNS:management.azure.com,DNS:login.microsoftonline.com,DNS:management.usgovcloudapi.net,DNS:login.microsoftonline.us,DNS:mock-afd" \
       -keyout /opt/mock/key.pem -out /opt/mock/cert.pem
 COPY mock_afd.py /opt/mock/mock_afd.py
 ENV MOCK_LOG=/data/requests.jsonl MOCK_PORT=8080

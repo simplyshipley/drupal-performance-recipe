@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Mock Azure Front Door purge endpoint (LOCAL TESTING ONLY).
 
-Stands in for the two Azure hosts that drupal/azure_cdn_purge calls:
+Stands in for the Azure hosts drupal/azure_cdn_purge calls, commercial
+(login.microsoftonline.com, management.azure.com) and Azure Government
+(login.microsoftonline.us, management.usgovcloudapi.net). The host is taken
+from the CONNECT target and logged, so tests can assert which cloud was used:
 
   POST https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token
   POST https://management.azure.com/subscriptions/{sub}/resourceGroups/{rg}/

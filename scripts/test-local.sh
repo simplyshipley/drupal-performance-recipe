@@ -28,7 +28,7 @@ DRUSH="${DRUSH:-vendor/bin/drush}"
 PREFIX="${REDIS_PREFIX:-}"
 FAILS=0
 PASSES=0
-ALL_TESTS=(redis_in_use drush_cr tag_invalidation eviction purge_queue_fills purge_send purge_retry
+ALL_TESTS=(redis_in_use drush_cr tag_invalidation eviction purge_queue_fills purge_send purge_send_gov purge_retry
   fast404_static fast404_path themed_404 headers_anon headers_auth cache_4xx)
 
 say() { printf '%s %s: %s\n' "$1" "$2" "$3"; case "$1" in FAIL) FAILS=$((FAILS+1));; PASS) PASSES=$((PASSES+1));; esac; }
@@ -228,6 +228,30 @@ t_purge_send() {
     say PASS purge_send "p:queue-work: queue $v0 -> $v1; mock got token + POST $url contentPaths=$paths"
   else
     say FAIL purge_send "queue $v0 -> $v1; expected path $path; mock purge url=$url contentPaths=$paths; drush: $(echo "$out" | tail -2 | tr '\n' ' ')"
+  fi
+}
+
+# Azure Government: switch the stored azure_environment (the lab sets no
+# AZURE_CLOUD, so stored config is authoritative), work the queue, assert the
+# token and purge requests went to the Government hosts with the Government
+# scope. PERF_GOV_NEGATIVE=1 skips the switch to prove the test can fail.
+t_purge_send_gov() {
+  local nid log tok pur scope env_over prev
+  prev=$(php_eval 'print \Drupal::config("azure_cdn_purge.settings")->get("azure_environment") ?? "";' | tail -1)
+  env_over=$(AZURE_CLOUD=usgovernment $DRUSH php:eval 'print \Drupal::config("azure_cdn_purge.settings")->get("azure_environment");' 2>&1 | tail -1)
+  mock_reset; dr p:queue-empty >/dev/null
+  [[ "${PERF_GOV_NEGATIVE:-0}" == "1" ]] || dr cset azure_cdn_purge.settings azure_environment azureUSGovernmentCloud -y >/dev/null
+  nid=$(first_node); touch_node "$nid" >/dev/null
+  dr p:queue-work --finish >/dev/null
+  dr cset azure_cdn_purge.settings azure_environment "${prev:-azureCloud}" -y >/dev/null
+  log=$(mock_log)
+  tok=$(printf '%s\n' "$log" | grep '"kind": "token"' | sed -n 's/.*"host": "\([^"]*\)".*/\1/p' | head -1)
+  scope=$(printf '%s\n' "$log" | grep '"kind": "token"' | sed -n 's/.*"scope": "\([^"]*\)".*/\1/p' | head -1)
+  pur=$(printf '%s\n' "$log" | grep '"kind": "purge"' | sed -n 's/.*"host": "\([^"]*\)".*/\1/p' | head -1)
+  if [[ "$tok" == "login.microsoftonline.us" && "$pur" == "management.usgovcloudapi.net" && "$scope" == "https://management.usgovcloudapi.net/.default" && "$env_over" == "azureUSGovernmentCloud" ]]; then
+    say PASS purge_send_gov "token -> $tok (scope $scope), purge -> $pur; AZURE_CLOUD=usgovernment maps to $env_over"
+  else
+    say FAIL purge_send_gov "token host='$tok' scope='$scope' purge host='$pur' AZURE_CLOUD mapping='$env_over'${PERF_GOV_NEGATIVE:+ (negative run: switch skipped)}"
   fi
 }
 
