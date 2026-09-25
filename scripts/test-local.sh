@@ -238,6 +238,9 @@ t_purge_send() {
 t_purge_send_gov() {
   local nid log tok pur scope env_over prev
   prev=$(php_eval 'print \Drupal::config("azure_cdn_purge.settings")->get("azure_environment") ?? "";' | tail -1)
+  local typo_out typo_env
+  typo_out=$(AZURE_CLOUD=usgov $DRUSH php:eval 'print "[" . \Drupal::config("azure_cdn_purge.settings")->get("azure_environment") . "]";' 2>&1)
+  typo_env=$(printf '%s' "$typo_out" | grep -o '\[[A-Za-z]*\]' | tail -1)
   env_over=$(AZURE_CLOUD=usgovernment $DRUSH php:eval 'print \Drupal::config("azure_cdn_purge.settings")->get("azure_environment");' 2>&1 | tail -1)
   mock_reset; dr p:queue-empty >/dev/null
   [[ "${PERF_GOV_NEGATIVE:-0}" == "1" ]] || dr cset azure_cdn_purge.settings azure_environment azureUSGovernmentCloud -y >/dev/null
@@ -248,10 +251,10 @@ t_purge_send_gov() {
   tok=$(printf '%s\n' "$log" | grep '"kind": "token"' | sed -n 's/.*"host": "\([^"]*\)".*/\1/p' | head -1)
   scope=$(printf '%s\n' "$log" | grep '"kind": "token"' | sed -n 's/.*"scope": "\([^"]*\)".*/\1/p' | head -1)
   pur=$(printf '%s\n' "$log" | grep '"kind": "purge"' | sed -n 's/.*"host": "\([^"]*\)".*/\1/p' | head -1)
-  if [[ "$tok" == "login.microsoftonline.us" && "$pur" == "management.usgovcloudapi.net" && "$scope" == "https://management.usgovcloudapi.net/.default" && "$env_over" == "azureUSGovernmentCloud" ]]; then
-    say PASS purge_send_gov "token -> $tok (scope $scope), purge -> $pur; AZURE_CLOUD=usgovernment maps to $env_over"
+  if [[ "$tok" == "login.microsoftonline.us" && "$pur" == "management.usgovcloudapi.net" && "$scope" == "https://management.usgovcloudapi.net/.default" && "$env_over" == "azureUSGovernmentCloud" && "$typo_out" == *'unknown AZURE_CLOUD value "usgov"'* && "$typo_env" == "[${prev:-}]" ]]; then
+    say PASS purge_send_gov "token -> $tok (scope $scope), purge -> $pur; AZURE_CLOUD=usgovernment maps to $env_over; AZURE_CLOUD=usgov -> warning, setting left at $typo_env"
   else
-    say FAIL purge_send_gov "token host='$tok' scope='$scope' purge host='$pur' AZURE_CLOUD mapping='$env_over'${PERF_GOV_NEGATIVE:+ (negative run: switch skipped)}"
+    say FAIL purge_send_gov "token host='$tok' scope='$scope' purge host='$pur' AZURE_CLOUD mapping='$env_over' typo(usgov) env='$typo_env' warning=$([[ "$typo_out" == *unknown\ AZURE_CLOUD* ]] && echo yes || echo no)${PERF_GOV_NEGATIVE:+ (negative run: switch skipped)}"
   fi
 }
 

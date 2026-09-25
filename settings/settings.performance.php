@@ -55,8 +55,11 @@
  *   AZURE_CDN_ENDPOINT, AZURE_CDN_API_VERSION, AZURE_CDN_ENDPOINT_TYPE
  *   (afdEndpoints for Front Door), AZURE_CDN_SCOPE (empty = derived from the
  *   cloud).
- *   AZURE_CLOUD             usgovernment | public. Needs the azure_cdn_purge
- *                           Azure Government patch (patches/).
+ *   AZURE_CLOUD             Case-insensitive. Commercial: public, commercial,
+ *                           azurecloud. Government: usgovernment,
+ *                           azureusgovernment, azureusgovernmentcloud. Anything
+ *                           else is ignored with a PHP warning. Needs the
+ *                           azure_cdn_purge Azure Government patch (patches/).
  *   AZURE_LOGIN_HOST, AZURE_MANAGEMENT_HOST
  *                           Explicit host URLs (override AZURE_CLOUD).
  *
@@ -177,8 +180,22 @@ $perf_azure_map = [
 ];
 // Cloud: AZURE_CLOUD=usgovernment|public (needs the patch in patches/).
 $perf_cloud = strtolower((string) $perf_env('AZURE_CLOUD', ''));
+$perf_clouds = [
+  'public' => 'azureCloud',
+  'commercial' => 'azureCloud',
+  'azurecloud' => 'azureCloud',
+  'usgovernment' => 'azureUSGovernmentCloud',
+  'azureusgovernment' => 'azureUSGovernmentCloud',
+  'azureusgovernmentcloud' => 'azureUSGovernmentCloud',
+];
 if ($perf_cloud !== '') {
-  $config['azure_cdn_purge.settings']['azure_environment'] = in_array($perf_cloud, ['usgovernment', 'azureusgovernment', 'azureusgovernmentcloud'], TRUE) ? 'azureUSGovernmentCloud' : 'azureCloud';
+  if (isset($perf_clouds[$perf_cloud])) {
+    $config['azure_cdn_purge.settings']['azure_environment'] = $perf_clouds[$perf_cloud];
+  }
+  else {
+    // Unknown value: do not guess a cloud; leave the module's setting alone.
+    trigger_error(sprintf('settings.performance.php: unknown AZURE_CLOUD value "%s" ignored. Accepted: %s.', $perf_cloud, implode(', ', array_keys($perf_clouds))), E_USER_WARNING);
+  }
 }
 $perf_azure_map['AZURE_LOGIN_HOST'] = 'login_host';
 $perf_azure_map['AZURE_MANAGEMENT_HOST'] = 'management_host';
@@ -255,5 +272,5 @@ if ($perf_env('PERF_FAST404') === '1') {
 }
 
 unset($perf_env, $perf_patterns, $perf_host, $perf_pattern, $perf_redis_dir, $perf_scheme,
-  $perf_azure_map, $perf_cloud, $perf_var, $perf_key, $perf_public, $perf_404_pages, $perf_file, $perf_lang,
+  $perf_azure_map, $perf_cloud, $perf_clouds, $perf_var, $perf_key, $perf_public, $perf_404_pages, $perf_file, $perf_lang,
   $perf_fast404_inc);
