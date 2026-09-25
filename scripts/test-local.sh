@@ -44,7 +44,10 @@ redis_php() {
     $r->connect($h, $p, 2.0);
     if (getenv("REDIS_PASSWORD")) { $r->auth(getenv("REDIS_PASSWORD")); }
     if (getenv("REDIS_DB") !== false && getenv("REDIS_DB") !== "") { $r->select((int) getenv("REDIS_DB")); }
+    // Without REDIS_PREFIX the redis module uses its own default prefix, so
+    // match any prefix ("*") instead of silently matching nothing.
     $pfx = (string) getenv("REDIS_PREFIX");
+    if ($pfx === "") { $pfx = "*"; }
     $cmd = $argv[1] ?? "count";
     switch ($cmd) {
       case "count":
@@ -61,6 +64,10 @@ redis_php() {
         $c = $r->config("GET", $argv[2]); echo $c[$argv[2]] ?? ""; break;
       case "config_set":
         var_export($r->config("SET", $argv[2], $argv[3])); break;
+      case "get_bin":
+        $it = null; $k = null;
+        while (($keys = $r->scan($it, $pfx . ":" . $argv[2] . ":" . $argv[3], 100)) !== false) { if ($keys) { $k = $keys[0]; break; } }
+        echo $k === null ? "" : (string) $r->get($k); break;
       case "ttl":
         echo $r->ttl($argv[2]); break;
       case "find":
@@ -101,12 +108,13 @@ t_redis_in_use() {
   local cls before after
   cls=$(php_eval 'print get_class(\Drupal::cache("render"));')
   before=$(redis_php count)
-  curl -s -o /dev/null "$BASE_URL/"; curl -s -o /dev/null "$BASE_URL/node/$(first_node)"
+  # Uncached URLs (unique query strings) so new entries must be written.
+  curl -s -o /dev/null "$BASE_URL/?perf=$RANDOM$RANDOM"; curl -s -o /dev/null "$BASE_URL/node/$(first_node)?perf=$RANDOM$RANDOM"
   after=$(redis_php count)
-  if [[ "$cls" == *redis* && "${after:-0}" -gt 0 ]]; then
-    say PASS redis_in_use "render bin class=$cls; keys with prefix '$PREFIX' before=$before after=$after"
+  if [[ "$cls" == *redis* && "${after:-0}" -gt "${before:-0}" ]]; then
+    say PASS redis_in_use "render bin class=$cls; keys (prefix '${PREFIX:-*}') grew $before -> $after after 2 uncached requests"
   else
-    say FAIL redis_in_use "render bin class=$cls; keys before=$before after=$after"
+    say FAIL redis_in_use "render bin class=$cls; keys before=$before after=$after (expected growth)"
   fi
 }
 
@@ -116,15 +124,17 @@ t_drush_cr() {
   curl -s -o /dev/null "$BASE_URL$path"; curl -s -o /dev/null "$BASE_URL$path"
   s1=$(hget "$(hdr "$BASE_URL$path")" x-drupal-cache)
   b_all=$(redis_php count); b_render=$(redis_php count_bin render); b_page=$(redis_php count_bin page)
+  local ts0 ts1; ts0=$(redis_php get_bin page _redis_last_delete_all)
   dr cr >/dev/null
+  ts1=$(redis_php get_bin page _redis_last_delete_all)
   a_all=$(redis_php count); a_render=$(redis_php count_bin render); a_page=$(redis_php count_bin page)
   x2=$(hget "$(hdr "$BASE_URL$path")" x-drupal-cache)
   a2=$(redis_php count)
-  say INFO drush_cr "keys before cr: total=$b_all render=$b_render page=$b_page; right after cr: total=$a_all render=$a_render page=$a_page; after one page request: total=$a2"
-  if [[ "$s1" == "HIT" && "$x2" == "MISS" ]]; then
-    say PASS drush_cr "cached page was HIT before cr and MISS after cr (drush cr invalidated the Redis-backed page cache)"
+  say INFO drush_cr "page bin _redis_last_delete_all: '${ts0:-unset}' -> '$ts1'; keys before cr: total=$b_all render=$b_render page=$b_page; right after cr: total=$a_all render=$a_render page=$a_page; after one page request: total=$a2"
+  if [[ "$s1" == "HIT" && "$x2" == "MISS" && -n "$ts1" && "$ts1" != "$ts0" ]]; then
+    say PASS drush_cr "Redis last-delete-all timestamp changed ($ts1) and the cached page went HIT -> MISS"
   else
-    say FAIL drush_cr "X-Drupal-Cache before=$s1 after=$x2"
+    say FAIL drush_cr "X-Drupal-Cache before=$s1 after=$x2; last_delete_all '${ts0:-unset}' -> '${ts1:-unset}'"
   fi
 }
 
@@ -149,6 +159,8 @@ t_eviction() {
   orig_mem=$(redis_php config_get maxmemory); orig_pol=$(redis_php config_get maxmemory-policy)
   used=$(redis_php info memory used_memory)
   limit=$((used + 400000))
+  # Always restore the Redis limits, even if the test is interrupted.
+  trap "redis_php config_set maxmemory '$orig_mem' >/dev/null; redis_php config_set maxmemory-policy '$orig_pol' >/dev/null" EXIT INT TERM
   redis_php config_set maxmemory "$limit" >/dev/null
   redis_php config_set maxmemory-policy allkeys-lru >/dev/null
   ev0=$(redis_php info stats evicted_keys)
@@ -160,6 +172,7 @@ t_eviction() {
   local peak; peak=$(redis_php info memory used_memory_peak_human)
   redis_php config_set maxmemory "$orig_mem" >/dev/null
   redis_php config_set maxmemory-policy "$orig_pol" >/dev/null
+  trap - EXIT INT TERM
   if [[ "$((ev1 - ev0))" -gt 0 && "$code" == "200" ]]; then
     say PASS eviction "maxmemory temporarily $limit bytes (policy allkeys-lru), $n page requests: evicted_keys $ev0 -> $ev1, home page still $code; peak=$peak; restored maxmemory=$orig_mem policy=$orig_pol"
   else
@@ -281,10 +294,12 @@ t_themed_404() {
   local marker; marker=$(grep -o '<title>[^<]*</title>' "$f" | head -1)
   u="$BASE_URL/sites/default/files/perf-missing-$RANDOM.css"
   curl -s -o /tmp/perf-404t.html "$u"
-  if cmp -s <(sed "s#@path#X#g" "$f" | head -c 2000) <(head -c 2000 /tmp/perf-404t.html) || grep -qF "$marker" /tmp/perf-404t.html; then
-    say PASS themed_404 "cron wrote $(basename "$f") ($(wc -c <"$f") bytes, $marker); a missing .css is answered with that static page"
+  # The response must be byte-identical to the file cron wrote (fast404
+  # substitutes @path, so compare with @path replaced by the request path).
+  if cmp -s "$f" /tmp/perf-404t.html || cmp -s <(sed "s#@path#${u#$BASE_URL}#g" "$f") /tmp/perf-404t.html; then
+    say PASS themed_404 "cron wrote $(basename "$f") ($(wc -c <"$f") bytes, $marker); the missing .css response is byte-identical to it"
   else
-    say FAIL themed_404 "file exists ($(wc -c <"$f") bytes, $marker) but the missing-file response does not contain it (first bytes: $(head -c 120 /tmp/perf-404t.html | tr '\n' ' '))"
+    say FAIL themed_404 "response ($(wc -c </tmp/perf-404t.html) bytes) is not the static file ($(wc -c <"$f") bytes); first bytes: $(head -c 120 /tmp/perf-404t.html | tr '\n' ' ')"
   fi
 }
 
@@ -322,7 +337,7 @@ t_cache_4xx() {
   nid=$(php_eval '$n = \Drupal\node\Entity\Node::create(["type" => "article", "title" => "SYNTHETIC unpublished 403 probe", "status" => 0]); $n->save(); print $n->id();' | tail -1)
   u="$BASE_URL/node/$nid"
   curl -s -o /dev/null "$u"; h1=$(hdr "$u"); h2=$(hdr "$u")
-  key=$(redis_php find "${PREFIX}:page:*node/$nid*" | head -1)
+  key=$(redis_php find "${PREFIX:-*}:page:*node/$nid*" | head -1)
   ttl=$( [[ -n "$key" ]] && redis_php ttl "$key" )
   other=$(first_node); touch_node "$other" >/dev/null
   h3=$(hdr "$u")
