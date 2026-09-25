@@ -1,0 +1,54 @@
+# Performance recipe services for Lando 3.2x (drupal10/drupal11 recipe).
+# Save as .lando.local.yml (merged automatically) or paste into .lando.yml.
+# Paths assume the recipe is installed at recipes/drupal-performance-recipe.
+#
+# This Mac: DDEV owns host ports 80/443/8080. Start Lando with the proxy off:
+#   LANDO_PROXY=OFF lando start
+# None of these services publishes a host port.
+#
+# All AZURE_CDN_* values are SYNTHETIC placeholders for the mock endpoint.
+services:
+  appserver:
+    config:
+      # Pass missing static files to Drupal (Fast 404) instead of nginx's own
+      # 404. Copy of Lando 3.26.9's drupal10 vhost + one try_files line.
+      # Needs `lando rebuild` to apply.
+      vhosts: recipes/drupal-performance-recipe/lando/nginx-fast404.conf.tpl
+    overrides:
+      environment:
+        REDIS_HOST: cache
+        REDIS_PORT: "6379"
+        REDIS_PREFIX: perflab
+        PERF_MOCK_AFD_PROXY: http://mockafd:8080
+        PERF_MOCK_URL: http://mockafd:8080
+        THEMED_FAST404_BASE_URL: http://appserver_nginx
+        AZURE_CDN_TENANT_ID: 00000000-0000-0000-0000-000000000000
+        AZURE_CDN_CLIENT_ID: 11111111-1111-1111-1111-111111111111
+        AZURE_CDN_CLIENT_SECRET: synthetic-not-a-secret
+        AZURE_CDN_SUBSCRIPTION_ID: 22222222-2222-2222-2222-222222222222
+        AZURE_CDN_RESOURCE_GROUP: rg-synthetic
+        AZURE_CDN_PROFILE: afd-synthetic
+        AZURE_CDN_ENDPOINT: ep-synthetic
+        AZURE_CDN_ENDPOINT_TYPE: afdEndpoints
+  cache:
+    type: redis:7
+    portforward: false
+    config:
+      server: recipes/drupal-performance-recipe/lando/redis.conf
+  mockafd:
+    type: compose
+    services:
+      build:
+        context: ./recipes/drupal-performance-recipe/mock-afd
+      image: perf-mock-afd:local
+      command: python3 -u /opt/mock/mock_afd.py
+      volumes:
+        - ./.lando-mock-afd-data:/data
+tooling:
+  perf-test-in:
+    service: appserver
+    description: Run the performance tests inside appserver (use scripts/lando-test.sh for the full run incl. Redis-down)
+    cmd: bash -c 'BASE_URL=http://appserver_nginx bash recipes/drupal-performance-recipe/scripts/test-local.sh "$@"' --
+  redis-cli:
+    service: cache
+    cmd: redis-cli
