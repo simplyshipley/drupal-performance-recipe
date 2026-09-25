@@ -47,7 +47,7 @@ ddev restart
 ```
 
 - `config.perf.yaml` sets `REDIS_HOST=redis`, `REDIS_PREFIX=perflab`,
-  `PERF_FAST404=1`, `PERF_MOCK_AFD_PROXY=http://mock-afd:8080`, `THEMED_FAST404_BASE_URL=http://localhost`
+  `PERF_FAST404=1`, `PERF_REDIS_RETRY_INTERVAL=5` (fast recovery test), `PERF_MOCK_AFD_PROXY=http://mock-afd:8080`, `THEMED_FAST404_BASE_URL=http://localhost`
   and SYNTHETIC `AZURE_CDN_*` values.
 - `docker-compose.mock-afd.yaml` builds `mock-afd/` (python:3.12-alpine) as
   `ddev-<project>-mock-afd`, no host port, log in `.ddev/mock-afd-data/requests.jsonl` [V].
@@ -98,9 +98,10 @@ PERF_OUT=perf.log ddev perf-test    # choose the log file
 container, then stops **only** `ddev-<project>-redis` with `docker stop`, runs `redis_down`,
 and starts it again. Exit status = number of FAIL lines.
 
-Expected result [V: tmp/ddev/run4-final.log]: 13 PASS, then `redis_down` FAIL (HTTP 500,
-`RedisException ... getaddrinfo for redis failed`), then "after restarting Redis: home HTTP
-200". See [tests.md](tests.md) for what each line means.
+Expected result [V: tmp/ddev/run8-redis.log]: 15 PASS, then `redis_down` PASS (pages 200 with
+Redis stopped) and `redis_recover` PASS. To see the failure mode, add
+`PERF_REDIS_FAILOPEN=0` to `.ddev/config.*.yaml`, `ddev restart`, `ddev drush cr`: `redis_down`
+then FAILS with HTTP 500. See [tests.md](tests.md) for what each line means.
 
 ## 6. Manual checks
 

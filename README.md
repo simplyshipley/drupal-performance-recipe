@@ -48,15 +48,10 @@ docs/                            all documentation
 7. Source guides: [Caching on Azure](docs/caching-guide.md), [Hardening](docs/hardening.md)
    (exported from the Claude Doc, 2026-09-25)
 
-## Lab results (2026-09-25)
+## Lab results (2026-09-25, after the Redis ruling)
 
-| Test | DDEV | Lando |
-|---|---|---|
-| redis_in_use, drush_cr, tag_invalidation, eviction | PASS | PASS |
-| purge_queue_fills, purge_send, purge_retry | PASS | PASS |
-| fast404_static, fast404_path, themed_404 | PASS | PASS (with the recipe's nginx vhost) |
-| headers_anon, headers_auth, cache_4xx | PASS | PASS |
-| redis_down | FAIL: HTTP 500 (RedisException) | FAIL: HTTP 500 |
-
-Redis down = site down. That is the real behaviour of drupal/redis 1.11 and is documented
-in [docs/troubleshooting.md](docs/troubleshooting.md#redis-down-means-site-down).
+All 15 in-container tests plus `redis_down` and `redis_recover` PASS in both labs
+[V: tmp/ddev/run8-redis.log, tmp/lando-run6-redis.log]. Redis holds only the heavy bins and a
+fail-open wrapper (`modules/perf_redis_failopen`) keeps the site up when Redis is down; with
+the wrapper off the site returns HTTP 500 (fail-proof in the DDEV log). Self-hosted Redis on
+Azure Container Apps: [infra/azure/](infra/azure/README.md) (not deployed).

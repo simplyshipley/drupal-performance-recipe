@@ -44,7 +44,7 @@ LANDO_PROXY=OFF lando rebuild -y
   (256 MB, allkeys-lru, no persistence) [V: `CONFIG GET maxmemory-policy` = allkeys-lru].
 - `mockafd`: `type: compose`, built from `mock-afd/`, command
   `python3 -u /opt/mock/mock_afd.py`, log in `.lando-mock-afd-data/`.
-- appserver environment: `REDIS_HOST=cache`, `PERF_FAST404=1`, `PERF_MOCK_AFD_PROXY=http://mockafd:8080`,
+- appserver environment: `REDIS_HOST=cache`, `PERF_FAST404=1`, `PERF_REDIS_RETRY_INTERVAL=5`, `PERF_MOCK_AFD_PROXY=http://mockafd:8080`,
   `THEMED_FAST404_BASE_URL=http://appserver_nginx`, SYNTHETIC `AZURE_CDN_*`.
 - the nginx vhost above, and tooling `lando perf-test-in` and `lando redis-cli`.
 
@@ -73,5 +73,4 @@ LANDO_PROXY=OFF lando perf-test-in headers_anon                          # in-co
 finds this app's `cache` container by its compose labels, and writes
 `perf-test-lando.log` (or `$PERF_OUT`).
 
-Expected result [V: tmp/lando-run3-final.log]: 13 PASS, `redis_down` FAIL (HTTP 500), then
-"after restarting Redis: home HTTP 200".
+Expected result [V: tmp/lando-run6-redis.log]: 15 PASS, `redis_down` PASS, `redis_recover` PASS. (In that log the first `purge_send_gov` FAILED on a test bug in the typo-warning check; the fixed test, re-run and appended at the end, PASSES.)

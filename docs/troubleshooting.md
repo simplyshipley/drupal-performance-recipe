@@ -1,16 +1,23 @@
 # Troubleshooting and known module issues
 
-## Redis down means site down
+## Redis down: the site stays up (fail-open)
 
-With Redis stopped, every Drupal request and `drush status` fail with HTTP 500:
-`RedisException: php_network_getaddresses: getaddrinfo for redis failed` from
-`web/modules/contrib/redis/src/Client/PhpRedis.php` line 32 [V: redis_down in both labs].
-drupal/redis 1.11 has no fallback to the database backend. The site recovered by itself as
-soon as Redis came back [V: "after restarting Redis: home HTTP 200"].
+With the default settings a Redis outage is absorbed by `modules/perf_redis_failopen`
+[V: redis_down PASS in both labs: home, node and login 200, Drush works, one warning logged].
 
-What to do: use a managed, highly available Redis; alert on Redis health; know that emergency
-recovery is "unset `REDIS_HOST` and restart the app" (Drupal then uses the database bins again)
-[ASSUMED: not run].
+- Log: `perf_redis_failopen` warning "Redis unavailable, serving cache misses for 30 s ..." at
+  most once per `PERF_REDIS_LOG_INTERVAL` (60 s) per instance [V: 1 entry for a whole lab
+  outage].
+- Recovery: Redis is retried after `PERF_REDIS_RETRY_INTERVAL` (30 s; lab 5 s) and pages are
+  cached in Redis again [V: redis_recover]. If a delete or invalidation was lost during the
+  outage, the first request after recovery empties that bin (notice "Redis reachable again;
+  emptied bin ...") so no stale entry survives [V: unit test].
+- If it still returns HTTP 500 with `RedisException`: check that `PERF_REDIS_FAILOPEN` is not
+  `0`, that `REDIS_LOCK_FLOOD_TAGS` is not `1` (those services are not wrapped), and run
+  `drush cr` after changing either (the service container must be rebuilt).
+- The redis module's own report page `/admin/reports/redis` talks to Redis directly and is not
+  wrapped [ASSUMED: it may error while Redis is down; admin only]. The status report only
+  shows "Not connected" [V: redis.install].
 
 ## `drush cr` does not delete Redis keys
 

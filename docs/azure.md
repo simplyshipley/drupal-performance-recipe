@@ -4,25 +4,28 @@ Nothing in this file was run against Azure: the lab never contacts Azure. Everyt
 [ASSUMED] unless it names lab evidence. Confirm each Azure service is in FedRAMP scope for
 your cloud before use (see the caching guide).
 
-> **WARNING: with `REDIS_HOST` set, Redis becomes a hard dependency.** Every cache bin
-> (`cache.default = cache.backend.redis`), the cache-tag checksum, the lock backend and the
-> flood backend (`settings/redis.services.yml`) all move to Redis. When Redis is unreachable
-> (outage, failover, patching, DNS), **every request returns HTTP 500** and Drush cannot
-> bootstrap: `RedisException: php_network_getaddresses: getaddrinfo ... failed` from
-> `redis/src/Client/PhpRedis.php` line 32 [V: `redis_down` in both labs,
-> tmp/ddev/run5-final.log and tmp/lando-run4-final.log]. The site recovered by itself when
-> Redis returned [V].
->
-> **OPEN DECISION for Bo (nothing implemented):**
-> - (a) Managed Redis with high availability (zone-redundant / replica) plus monitoring and
->   alerts, and accept that a Redis outage is a site outage.
-> - (b) Keep lock, flood and the cache-tag checksum in the database (drop
->   `settings/redis.services.yml`), so only cache reads/writes depend on Redis.
-> - (c) Use Redis only for the high-churn bins (`render`, `page`, `dynamic_page_cache`,
->   `data`, `entity`) and leave everything else in the database.
->
-> Whether (b) or (c) would let the site survive a Redis outage has not been tested; the
-> bins that stay on Redis would still throw [ASSUMED].
+> **Redis ruling (Bo, 2026-09-25), replacing the earlier open decision:**
+> - OIG sites use a **self-hosted Redis container** (Azure Container Apps, see
+>   [infra/azure/README.md](../infra/azure/README.md)), not the managed service.
+> - **Only the heavy bins** go to Redis: `render`, `page`, `dynamic_page_cache`, `data`,
+>   `entity`, `menu` (override with `REDIS_BINS`). `bootstrap`, `config`, `discovery` and
+>   `container` stay on core's default (database behind APCu), and the cache-tag checksum,
+>   lock and flood stay in the database (`settings/redis.services.yml` is now opt-in with
+>   `REDIS_LOCK_FLOOD_TAGS=1`, not recommended). Why: those services are touched on every
+>   request, including Drush, and cannot fail open; with them on Redis an outage was a site
+>   outage [V: earlier redis_down runs, HTTP 500].
+> - A **fail-open wrapper** (`modules/perf_redis_failopen`) turns Redis errors into cache
+>   misses. With Redis stopped, pages and Drush keep working, one warning is logged per 60 s,
+>   and Redis is used again after the retry interval [V: redis_down and redis_recover PASS,
+>   tmp/ddev/run8-redis.log, tmp/lando-run6-redis.log]. With the wrapper off
+>   (`PERF_REDIS_FAILOPEN=0`) the same test gives HTTP 500 [V: fail-proof in run8-redis.log].
+> - Cost during an outage: every heavy-bin read is a miss, so pages are built from the
+>   database each time (slower, more MySQL load); anonymous pages are not page-cached. Plan
+>   MySQL headroom for that.
+> - Limitation: drupal/redis 1.11 connects without a timeout argument, so an unreachable host
+>   that drops packets (rather than refusing) can stall the first request of each retry window
+>   up to PHP's `default_socket_timeout` [ASSUMED from code; the lab only tested a stopped
+>   container, which fails fast]. Consider lowering `default_socket_timeout` in the image.
 
 ## App Service application settings (environment variables)
 
@@ -32,9 +35,11 @@ Put secrets in Key Vault references, not plain values [ASSUMED].
 
 | Variable | Example | Notes |
 |---|---|---|
-| `REDIS_HOST` | `myredis.redis.cache.usgovcloudapi.net` | Unset = no Redis |
-| `REDIS_SCHEME` | `tls` | Managed Redis requires TLS [ASSUMED] |
-| `REDIS_PORT` | `6380` (Azure Cache for Redis) or `10000` (Azure Managed Redis) | [ASSUMED] |
+| `REDIS_HOST` | `redisHost` output of `infra/azure` (Container Apps internal FQDN) | Unset = no Redis |
+| `REDIS_SCHEME` | `tcp` | Inside the VNet; see infra/azure/README.md for TLS |
+| `REDIS_PORT` | `6379` | Container Apps TCP ingress exposed port |
+| `REDIS_BINS` | leave unset | Default heavy bins only |
+| `PERF_REDIS_RETRY_INTERVAL` | `30` | Seconds Redis is skipped after an error |
 | `REDIS_PASSWORD` | Key Vault reference | Access key |
 | `REDIS_PREFIX` | `oig-cpsc-prod` | Required if one Redis serves several sites. Optional otherwise (the redis module then uses its own default prefix); the test suite matches any prefix when it is unset |
 | `DRUPAL_TRUSTED_HOSTS` | `www.example.gov,example.gov` | Anchored and escaped by the settings file [V: code] |
@@ -93,8 +98,8 @@ Settings (environment variables, read by `settings.performance.php`):
 
 - `AZURE_CLOUD` (case-insensitive): `usgovernment`, `azureusgovernment` or
   `azureusgovernmentcloud` set `azureUSGovernmentCloud`; `public`, `commercial` or `azurecloud`
-  set `azureCloud`. Any other value (for example the typo `usgov`) is ignored with a PHP
-  warning and the stored setting is left alone [V: purge_send_gov checks the mapping and the
+  set `azureCloud`. Any other value (for example the typo `usgov`) is ignored with a warning
+  in the PHP error log (and Drupal's log when errors are displayed) and the stored setting is left alone [V: purge_send_gov checks the mapping and the
   typo warning].
 - `AZURE_LOGIN_HOST`, `AZURE_MANAGEMENT_HOST`: explicit host URLs (override the cloud).
 - Leave `AZURE_CDN_SCOPE` unset and the stored `scope` empty so the scope follows the cloud.
@@ -150,25 +155,13 @@ The recipe's part: Drupal sends `Cache-Control: max-age=900, public` for anonymo
 Front Door must honour origin cache headers and bypass the cache for `SESS*` cookies
 [ASSUMED].
 
-## Redis: managed or container
+## Redis: self-hosted container (ruled)
 
-Recommendation from the caching guide: managed Azure Cache for Redis / Azure Managed Redis
-(check FedRAMP status and retirement timelines). With TLS set `REDIS_SCHEME=tls` and the TLS
-port; the settings file then passes `tls://host` to phpredis. That this connects through
-drupal/redis 1.11 is [ASSUMED: not tested; no TLS Redis in the lab]. The module's
-`getClient()` passes only host and port to `connect()`, with no CA or peer-verification
-options [V: code read, redis/src/Client/PhpRedis.php], so the container's system CA store
-must trust the Redis certificate [ASSUMED].
-
-A Redis sidecar in App Service only works with one instance; with several instances each has
-its own cache and tag invalidations are missed (guide, "Container vs managed service").
-
-Server settings: explicit `maxmemory`, `maxmemory-policy allkeys-lru`, persistence off.
-Items Drupal marks permanent get a one-year TTL in Redis (`31536000` s observed) [V: lab key
-TTLs], and `drush cr` does not delete keys (see troubleshooting), so without an LRU policy
-Redis fills up.
-
-**Redis down = site down.** Plan Redis availability accordingly (see troubleshooting).
+See the ruling at the top and [infra/azure/README.md](../infra/azure/README.md) (Bicep, az
+CLI, private DNS, App Service VNet integration, sizing, monitoring). Server settings: explicit
+`maxmemory`, `allkeys-lru`, no persistence. Items Drupal marks permanent get a one-year TTL in
+Redis (`31536000` s) [V: lab key TTLs] and `drush cr` does not delete keys, so LRU eviction is
+what frees memory. One replica only: a second replica would be a separate cache.
 
 ## Client IP
 

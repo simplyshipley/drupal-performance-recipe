@@ -50,6 +50,14 @@ full list is at the top of `settings/settings.performance.php`. Redis is used on
 If you use DDEV's `ddev/ddev-redis` add-on, it adds its own `settings.ddev.redis.php`; retire it
 (rename with the `__ARCHIVED_` prefix) so this file is the only Redis configuration [V].
 
+## 4b. Redis fail-open wrapper
+
+Nothing to install: `settings.performance.php` registers `modules/perf_redis_failopen`'s
+service and classes through `container_yamls` and the class loader whenever `REDIS_HOST` is set,
+the same way the redis module's own services are registered before it is installed [V: both
+labs]. The heavy bins then use `cache.backend.redis_failopen`. After changing `REDIS_BINS`,
+`PERF_REDIS_FAILOPEN` or `REDIS_LOCK_FLOOD_TAGS`, run `drush cr`.
+
 ## 5. Apply the recipe
 
 ```bash
