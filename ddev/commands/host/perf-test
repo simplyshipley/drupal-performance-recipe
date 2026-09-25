@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+## Description: Run the performance recipe test suite (Redis, purge, fast 404, headers).
+## Usage: perf-test [test names...]
+## Example: "ddev perf-test" or "ddev perf-test redis_keys purge_send"
+set -euo pipefail
+exec "${DDEV_APPROOT}/recipes/drupal-performance-recipe/scripts/ddev-test.sh" "$@"

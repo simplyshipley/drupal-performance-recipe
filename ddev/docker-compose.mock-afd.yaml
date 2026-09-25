@@ -1,0 +1,17 @@
+# Mock Azure Front Door purge endpoint (copy to .ddev/). LOCAL TESTING ONLY.
+# Reached from the web container as http://mock-afd:8080. Publishes no host
+# port. The request log is kept in .ddev/mock-afd-data/requests.jsonl.
+services:
+  mock-afd:
+    container_name: ddev-${DDEV_SITENAME}-mock-afd
+    build:
+      context: ../recipes/drupal-performance-recipe/mock-afd
+    image: perf-mock-afd:local
+    labels:
+      com.ddev.site-name: ${DDEV_SITENAME}
+      com.ddev.approot: ${DDEV_APPROOT}
+    restart: "no"
+    expose:
+      - 8080
+    volumes:
+      - "./mock-afd-data:/data"
