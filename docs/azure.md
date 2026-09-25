@@ -47,7 +47,9 @@ Put secrets in Key Vault references, not plain values [ASSUMED].
 | `AZURE_CDN_TENANT_ID` | tenant GUID | Service principal's tenant |
 | `AZURE_CDN_CLIENT_ID` | app GUID | Service principal |
 | `AZURE_CDN_CLIENT_SECRET` | Key Vault reference | Never in config |
-| `AZURE_CDN_SCOPE` | `https://management.azure.com/.default` | Default in recipe config. Azure Government uses `https://management.usgovcloudapi.net/.default` [ASSUMED], but see the next section |
+| `AZURE_CDN_SCOPE` | leave unset | Empty = the Resource Manager scope of the selected cloud (patched module) |
+| `AZURE_CLOUD` | `usgovernment` | Azure Government hosts (needs the patch series) |
+| `AZURE_LOGIN_HOST` / `AZURE_MANAGEMENT_HOST` | full `https://` URLs | Optional explicit overrides |
 | `AZURE_CDN_SUBSCRIPTION_ID` | GUID | |
 | `AZURE_CDN_RESOURCE_GROUP` | `rg-...` | |
 | `AZURE_CDN_PROFILE` | Front Door profile name | |
@@ -59,17 +61,52 @@ Never set `PERF_MOCK_AFD_PROXY` outside a local lab: it routes all Drupal outbou
 mock and turns TLS verification off. The settings file only honours it when `IS_DDEV_PROJECT=true`
 or `LANDO=ON`; elsewhere it is ignored and a warning goes to the PHP error log.
 
-## Azure Government: the module hard-codes commercial Azure hosts
+## Azure Government (patched azure_cdn_purge)
 
-`azure_cdn_purge` 1.0.4 builds its URLs from fixed strings [V: AzurePurger.php lines 145 and 165]:
+Unpatched `azure_cdn_purge` 1.0.4 hard-codes the commercial hosts [V: AzurePurger.php lines
+145 and 165]. The package ships a two-patch series (apply it from the **root**
+`composer.json`, see [install.md](install.md#azure-government-patch)):
 
-- token: `https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token`
-- purge: `https://management.azure.com/subscriptions/.../{endpoint_type}/{endpoint}/purge?api-version=...`
+1. `patches/azure_cdn_purge-3427718-mr6-9859fc45.patch`: upstream
+   [#3427718](https://www.drupal.org/project/azure_cdn_purge/issues/3427718) MR !6 verbatim,
+   pinned to commit `9859fc45` (Needs review, last updated 2026-06-10). Adds
+   `azure_environment` (`azureCloud` | `azureUSGovernmentCloud`) and a form dropdown.
+2. `patches/azure_cdn_purge-3427718-followup-default-cloud.patch`: our follow-up. MR !6 alone
+   leaves `$base_auth_url` undefined when `azure_environment` is not set, which is every
+   existing site [V: code read of MR !6]. The follow-up falls back to commercial, adds optional
+   `login_host` / `management_host` overrides, derives the token scope from the cloud when
+   `scope` is empty, and adds a config schema.
 
-Azure Government uses `login.microsoftonline.us` and `management.usgovcloudapi.net`
-[ASSUMED: Microsoft sovereign-cloud endpoints]. If the OIG sites are in Azure Government, this
-module cannot purge without a code change (a patch making the two base URLs configurable).
-This is an open decision for Bo, not solved here.
+Endpoints, from Microsoft's docs:
+
+| | Commercial | Azure Government | Source |
+|---|---|---|---|
+| Entra ID authority | `login.microsoftonline.com` | `login.microsoftonline.us` | [Compare Azure Government and global Azure, endpoint table, "Microsoft Entra ID" row](https://learn.microsoft.com/en-us/azure/azure-government/compare-azure-government-global-azure#guidance-for-developers) |
+| Resource Manager | `management.azure.com` | `management.usgovcloudapi.net` | same table, "Azure Resource Manager" row |
+| Token scope | `https://management.azure.com/.default` | `https://management.usgovcloudapi.net/.default` | Microsoft's sovereign-cloud pattern `credential_scopes=[resource_manager + "/.default"]` ([Azure SDK for Python, sovereign clouds](https://learn.microsoft.com/en-us/azure/developer/python/sdk/azure-sdk-sovereign-domain)) |
+| Front Door | | Standard and Premium GA in US Gov Arizona and US Gov Texas | same "compare" page, Networking > Azure Front Door |
+
+The `api-version` is the same Resource Manager API in both clouds; whether `2024-02-01` is
+available for `afdEndpoints` purge in Azure Government is [ASSUMED], not verified.
+
+Settings (environment variables, read by `settings.performance.php`):
+
+- `AZURE_CLOUD=usgovernment` sets `azure_environment: azureUSGovernmentCloud`
+  (`public` sets `azureCloud`) [V: purge_send_gov checks the mapping].
+- `AZURE_LOGIN_HOST`, `AZURE_MANAGEMENT_HOST`: explicit host URLs (override the cloud).
+- Leave `AZURE_CDN_SCOPE` unset and the stored `scope` empty so the scope follows the cloud.
+  An existing site that saved `https://management.azure.com/.default` keeps sending the
+  commercial scope to the Government host [V: the Lando lab's first gov run failed exactly
+  this way until the stored scope was cleared]. Clear it with
+  `drush php:eval '\Drupal::configFactory()->getEditable("azure_cdn_purge.settings")->set("scope", "")->save();'`
+  (`lando drush cset ... scope ''` did not clear it) [V].
+
+Lab proof [V: tmp/ddev/run6-gov.log, tmp/lando-run5-gov.log]: with the Government setting the
+mock logged the token request to `login.microsoftonline.us` with scope
+`https://management.usgovcloudapi.net/.default` and the purge to
+`management.usgovcloudapi.net`; with the switch skipped (`PERF_GOV_NEGATIVE=1`) the same test
+FAILS because the requests go to the commercial hosts. Not tested against real Azure
+Government.
 
 ## Service principal for purging
 

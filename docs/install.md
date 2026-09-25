@@ -78,6 +78,35 @@ Notes:
   dangerous") [V: `drush p:diagnostics`]. 15 minutes follows the caching guide's advice for
   Front Door without tag purging; raise it if content editors can live with slower updates.
 
+## 5b. Azure Government patch
+
+Required on Azure Government; harmless on commercial Azure (defaults unchanged). The patch
+files ship in the recipe, but composer-patches 2.0.0 resolves a dependency's relative patch
+path against the project root, so declaring it in the recipe's `composer.json` fails
+("file could not be downloaded") [V: lab]. Declare it in the **root** `composer.json`:
+
+```bash
+mkdir -p patches
+cp recipes/drupal-performance-recipe/patches/azure_cdn_purge-3427718-*.patch patches/
+composer config allow-plugins.cweagans/composer-patches true
+composer require cweagans/composer-patches:^2
+composer config --json extra.patches.drupal/azure_cdn_purge '[
+  {"description":"drupal.org #3427718 MR !6 at 9859fc45 (Azure cloud selector)","url":"patches/azure_cdn_purge-3427718-mr6-9859fc45.patch"},
+  {"description":"Follow-up to #3427718: commercial default, host overrides, scope from cloud, config schema","url":"patches/azure_cdn_purge-3427718-followup-default-cloud.patch"}]'
+composer patches-relock
+composer patches-repatch
+```
+
+Commit `patches/` and `patches.lock.json`. The recipe pins `drupal/azure_cdn_purge` to
+`1.0.4`, the version the patches were made against [V: series applies cleanly to a clean 1.0.4
+checkout and in both labs]. Then set `AZURE_CLOUD=usgovernment` and clear the stored scope
+(see [azure.md](azure.md#azure-government-patched-azure_cdn_purge)).
+
+Do **not** run `composer update <recipe> -W` to pick up recipe changes: in the lab it also
+upgraded twig/twig to 3.30.0, which broke every page on Drupal 10.6.17 with
+`EscaperRuntime::escape(): Argument #4 ($autoescape) must be of type bool, null given`
+[V: DDEV lab; fixed by `composer require twig/twig:3.28.0`]. Update only the recipe package.
+
 ## 6. Export config
 
 `drush cex`. Credentials are runtime overrides from `settings.performance.php`: the stored
