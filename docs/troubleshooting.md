@@ -12,6 +12,11 @@ With the default settings a Redis outage is absorbed by `modules/perf_redis_fail
   cached in Redis again [V: redis_recover]. If a delete or invalidation was lost during the
   outage, the first request after recovery empties that bin (notice "Redis reachable again;
   emptied bin ...") so no stale entry survives [V: unit test].
+- Pending flushes are one `key_value` row per bin (`perf_redis_failopen` /
+  `flush_pending:<bin>`) with a token; they are read from MySQL once per request (no APCu copy,
+  so no stale window; cost: one small query per request).
+- Slow first request after Redis hangs: expected, bounded by `PERF_REDIS_CONNECT_TIMEOUT` +
+  `PERF_REDIS_READ_TIMEOUT` once per retry window per PHP-FPM instance [V: redis_hang].
 - If it still returns HTTP 500 with `RedisException`: check that `PERF_REDIS_FAILOPEN` is not
   `0`, that `REDIS_LOCK_FLOOD_TAGS` is not `1` (those services are not wrapped), and run
   `drush cr` after changing either (the service container must be rebuilt).

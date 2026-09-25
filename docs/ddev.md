@@ -98,8 +98,8 @@ PERF_OUT=perf.log ddev perf-test    # choose the log file
 container, then stops **only** `ddev-<project>-redis` with `docker stop`, runs `redis_down`,
 and starts it again. Exit status = number of FAIL lines.
 
-Expected result [V: tmp/ddev/run8-redis.log]: 15 PASS, then `redis_down` PASS (pages 200 with
-Redis stopped) and `redis_recover` PASS. To see the failure mode, add
+Expected result [V: tmp/ddev/run9.log]: 15 PASS, then `redis_down` PASS (pages 200 with
+Redis stopped) and `redis_recover` PASS and `redis_hang` PASS. To see the failure mode, add
 `PERF_REDIS_FAILOPEN=0` to `.ddev/config.*.yaml`, `ddev restart`, `ddev drush cr`: `redis_down`
 then FAILS with HTTP 500. See [tests.md](tests.md) for what each line means.
 

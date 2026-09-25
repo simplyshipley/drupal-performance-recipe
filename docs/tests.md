@@ -8,8 +8,8 @@ Environment: `BASE_URL` (DDEV `http://localhost`, Lando `http://appserver_nginx`
 `PERF_MOCK_URL`, the same `REDIS_*` variables the site uses (`REDIS_PREFIX` optional: without it the Redis checks match any prefix, which is only accurate if no other site shares the Redis), `DRUSH` (default
 `vendor/bin/drush`).
 
-Results below are from the final lab runs [V: tmp/ddev/run8-redis.log,
-tmp/lando-run6-redis.log].
+Results below are from the final lab runs [V: tmp/ddev/run9.log,
+tmp/lando-run7.log].
 
 | Test | What it does | PASS means | Lab result |
 |---|---|---|---|
@@ -19,6 +19,7 @@ tmp/lando-run6-redis.log].
 | `tag_invalidation` | HIT a node page, change its title in PHP, request again | HIT -> MISS with the new title -> HIT | PASS both |
 | `eviction` | Sets `maxmemory` to used memory + 400 KB and `allkeys-lru` at runtime, requests every published node, reads `evicted_keys`, restores the settings (also on exit/interrupt via a trap) | `evicted_keys` rose and the home page still returns 200 | PASS both (DDEV 0 -> 2551, Lando 0 -> 922) |
 | `redis_down` | Run by the wrappers after `docker stop` of this project's Redis only; requests home, node/1 and /user/login, runs `drush status`, counts `perf_redis_failopen` warnings in dblog | All three pages 200 and at least one warning logged | PASS both (1 warning). Fail-proof: with `PERF_REDIS_FAILOPEN=0` the same test FAILS with HTTP 500 [V: run8-redis.log] |
+| `redis_hang` | Run by the wrappers with this project's Redis container `docker pause`d (TCP accepted, no answers); three page requests | All 200; first under 5 s, the next two under 1 s | PASS both (first 2.1 s, then 0.03-0.05 s). Fail-proof: `PERF_REDIS_CONNECT_TIMEOUT=0` -> first request 60.8 s, FAIL [V: run9.log] |
 | `redis_recover` | After Redis is started again, waits the retry interval + 2 s, requests node/2 twice | Redis key count grew and node/2 is `X-Drupal-Cache: HIT` | PASS both |
 | `purge_queue_fills` | Empties the purge queue, saves a node, reads `p:queue-volume` and the queue rows | Volume increased | PASS both: 0 -> 1, item `path:node/1` |
 | `purge_send` | Resets the mock, saves a node, `drush p:queue-work --finish`, reads the mock log | Mock got a token request and `POST /subscriptions/.../afdEndpoints/ep-synthetic/purge` with the node's path in `contentPaths`; queue empty | PASS both: `contentPaths=["/node/1"]` |
@@ -34,8 +35,10 @@ tmp/lando-run6-redis.log].
 
 `modules/perf_redis_failopen/tests/src/Unit/FailOpenCacheBackendTest.php`, plain PHPUnit:
 connection error at construction = miss and one warning; a lost delete empties the bin on
-recovery; non-Redis exceptions are rethrown. 3 tests, 11 assertions PASS; phpcs Drupal +
-DrupalPractice clean [V: tmp/ddev/phpcs-phpunit-failopen.log]. The lab ran them with PHPUnit
+recovery; a record written by another instance during a flush survives it and triggers a second
+flush (token compare-and-delete); non-Redis exceptions are rethrown. 4 tests, 16 assertions
+PASS; phpcs Drupal +
+DrupalPractice clean [V: tmp/ddev/phpcs-phpunit-failopen-v2.log]. The lab ran them with PHPUnit
 10.5 installed in `/tmp/pu` inside the web container and a bootstrap that loads the project's
 `vendor/autoload.php` and the module's PSR-4 paths (the site has no dev dependencies).
 

@@ -50,8 +50,8 @@ docs/                            all documentation
 
 ## Lab results (2026-09-25, after the Redis ruling)
 
-All 15 in-container tests plus `redis_down` and `redis_recover` PASS in both labs
-[V: tmp/ddev/run8-redis.log, tmp/lando-run6-redis.log]. Redis holds only the heavy bins and a
+All 15 in-container tests plus `redis_down`, `redis_recover` and `redis_hang` PASS in both labs
+[V: tmp/ddev/run9.log, tmp/lando-run7.log]. Redis holds only the heavy bins and a
 fail-open wrapper (`modules/perf_redis_failopen`) keeps the site up when Redis is down; with
 the wrapper off the site returns HTTP 500 (fail-proof in the DDEV log). Self-hosted Redis on
 Azure Container Apps: [infra/azure/](infra/azure/README.md) (not deployed).

@@ -73,4 +73,4 @@ LANDO_PROXY=OFF lando perf-test-in headers_anon                          # in-co
 finds this app's `cache` container by its compose labels, and writes
 `perf-test-lando.log` (or `$PERF_OUT`).
 
-Expected result [V: tmp/lando-run6-redis.log]: 15 PASS, `redis_down` PASS, `redis_recover` PASS. (In that log the first `purge_send_gov` FAILED on a test bug in the typo-warning check; the fixed test, re-run and appended at the end, PASSES.)
+Expected result [V: tmp/lando-run6-redis.log]: 15 PASS, `redis_down` PASS, `redis_recover` PASS, `redis_hang` PASS [V: tmp/lando-run7.log]. (In the earlier run6 log that log the first `purge_send_gov` FAILED on a test bug in the typo-warning check; the fixed test, re-run and appended at the end, PASSES.)

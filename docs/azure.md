@@ -22,10 +22,13 @@ your cloud before use (see the caching guide).
 > - Cost during an outage: every heavy-bin read is a miss, so pages are built from the
 >   database each time (slower, more MySQL load); anonymous pages are not page-cached. Plan
 >   MySQL headroom for that.
-> - Limitation: drupal/redis 1.11 connects without a timeout argument, so an unreachable host
->   that drops packets (rather than refusing) can stall the first request of each retry window
->   up to PHP's `default_socket_timeout` [ASSUMED from code; the lab only tested a stopped
->   container, which fails fast]. Consider lowering `default_socket_timeout` in the image.
+> - Hung Redis (accepts TCP, never answers): drupal/redis 1.11 connects without a timeout, so
+>   the wrapper installs a `PhpRedis` client subclass with `PERF_REDIS_CONNECT_TIMEOUT` (1 s)
+>   and `PERF_REDIS_READ_TIMEOUT` (2 s). With Redis paused the first request took 2.1 s and
+>   later ones about 0.03 s; with the timeouts off the first request stalled 60.8 s
+>   [V: redis_hang, tmp/ddev/run9.log incl. fail-proof, tmp/lando-run7.log].
+> - Any Redis client exception counts as an outage (connection errors, timeouts, OOM,
+>   READONLY, WRONGTYPE): cache miss plus one throttled warning naming the exception.
 
 ## App Service application settings (environment variables)
 

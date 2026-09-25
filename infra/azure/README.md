@@ -83,7 +83,8 @@ environments].
      REDIS_PREFIX=<site> PERF_FAST404=1 AZURE_CLOUD=usgovernment
    ```
 
-   Do not set `REDIS_LOCK_FLOOD_TAGS` (keeps lock/flood/cache tags in MySQL) or
+   Keep the defaults `PERF_REDIS_CONNECT_TIMEOUT=1` and `PERF_REDIS_READ_TIMEOUT=2` (unset = those
+   values). Do not set `REDIS_LOCK_FLOOD_TAGS` (keeps lock/flood/cache tags in MySQL) or
    `PERF_REDIS_FAILOPEN=0` (disables the fail-open wrapper).
 3. Traffic between App Service and the Redis container stays in the VNet and is not TLS
    (`REDIS_SCHEME=tcp`); Container Apps TCP ingress does not terminate TLS for you
