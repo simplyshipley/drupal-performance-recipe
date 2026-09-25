@@ -19,6 +19,7 @@ services:
         REDIS_HOST: cache
         REDIS_PORT: "6379"
         REDIS_PREFIX: perflab
+        PERF_FAST404: "1"
         PERF_MOCK_AFD_PROXY: http://mockafd:8080
         PERF_MOCK_URL: http://mockafd:8080
         THEMED_FAST404_BASE_URL: http://appserver_nginx

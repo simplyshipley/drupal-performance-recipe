@@ -56,6 +56,8 @@
  *   (afdEndpoints for Front Door), AZURE_CDN_SCOPE.
  *
  * Fast 404
+ *   PERF_FAST404             1 = apply the Fast 404 settings below and the
+ *                            pre-boot static-file check. Unset = none of it.
  *   FAST404_RESPECT_REDIRECT 1 = let paths with a Redirect module redirect
  *                            through. ONLY when the redirect module is
  *                            installed.
@@ -181,53 +183,63 @@ if ($perf_env('THEMED_FAST404_BASE_URL') !== NULL) {
 }
 
 // Local lab only: route Drupal's HTTP client through the mock Front Door.
+// Honoured only inside DDEV or Lando; anywhere else it is ignored and logged.
 if ($perf_env('PERF_MOCK_AFD_PROXY') !== NULL) {
-  $settings['http_client_config']['proxy'] = [
-    'http' => $perf_env('PERF_MOCK_AFD_PROXY'),
-    'https' => $perf_env('PERF_MOCK_AFD_PROXY'),
-    'no' => ['localhost', '127.0.0.1'],
-  ];
-  $settings['http_client_config']['verify'] = FALSE;
+  if (getenv('IS_DDEV_PROJECT') === 'true' || getenv('LANDO') === 'ON') {
+    $settings['http_client_config']['proxy'] = [
+      'http' => $perf_env('PERF_MOCK_AFD_PROXY'),
+      'https' => $perf_env('PERF_MOCK_AFD_PROXY'),
+      'no' => ['localhost', '127.0.0.1'],
+    ];
+    $settings['http_client_config']['verify'] = FALSE;
+  }
+  else {
+    error_log('settings.performance.php: PERF_MOCK_AFD_PROXY ignored (not a DDEV or Lando environment).');
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Fast 404 (drupal/fast_404, module name fast404) + Themed Fast 404.
+// Only when PERF_FAST404=1. Without it this file sets no fast404 settings and
+// runs no pre-boot check (the installed module then uses its own defaults).
 // ---------------------------------------------------------------------------
-// Static-file extensions that should never reach a full Drupal bootstrap.
-$settings['fast404_exts'] = '/^(?!\/robots)^(?!\/system\/files).*\.(txt|png|gif|jpe?g|webp|svg|css|js|map|ico|swf|flv|cgi|bat|pl|dll|exe|asp|aspx|php[0-9]?|env|bak|sql|zip|gz)$/i';
-$settings['fast404_allow_anon_imagecache'] = TRUE;
-$settings['fast404_url_whitelisting'] = FALSE;
-$settings['fast404_whitelist'] = ['index.php', 'rss.xml', 'install.php', 'cron.php', 'update.php', 'xmlrpc.php'];
-$settings['fast404_string_whitelisting'] = ['/admin', '/user', '/system/files', '/batch'];
-// Unknown router paths are checked by the module's event subscriber (needs the
-// module installed; it queries the router and alias tables).
-$settings['fast404_path_check'] = TRUE;
-$settings['fast404_not_found_exception'] = FALSE;
-// Only with the Redirect module installed: Fast 404 then queries the
-// {redirect} table and lets redirected paths through. Without the module the
-// table is missing and every unknown path returns HTTP 500 (verified in the
-// lab), so this is opt-in.
-$settings['fast404_respect_redirect'] = $perf_env('FAST404_RESPECT_REDIRECT') === '1';
-$settings['fast404_HTTP_status_method'] = PHP_SAPI === 'fpm-fcgi' ? 'FastCGI' : 'mod_php';
-// Serve the static page Themed Fast 404 writes on cron, when it exists.
-$perf_public = $settings['file_public_path'] ?? 'sites/default/files';
-$perf_404_pages = [];
-foreach (glob($app_root . '/' . $perf_public . '/page-not-found-*.html') ?: [] as $perf_file) {
-  $perf_lang = substr(basename($perf_file, '.html'), strlen('page-not-found-'));
-  $perf_404_pages[$perf_lang] = $perf_file;
-}
-if ($perf_404_pages) {
-  $settings['fast404_HTML_error_page'] = $perf_404_pages;
-  $settings['fast404_HTML_error_all_paths'] = TRUE;
-}
+if ($perf_env('PERF_FAST404') === '1') {
+  // Static-file extensions that should never reach a full Drupal bootstrap.
+  $settings['fast404_exts'] = '/^(?!\/robots)^(?!\/system\/files).*\.(txt|png|gif|jpe?g|webp|svg|css|js|map|ico|swf|flv|cgi|bat|pl|dll|exe|asp|aspx|php[0-9]?|env|bak|sql|zip|gz)$/i';
+  $settings['fast404_allow_anon_imagecache'] = TRUE;
+  $settings['fast404_url_whitelisting'] = FALSE;
+  $settings['fast404_whitelist'] = ['index.php', 'rss.xml', 'install.php', 'cron.php', 'update.php', 'xmlrpc.php'];
+  $settings['fast404_string_whitelisting'] = ['/admin', '/user', '/system/files', '/batch'];
+  // Unknown router paths are checked by the module's event subscriber (needs the
+  // module installed; it queries the router and alias tables).
+  $settings['fast404_path_check'] = TRUE;
+  $settings['fast404_not_found_exception'] = FALSE;
+  // Only with the Redirect module installed: Fast 404 then queries the
+  // {redirect} table and lets redirected paths through. Without the module the
+  // table is missing and every unknown path returns HTTP 500 (verified in the
+  // lab), so this is opt-in.
+  $settings['fast404_respect_redirect'] = $perf_env('FAST404_RESPECT_REDIRECT') === '1';
+  $settings['fast404_HTTP_status_method'] = PHP_SAPI === 'fpm-fcgi' ? 'FastCGI' : 'mod_php';
+  // Serve the static page Themed Fast 404 writes on cron, when it exists.
+  $perf_public = $settings['file_public_path'] ?? 'sites/default/files';
+  $perf_404_pages = [];
+  foreach (glob($app_root . '/' . $perf_public . '/page-not-found-*.html') ?: [] as $perf_file) {
+    $perf_lang = substr(basename($perf_file, '.html'), strlen('page-not-found-'));
+    $perf_404_pages[$perf_lang] = $perf_file;
+  }
+  if ($perf_404_pages) {
+    $settings['fast404_HTML_error_page'] = $perf_404_pages;
+    $settings['fast404_HTML_error_all_paths'] = TRUE;
+  }
 
-// Pre-bootstrap extension check: answers missing static files before Drupal
-// boots. The path check needs the database, so it only runs later in the
-// module's event subscriber.
-$perf_fast404_inc = $app_root . '/modules/contrib/fast_404/fast404.inc';
-if (PHP_SAPI !== 'cli' && file_exists($perf_fast404_inc)) {
-  include_once $perf_fast404_inc;
-  fast404_preboot(['fast404_path_check' => FALSE] + $settings);
+  // Pre-bootstrap extension check: answers missing static files before Drupal
+  // boots. The path check needs the database, so it only runs later in the
+  // module's event subscriber.
+  $perf_fast404_inc = $app_root . '/modules/contrib/fast_404/fast404.inc';
+  if (PHP_SAPI !== 'cli' && file_exists($perf_fast404_inc)) {
+    include_once $perf_fast404_inc;
+    fast404_preboot(['fast404_path_check' => FALSE] + $settings);
+  }
 }
 
 unset($perf_env, $perf_patterns, $perf_host, $perf_pattern, $perf_redis_dir, $perf_scheme,
