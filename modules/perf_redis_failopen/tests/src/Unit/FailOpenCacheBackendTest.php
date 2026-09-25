@@ -6,8 +6,8 @@ namespace Drupal\Tests\perf_redis_failopen\Unit;
 
 use Drupal\Core\Cache\CacheBackendInterface;
 use Drupal\Core\Cache\CacheFactoryInterface;
-use Drupal\Core\KeyValueStore\MemoryStorage;
 use Drupal\perf_redis_failopen\Cache\FailOpenCacheBackend;
+use Drupal\perf_redis_failopen\Cache\PendingFlushStoreInterface;
 use Drupal\perf_redis_failopen\Cache\RedisHealth;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\AbstractLogger;
@@ -29,9 +29,9 @@ final class FailOpenCacheBackendTest extends TestCase {
   private AbstractLogger $logger;
 
   /**
-   * Database key/value stand-in.
+   * In-memory pending-flush store with the same token semantics.
    */
-  private MemoryStorage $store;
+  private PendingFlushStoreInterface $store;
 
   /**
    * {@inheritdoc}
@@ -41,7 +41,41 @@ final class FailOpenCacheBackendTest extends TestCase {
     if (function_exists('apcu_clear_cache')) {
       apcu_clear_cache();
     }
-    $this->store = new MemoryStorage('perf_redis_failopen');
+    $this->store = new class() implements PendingFlushStoreInterface {
+
+      /**
+       * Records by bin.
+       *
+       * @var array<string, string>
+       */
+      public array $rows = [];
+
+      /**
+       * {@inheritdoc}
+       */
+      public function record(string $bin): void {
+        $this->rows[$bin] = bin2hex(random_bytes(8));
+      }
+
+      /**
+       * {@inheritdoc}
+       */
+      public function all(): array {
+        return $this->rows;
+      }
+
+      /**
+       * {@inheritdoc}
+       */
+      public function clear(string $bin, string $token): bool {
+        if (($this->rows[$bin] ?? NULL) !== $token) {
+          return FALSE;
+        }
+        unset($this->rows[$bin]);
+        return TRUE;
+      }
+
+    };
     $this->logger = new class() extends AbstractLogger {
 
       /**
@@ -109,7 +143,7 @@ final class FailOpenCacheBackendTest extends TestCase {
     $calls = 0;
     $down = $this->backend(NULL, $calls, 0);
     $down->delete('a');
-    $this->assertSame(['render' => TRUE], $this->store->get('flush_pending'));
+    $this->assertArrayHasKey('render', $this->store->all());
 
     $inner = $this->createMock(CacheBackendInterface::class);
     $inner->expects($this->once())->method('deleteAll');
@@ -117,7 +151,33 @@ final class FailOpenCacheBackendTest extends TestCase {
     $calls2 = 0;
     $up = $this->backend($inner, $calls2, 0);
     $this->assertFalse($up->get('a'));
-    $this->assertNull($this->store->get('flush_pending'));
+    $this->assertSame([], $this->store->all());
+  }
+
+  /**
+   * A record written while a flush runs is not erased by that flush.
+   */
+  public function testNewerRecordSurvivesConcurrentFlush(): void {
+    $this->store->record('render');
+    $inner = $this->createMock(CacheBackendInterface::class);
+    // Simulate another instance recording a new lost write for the same bin
+    // while this instance is emptying it.
+    $inner->expects($this->exactly(2))->method('deleteAll')
+      ->willReturnCallback(function (): void {
+        static $first = TRUE;
+        if ($first) {
+          $first = FALSE;
+          $this->store->record('render');
+        }
+      });
+    $inner->method('get')->willReturn(FALSE);
+    $calls = 0;
+    $this->assertFalse($this->backend($inner, $calls)->get('a'));
+    $this->assertArrayHasKey('render', $this->store->all(), 'The newer record survived.');
+    // The next request (new health object) flushes again and clears it.
+    $calls2 = 0;
+    $this->assertFalse($this->backend($inner, $calls2)->get('a'));
+    $this->assertSame([], $this->store->all());
   }
 
   /**

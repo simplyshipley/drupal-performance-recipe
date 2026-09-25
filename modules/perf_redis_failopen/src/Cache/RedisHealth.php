@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Drupal\perf_redis_failopen\Cache;
 
-use Drupal\Core\KeyValueStore\KeyValueStoreInterface;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -16,17 +15,22 @@ use Psr\Log\LoggerInterface;
  * - Warnings are throttled: at most one per log interval (APCu-wide when
  *   available, per process otherwise).
  * - Deletes and invalidations that could not reach Redis are recorded per bin
- *   in the database key/value store. When Redis answers again, the first
- *   worker that sees the record empties that bin, so no stale entry survives
- *   the outage. Tag invalidations do not need this: the cache tag checksum
- *   stays in the database.
+ *   (one row per bin with a unique token, PendingFlushStoreInterface). When
+ *   Redis answers again, the first worker that sees the record empties that
+ *   bin and clears the record only if its token is unchanged, so no stale
+ *   entry survives the outage and no newer record is lost. Tag
+ *   invalidations do not need this: the cache tag checksum stays in the
+ *   database.
+ * - The pending records are read from the database once per request (one
+ *   small indexed SELECT on the first Redis-backed cache use), with no APCu
+ *   copy: a healthy instance sees a new record on its next request. Trade-off:
+ *   one extra query per request instead of up to 5 s of possibly stale
+ *   entries.
  */
 final class RedisHealth {
 
   private const APCU_DOWN = 'perf_redis_failopen:down_until';
   private const APCU_LOGGED = 'perf_redis_failopen:logged';
-  private const APCU_PENDING = 'perf_redis_failopen:pending';
-  private const PENDING_KEY = 'flush_pending';
 
   /**
    * Unix time until which Redis is treated as down in this process.
@@ -39,14 +43,14 @@ final class RedisHealth {
   private float $lastLogged = 0.0;
 
   /**
-   * Bins with a pending flush, as read at most once per request.
+   * Pending flush tokens by bin, read at most once per request.
    *
-   * @var array<string, bool>|null
+   * @var array<string, string>|null
    */
   private ?array $pending = NULL;
 
   public function __construct(
-    private readonly KeyValueStoreInterface $store,
+    private readonly PendingFlushStoreInterface $store,
     private readonly LoggerInterface $logger,
     private readonly int $retryInterval,
     private readonly int $logInterval,
@@ -107,48 +111,32 @@ final class RedisHealth {
    * Records that a delete/invalidate for a bin was lost.
    */
   public function recordLostWrite(string $bin): void {
-    $pending = $this->store->get(self::PENDING_KEY, []);
-    if (empty($pending[$bin])) {
-      $pending[$bin] = TRUE;
-      $this->store->set(self::PENDING_KEY, $pending);
-    }
-    $this->pending = $pending;
-    if (self::apcu()) {
-      apcu_delete(self::APCU_PENDING);
-    }
+    $this->store->record($bin);
+    // Force a re-read so this process flushes on its next successful use.
+    $this->pending = NULL;
   }
 
   /**
-   * Whether the bin must be emptied before it is trusted again.
+   * Returns the pending-flush token for a bin, or NULL if none.
    */
-  public function flushPending(string $bin): bool {
-    if ($this->pending === NULL) {
-      $cached = self::apcu() ? apcu_fetch(self::APCU_PENDING, $hit) : NULL;
-      if (self::apcu() && $hit && is_array($cached)) {
-        $this->pending = $cached;
-      }
-      else {
-        $this->pending = $this->store->get(self::PENDING_KEY, []);
-        if (self::apcu()) {
-          apcu_store(self::APCU_PENDING, $this->pending, 5);
-        }
-      }
-    }
-    return !empty($this->pending[$bin]);
+  public function pendingToken(string $bin): ?string {
+    $this->pending ??= $this->store->all();
+    return $this->pending[$bin] ?? NULL;
   }
 
   /**
-   * Clears the pending flush for a bin once it has been emptied.
+   * Clears the record for a bin after it was emptied.
+   *
+   * Only the record with the token that was read is removed; a newer record
+   * stays and causes another flush.
    */
-  public function flushDone(string $bin): void {
-    $pending = $this->store->get(self::PENDING_KEY, []);
-    unset($pending[$bin]);
-    $pending ? $this->store->set(self::PENDING_KEY, $pending) : $this->store->delete(self::PENDING_KEY);
-    $this->pending = $pending;
-    if (self::apcu()) {
-      apcu_delete(self::APCU_PENDING);
-    }
-    $this->logger->notice('Redis reachable again; emptied bin @bin because writes were lost during the outage.', ['@bin' => $bin]);
+  public function flushDone(string $bin, string $token): void {
+    $cleared = $this->store->clear($bin, $token);
+    unset($this->pending[$bin]);
+    $this->logger->notice('Redis reachable again; emptied bin @bin because writes were lost during the outage@newer.', [
+      '@bin' => $bin,
+      '@newer' => $cleared ? '' : ' (a newer record exists and will trigger another flush)',
+    ]);
   }
 
   /**

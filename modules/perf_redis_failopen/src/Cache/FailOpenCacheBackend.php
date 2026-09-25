@@ -12,8 +12,16 @@ use Drupal\Core\Cache\CacheFactoryInterface;
  * Cache backend that turns Redis outages into cache misses.
  *
  * Reads return misses, writes are dropped, and deletes/invalidations that
- * could not be applied are recorded so the bin is emptied on recovery. Any
- * exception that is not a Redis connection error is rethrown.
+ * could not be applied are recorded so the bin is emptied on recovery.
+ *
+ * ANY Redis client exception (\RedisException, Predis\PredisException,
+ * Relay\Exception) is treated as an outage, not only connection errors:
+ * that includes timeouts, "OOM command not allowed" (memory full under a
+ * noeviction policy), "READONLY" (a replica) and "WRONGTYPE". All of them mean
+ * Redis cannot serve this bin right now, and failing open (cache miss, one
+ * throttled warning, retry later) is safer than an HTTP 500. The warning
+ * carries the exception class and message so they can be told apart.
+ * Exceptions that are not from the Redis client are rethrown.
  */
 final class FailOpenCacheBackend implements CacheBackendInterface {
 
@@ -54,9 +62,10 @@ final class FailOpenCacheBackend implements CacheBackendInterface {
       // The redis factory connects inside get(), so connection errors while
       // creating the backend are caught here too.
       $this->inner ??= $this->redisFactory->get($this->bin);
-      if ($this->health->flushPending($this->bin)) {
+      $token = $this->health->pendingToken($this->bin);
+      if ($token !== NULL) {
         $this->inner->deleteAll();
-        $this->health->flushDone($this->bin);
+        $this->health->flushDone($this->bin, $token);
       }
       return $call($this->inner);
     }
