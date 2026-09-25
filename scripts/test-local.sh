@@ -28,7 +28,7 @@ DRUSH="${DRUSH:-vendor/bin/drush}"
 PREFIX="${REDIS_PREFIX:-}"
 FAILS=0
 PASSES=0
-ALL_TESTS=(redis_in_use drush_cr tag_invalidation eviction purge_queue_fills purge_send purge_send_gov purge_retry
+ALL_TESTS=(redis_bins redis_in_use drush_cr tag_invalidation eviction purge_queue_fills purge_send purge_send_gov purge_retry
   fast404_static fast404_path themed_404 headers_anon headers_auth cache_4xx)
 
 say() { printf '%s %s: %s\n' "$1" "$2" "$3"; case "$1" in FAIL) FAILS=$((FAILS+1));; PASS) PASSES=$((PASSES+1));; esac; }
@@ -104,6 +104,27 @@ node_path() { php_eval "print \Drupal::service('path_alias.manager')->getAliasBy
 touch_node() { php_eval "\$n = \Drupal\node\Entity\Node::load($1); \$n->setTitle('SYNTHETIC perf test ' . time() . ' ' . mt_rand()); \$n->save(); print \$n->label();"; }
 
 # --- Tests -------------------------------------------------------------------
+t_redis_bins() {
+  local out
+  out=$(php_eval '
+    $c = \Drupal::getContainer();
+    $r = [];
+    foreach (["render","page","dynamic_page_cache","data","entity","menu","bootstrap","config","discovery"] as $b) { $r[] = $b . "=" . (new \ReflectionClass(\Drupal::cache($b)))->getShortName(); }
+    $r[] = "lock=" . (new \ReflectionClass($c->get("lock")))->getShortName();
+    $r[] = "flood=" . (new \ReflectionClass($c->get("flood")))->getShortName();
+    $r[] = "checksum=" . (new \ReflectionClass($c->get("cache_tags.invalidator.checksum")))->getShortName();
+    print implode(" ", $r);' | tail -1)
+  local want_redis="${PERF_EXPECT_REDIS_CLASS:-FailOpenCacheBackend}" bad=""
+  for b in render page dynamic_page_cache data entity menu; do [[ " $out " == *" $b=$want_redis "* ]] || bad="$bad $b"; done
+  for b in bootstrap config discovery; do [[ " $out " == *" $b="*Redis* || " $out " == *" $b=FailOpen"* ]] && bad="$bad $b"; done
+  [[ " $out " == *" lock=Redis"* || " $out " == *" flood=Redis"* || " $out " == *" checksum=Redis"* ]] && bad="$bad lock/flood/checksum"
+  if [[ -z "$bad" ]]; then
+    say PASS redis_bins "heavy bins on $want_redis; others not on Redis: $out"
+  else
+    say FAIL redis_bins "wrong placement for:$bad ($out)"
+  fi
+}
+
 t_redis_in_use() {
   local cls before after
   cls=$(php_eval 'print get_class(\Drupal::cache("render"));')
@@ -181,16 +202,35 @@ t_eviction() {
 }
 
 t_redis_down() {
-  local c_home c_node t body d
-  c_home=$(curl -s -o /tmp/perf-redis-down.html -w '%{http_code} %{time_total}' "$BASE_URL/")
-  body=$(head -c 300 /tmp/perf-redis-down.html | tr '\n' ' ')
-  c_node=$(status_of "$BASE_URL/node/1")
-  d=$($DRUSH status --field=bootstrap 2>&1 | tail -2 | tr '\n' ' ')
-  say INFO redis_down "home: ${c_home}; node/1: $c_node; drush status bootstrap: $d; body starts: ${body:0:200}"
-  if [[ "${c_home%% *}" == "200" ]]; then
-    say PASS redis_down "site answered 200 with Redis stopped"
+  local c_home c_node c_login body d warn
+  c_home=$(curl -s -o /tmp/perf-redis-down.html -w '%{http_code} %{time_total}' "$BASE_URL/?perf=$RANDOM")
+  body=$(head -c 200 /tmp/perf-redis-down.html | tr '\n' ' ')
+  c_node=$(curl -s -o /dev/null -w '%{http_code} %{time_total}' "$BASE_URL/node/1?perf=$RANDOM")
+  c_login=$(status_of "$BASE_URL/user/login")
+  d=$($DRUSH status --field=bootstrap 2>&1 | tail -1)
+  warn=$($DRUSH sqlq "SELECT COUNT(*) FROM watchdog WHERE type='perf_redis_failopen' AND timestamp > UNIX_TIMESTAMP() - 120" 2>/dev/null | tr -dc "0-9")
+  say INFO redis_down "home: $c_home; node/1: $c_node; /user/login: $c_login; drush bootstrap: $d; fail-open warnings logged in last 120 s: ${warn:-n/a}; body starts: ${body:0:120}"
+  if [[ "${c_home%% *}" == "200" && "${c_node%% *}" == "200" && "$c_login" == "200" && "${warn:-0}" -ge 1 ]]; then
+    say PASS redis_down "site answered 200 with Redis stopped and logged a throttled warning (${warn} in 120 s)"
   else
-    say FAIL redis_down "site did NOT survive Redis stopped (home HTTP ${c_home%% *}); see INFO line for the actual behaviour"
+    say FAIL redis_down "Redis stopped: home ${c_home%% *}, node ${c_node%% *}, login $c_login, warnings ${warn:-n/a}"
+  fi
+}
+
+# Run after Redis is started again: wait out the retry interval, then check
+# that pages are cached in Redis again.
+t_redis_recover() {
+  local wait before after h
+  wait=$(( ${PERF_REDIS_RETRY_INTERVAL:-30} + 2 ))
+  sleep "$wait"
+  before=$(redis_php count)
+  curl -s -o /dev/null "$BASE_URL/node/2"; curl -s -o /dev/null "$BASE_URL/node/2"
+  h=$(hget "$(hdr "$BASE_URL/node/2")" x-drupal-cache)
+  after=$(redis_php count)
+  if [[ "${after:-0}" -gt "${before:-0}" && "$h" == "HIT" ]]; then
+    say PASS redis_recover "after ${wait}s Redis is used again: keys $before -> $after, node/2 X-Drupal-Cache=$h"
+  else
+    say FAIL redis_recover "keys $before -> $after, node/2 X-Drupal-Cache=$h after ${wait}s"
   fi
 }
 
@@ -241,6 +281,11 @@ t_purge_send_gov() {
   local typo_out typo_env
   typo_out=$(AZURE_CLOUD=usgov $DRUSH php:eval 'print "[" . \Drupal::config("azure_cdn_purge.settings")->get("azure_environment") . "]";' 2>&1)
   typo_env=$(printf '%s' "$typo_out" | grep -o '\[[A-Za-z]*\]' | tail -1)
+  # Shown on screen when the site displays errors, otherwise logged (dblog).
+  if [[ "$typo_out" != *'unknown AZURE_CLOUD value "usgov"'* ]] \
+    && [[ "$($DRUSH sqlq "SELECT COUNT(*) FROM watchdog WHERE type='php' AND variables LIKE '%unknown AZURE_CLOUD value \"usgov\"%' AND timestamp > UNIX_TIMESTAMP() - 120" 2>/dev/null | tr -dc '0-9')" -ge 1 ]]; then
+    typo_out="$typo_out (logged) unknown AZURE_CLOUD value \"usgov\""
+  fi
   env_over=$(AZURE_CLOUD=usgovernment $DRUSH php:eval 'print \Drupal::config("azure_cdn_purge.settings")->get("azure_environment");' 2>&1 | tail -1)
   mock_reset; dr p:queue-empty >/dev/null
   [[ "${PERF_GOV_NEGATIVE:-0}" == "1" ]] || dr cset azure_cdn_purge.settings azure_environment azureUSGovernmentCloud -y >/dev/null
@@ -376,7 +421,7 @@ t_cache_4xx() {
 }
 
 # --- Runner -------------------------------------------------------------------
-if [[ "${1:-}" == "--list" ]]; then printf '%s\n' "${ALL_TESTS[@]}" redis_down; exit 0; fi
+if [[ "${1:-}" == "--list" ]]; then printf '%s\n' "${ALL_TESTS[@]}" redis_down redis_recover; exit 0; fi
 TESTS=("$@"); [[ ${#TESTS[@]} -eq 0 ]] && TESTS=("${ALL_TESTS[@]}")
 echo "# perf test-local.sh $(date -u +%FT%TZ) BASE_URL=$BASE_URL MOCK=$MOCK PREFIX=$PREFIX"
 for t in "${TESTS[@]}"; do

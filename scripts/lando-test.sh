@@ -19,6 +19,7 @@ run_in() { lando ssh -s appserver -c "cd /app && BASE_URL=http://appserver_nginx
     run_in redis_down
     docker start "$CACHE" >/dev/null
     sleep 2
+    run_in redis_recover
     echo "# after restarting Redis: home HTTP $(lando ssh -s appserver -c "curl -s -o /dev/null -w '%{http_code}' http://appserver_nginx/")"
   fi
 } 2>&1 | tee "$OUT"

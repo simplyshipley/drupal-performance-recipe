@@ -33,6 +33,16 @@
  *   REDIS_COMPRESS_LENGTH   Compress entries longer than N bytes (default 100,
  *                           0 disables).
  *   REDIS_PERSISTENT        1 = persistent connections (default 0).
+ *   REDIS_BINS              Bins stored in Redis, comma-separated. Default
+ *                           render,page,dynamic_page_cache,data,entity,menu.
+ *   PERF_REDIS_FAILOPEN     Default 1 (Redis outage = cache misses). 0 = plain
+ *                           redis backend (outage = HTTP 500); tests only.
+ *   PERF_REDIS_RETRY_INTERVAL  Seconds Redis is skipped after an error
+ *                           (default 30), then retried.
+ *   PERF_REDIS_LOG_INTERVAL Seconds between outage warnings (default 60).
+ *   REDIS_LOCK_FLOOD_TAGS   1 = also move cache tag checksum, lock and flood
+ *                           to Redis (settings/redis.services.yml). Default
+ *                           off; they stay in the database.
  *
  * Reverse proxy / hosts
  *   DRUPAL_TRUSTED_HOSTS    Comma-separated host names, e.g.
@@ -147,18 +157,40 @@ if ($perf_env('REDIS_HOST') !== NULL
     $settings['cache_prefix'] = $perf_env('REDIS_PREFIX');
   }
 
-  // All bins default to Redis. Core's fast chained bins (bootstrap, config,
-  // discovery) keep APCu in front of Redis via ChainedFastBackend.
-  $settings['cache']['default'] = 'cache.backend.redis';
+  // Only the heavy, high-churn bins go to Redis (Bo, 2026-09-25). bootstrap,
+  // config, discovery and container keep core's default (database behind
+  // APCu via ChainedFastBackend): they are small, read on every request and
+  // must survive a Redis outage. Override with REDIS_BINS (comma-separated).
+  $perf_bins = array_filter(array_map('trim', explode(',', (string) $perf_env('REDIS_BINS', 'render,page,dynamic_page_cache,data,entity,menu'))));
+  // Fail-open wrapper (modules/perf_redis_failopen): a Redis outage becomes
+  // cache misses instead of HTTP 500. PERF_REDIS_FAILOPEN=0 uses the plain
+  // redis backend (only for tests of the failure mode).
+  $perf_failopen = $perf_env('PERF_REDIS_FAILOPEN', '1') !== '0';
+  $settings['perf_redis_failopen_retry_interval'] = (int) $perf_env('PERF_REDIS_RETRY_INTERVAL', '30');
+  $settings['perf_redis_failopen_log_interval'] = (int) $perf_env('PERF_REDIS_LOG_INTERVAL', '60');
+  $perf_backend = $perf_failopen ? 'cache.backend.redis_failopen' : 'cache.backend.redis';
+  foreach ($perf_bins as $perf_bin) {
+    $settings['cache']['bins'][$perf_bin] = $perf_backend;
+  }
   $settings['redis_compress_length'] = (int) $perf_env('REDIS_COMPRESS_LENGTH', '100');
   // Let Redis expire items; required for allkeys-lru to behave sensibly.
   $settings['redis_ttl_offset'] = 3600;
 
-  // Services: the redis module's own services (so the backend works before
-  // the module is installed, e.g. while the recipe is applied) plus our
-  // overrides for the cache tag checksum, lock and flood.
+  // The redis module's services (so the backend works before the module is
+  // installed, e.g. while the recipe is applied) and the fail-open wrapper,
+  // registered the same way so it needs no module install.
   $settings['container_yamls'][] = $perf_redis_dir . '/redis.services.yml';
-  $settings['container_yamls'][] = __DIR__ . '/redis.services.yml';
+  $perf_failopen_dir = dirname(__DIR__) . '/modules/perf_redis_failopen';
+  if ($perf_failopen) {
+    $settings['container_yamls'][] = $perf_failopen_dir . '/perf_redis_failopen.services.yml';
+    $class_loader->addPsr4('Drupal\\perf_redis_failopen\\', $perf_failopen_dir . '/src');
+  }
+  // Cache tag checksum, lock and flood stay in the database: moving them to
+  // Redis makes every request depend on Redis (no fail-open for them).
+  // REDIS_LOCK_FLOOD_TAGS=1 moves them anyway (not recommended).
+  if ($perf_env('REDIS_LOCK_FLOOD_TAGS') === '1') {
+    $settings['container_yamls'][] = __DIR__ . '/redis.services.yml';
+  }
   $class_loader->addPsr4('Drupal\\redis\\', $perf_redis_dir . '/src');
 }
 
@@ -194,7 +226,12 @@ if ($perf_cloud !== '') {
   }
   else {
     // Unknown value: do not guess a cloud; leave the module's setting alone.
-    trigger_error(sprintf('settings.performance.php: unknown AZURE_CLOUD value "%s" ignored. Accepted: %s.', $perf_cloud, implode(', ', array_keys($perf_clouds))), E_USER_WARNING);
+    $perf_msg = sprintf('settings.performance.php: unknown AZURE_CLOUD value "%s" ignored. Accepted: %s.', $perf_cloud, implode(', ', array_keys($perf_clouds)));
+    // error_log() always reaches the PHP error log (stderr under CLI);
+    // trigger_error() also lets Drupal's error handling record it when shown.
+    error_log('PHP Warning: ' . $perf_msg);
+    trigger_error($perf_msg, E_USER_WARNING);
+    unset($perf_msg);
   }
 }
 $perf_azure_map['AZURE_LOGIN_HOST'] = 'login_host';
@@ -272,5 +309,5 @@ if ($perf_env('PERF_FAST404') === '1') {
 }
 
 unset($perf_env, $perf_patterns, $perf_host, $perf_pattern, $perf_redis_dir, $perf_scheme,
-  $perf_azure_map, $perf_cloud, $perf_clouds, $perf_var, $perf_key, $perf_public, $perf_404_pages, $perf_file, $perf_lang,
+  $perf_bins, $perf_bin, $perf_failopen, $perf_backend, $perf_failopen_dir, $perf_azure_map, $perf_cloud, $perf_clouds, $perf_var, $perf_key, $perf_public, $perf_404_pages, $perf_file, $perf_lang,
   $perf_fast404_inc);

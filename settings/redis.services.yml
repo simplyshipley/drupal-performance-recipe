@@ -1,5 +1,6 @@
-# Redis service overrides, loaded by settings.performance.php only when
-# REDIS_HOST is set. Copied from drupal/redis 1.11 example.services.yml.
+# OPT-IN Redis service overrides, loaded by settings.performance.php only when
+# REDIS_HOST is set AND REDIS_LOCK_FLOOD_TAGS=1 (default: not loaded; these
+# services stay in the database so a Redis outage cannot take the site down). Copied from drupal/redis 1.11 example.services.yml.
 # Moves the cache tag checksum, lock and flood backends to Redis.
 
 services:
