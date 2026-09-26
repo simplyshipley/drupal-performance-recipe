@@ -30,10 +30,12 @@ tmp/lando-run7.log].
 | `headers_anon` | Requests a node page anonymously twice | Second response `X-Drupal-Cache: HIT` and `Cache-Control` contains `public` and `max-age=900` | PASS both |
 | `headers_auth` | Logs in with `drush uli`, requests a node page twice | `X-Drupal-Cache` absent or `UNCACHEABLE (request policy)`, `X-Drupal-Dynamic-Cache: HIT`, `Cache-Control` private/no-cache | PASS both: `must-revalidate, no-cache, private` |
 | `cache_4xx` | Creates an unpublished node, requests it anonymously twice, saves a different node, requests again | 403 cached (second HIT), MISS after the other node's save | PASS both; Redis TTL of the cached 403 = 7200 s (`cache_ttl_4xx` 3600 + `redis_ttl_offset` 3600) |
+| `cache_mode_dev` | `perf-cache.sh dev`, requests a node twice, switches back to prod-like ([cache-modes.md](cache-modes.md)) | render bin `NullBackend`, second request not HIT, `Cache-Control` no-cache, Twig debug comments, no aggregated CSS | PASS both (52 THEME DEBUG comments). Fail-proof `CACHE_MODE_NEGATIVE=1` FAILS [V: tmp/ddev/cache-mode-failproof.log, tmp/lando-cache-mode-failproof.log] |
+| `cache_mode_prod` | `perf-cache.sh prod-like`, same checks | not NullBackend, HIT, `public`, no Twig comments, aggregated CSS | PASS both. Same fail-proof FAILS |
 
 ### Edge / WAF tests (docs/edge-waf.md)
 
-These need the `edge` service. `PERF_EDGE=0` skips them. **Fail-proof:** `EDGE_SEARCH_PATHS=.` on the edge (search limit on every path) makes `waf_rate_limit` FAIL on `/node?page=N` [V: tmp/ddev/run11-edge-failproof.log]. `EDGE_NEGATIVE=1` sends the
+These need the `edge` service. `PERF_EDGE=0` skips them. **Fail-proof:** `EDGE_SEARCH_PATHS=.` on the edge (search limit on every path) makes `waf_rate_limit` FAIL on `/node?page=N` (search-zone limits counted from the edge error log) [V: tmp/ddev/run11-edge-failproof.log, tmp/ddev/run12-search-failproof.log]. `EDGE_NEGATIVE=1` sends the
 edge requests to the origin (and, for `edge_purge_e2e`, turns off the purge forwarding); all 11
 FAIL in both labs [V: tmp/ddev/edge-failproof.log, tmp/lando-edge-failproof.log].
 
@@ -49,7 +51,9 @@ FAIL in both labs [V: tmp/ddev/edge-failproof.log, tmp/lando-edge-failproof.log]
 | `waf_blocked_paths` | 11 hardening-doc paths, then `/` and `/index.php` | All 11 are 403; `/` and `/index.php` are 200 | PASS both |
 | `waf_detection_mode` | SQLi and `/xmlrpc.php` through the Detection listener (8081), then reads the audit log | Not blocked, and the audit log has CRS 942xxx and custom 10002 for the request marker | PASS both |
 | `origin_headers` | Anonymous `/admin/config` through the edge with spoofed `X-Forwarded-For`/`X-Azure-ClientIP` 203.0.113.9 | Origin saw the synthetic FDID, `Via: 1.1 Azure`, `hops=1`, XFF appended; dblog client IP = this container, not the spoofed IP | PASS both |
-| `waf_rate_limit` | 12 login POSTs, 90 parallel search requests, 90 parallel `/node?page=N` requests, 320 parallel static requests, then 12 login POSTs on the Detection listener | Login: 10 allowed then 429; search and general produce 429s; `/node?page=N` gets none; Detection listener 0 limited (dry run) | PASS both (DDEV: search 34/90, general 138/320) |
+| `waf_rate_limit` | 12 login POSTs, 90 parallel search requests, 90 parallel `/node?page=N` requests, 320 parallel static requests, then 12 login POSTs on the Detection listener | Login: 10 allowed then 429; search and general produce 429s; `/node?page=N` is never limited by the search zone (checked in the edge error log); Detection listener 0 limited (dry run) | PASS both (DDEV: search 34/90, general 138/320) |
+
+The suite switches to `prod-like` for its run and restores the previous cache mode at exit (`PERF_CACHE_AUTO=0` skips; the host wrappers do it once around the whole run).
 
 ## Unit tests (fail-open module)
 

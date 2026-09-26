@@ -29,7 +29,7 @@ PREFIX="${REDIS_PREFIX:-}"
 FAILS=0
 PASSES=0
 ALL_TESTS=(redis_bins redis_in_use drush_cr tag_invalidation eviction purge_queue_fills purge_send purge_send_gov purge_retry
-  fast404_static fast404_path themed_404 headers_anon headers_auth cache_4xx)
+  fast404_static fast404_path themed_404 headers_anon headers_auth cache_4xx cache_mode_dev cache_mode_prod)
 # Edge tests need the edge service (edge/). waf_rate_limit runs last: it
 # exhausts this client's rate-limit buckets for about a minute.
 # PERF_EDGE=0 skips them (site without the edge).
@@ -187,7 +187,7 @@ t_eviction() {
   used=$(redis_php info memory used_memory)
   limit=$((used + 400000))
   # Always restore the Redis limits, even if the test is interrupted.
-  trap "redis_php config_set maxmemory '$orig_mem' >/dev/null; redis_php config_set maxmemory-policy '$orig_pol' >/dev/null" EXIT INT TERM
+  trap "redis_php config_set maxmemory '$orig_mem' >/dev/null; redis_php config_set maxmemory-policy '$orig_pol' >/dev/null; perf_cache_restore" EXIT INT TERM
   redis_php config_set maxmemory "$limit" >/dev/null
   redis_php config_set maxmemory-policy allkeys-lru >/dev/null
   ev0=$(redis_php info stats evicted_keys)
@@ -199,7 +199,7 @@ t_eviction() {
   local peak; peak=$(redis_php info memory used_memory_peak_human)
   redis_php config_set maxmemory "$orig_mem" >/dev/null
   redis_php config_set maxmemory-policy "$orig_pol" >/dev/null
-  trap - EXIT INT TERM
+  trap - INT TERM; trap perf_cache_restore EXIT
   if [[ "$((ev1 - ev0))" -gt 0 && "$code" == "200" ]]; then
     say PASS eviction "maxmemory temporarily $limit bytes (policy allkeys-lru), $n page requests: evicted_keys $ev0 -> $ev1, home page still $code; peak=$peak; restored maxmemory=$orig_mem policy=$orig_pol"
   else
@@ -441,6 +441,43 @@ t_cache_4xx() {
   fi
 }
 
+# --- Cache modes (scripts/perf-cache.sh, docs/cache-modes.md) ---------------
+# CACHE_MODE_NEGATIVE=1 fail-proof: each test switches to the OPPOSITE mode,
+# so both must FAIL.
+PERF_CACHE_SH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/perf-cache.sh"
+mode_probe() {
+  local u="$1" h1 h2 body cls
+  cls=$(php_eval 'print (new \ReflectionClass(\Drupal::cache("render")))->getShortName();' | tail -1)
+  curl -s -o /dev/null "$u"; h1=$(hdr "$u"); h2=$(hdr "$u"); body=$(curl -s "$u")
+  MP_CLS="$cls"; MP_PC="$(hget "$h2" x-drupal-cache)"; MP_CC="$(hget "$h2" cache-control)"
+  MP_TWIG=$(printf '%s' "$body" | grep -c 'THEME DEBUG' || true)
+  MP_AGG=$(printf '%s' "$body" | grep -c 'files/css/css_' || true)
+}
+
+t_cache_mode_dev() {
+  local target=dev; [[ "${CACHE_MODE_NEGATIVE:-0}" == 1 ]] && target=prod-like
+  bash "$PERF_CACHE_SH" "$target" >/dev/null 2>&1
+  mode_probe "$BASE_URL/node/$(first_node)?mode=$(rnd)"
+  bash "$PERF_CACHE_SH" prod-like >/dev/null 2>&1
+  if [[ "$MP_CLS" == NullBackend && "$MP_PC" != HIT && "$MP_TWIG" -ge 1 && "$MP_AGG" -eq 0 && "$MP_CC" == *no-cache* ]]; then
+    say PASS cache_mode_dev "dev: render bin $MP_CLS, 2nd request X-Drupal-Cache='${MP_PC:-absent}', Cache-Control '$MP_CC', $MP_TWIG THEME DEBUG comments, 0 aggregated CSS links; switched back to prod-like"
+  else
+    say FAIL cache_mode_dev "mode $target: render bin $MP_CLS, X-Drupal-Cache='${MP_PC:-absent}', Cache-Control '$MP_CC', twig comments $MP_TWIG, aggregated CSS links $MP_AGG"
+  fi
+}
+
+t_cache_mode_prod() {
+  local target=prod-like; [[ "${CACHE_MODE_NEGATIVE:-0}" == 1 ]] && target=dev
+  bash "$PERF_CACHE_SH" "$target" >/dev/null 2>&1
+  mode_probe "$BASE_URL/node/$(first_node)?mode=$(rnd)"
+  [[ "$target" != prod-like ]] && bash "$PERF_CACHE_SH" prod-like >/dev/null 2>&1
+  if [[ "$MP_CLS" != NullBackend && "$MP_PC" == HIT && "$MP_TWIG" -eq 0 && "$MP_AGG" -ge 1 && "$MP_CC" == *public* ]]; then
+    say PASS cache_mode_prod "prod-like: render bin $MP_CLS, 2nd request X-Drupal-Cache=HIT, Cache-Control '$MP_CC', no THEME DEBUG, $MP_AGG aggregated CSS link(s)"
+  else
+    say FAIL cache_mode_prod "mode $target: render bin $MP_CLS, X-Drupal-Cache='${MP_PC:-absent}', Cache-Control '$MP_CC', twig comments $MP_TWIG, aggregated CSS links $MP_AGG"
+  fi
+}
+
 # --- Edge (Front Door + WAF stand-in, edge/) --------------------------------
 # PERF_EDGE_URL     main edge route (default http://edge:8080)
 # PERF_EDGE_CONTROL edge control listener (default http://edge:8099)
@@ -630,27 +667,50 @@ t_origin_headers() {
 }
 
 t_waf_rate_limit() {
-  local i c codes="" lg n429=0 s429=0 p429 g429 dry=0
+  local i c codes="" lg n429=0 s429=0 p429 psz g429 dry=0
   for i in $(seq 1 12); do codes="$codes $(status_of -X POST --data 'name=x&pass=y&form_id=user_login_form' "$EDGE/user/login")"; done
   for c in $codes; do [[ "$c" == 429 ]] && n429=$((n429+1)); done
   lg=$((12 - n429))
   # 60/min refills one request per second, so send in parallel.
   s429=$(seq 1 90 | xargs -P 16 -I{} curl -s -o /dev/null -w '%{http_code}\n' "$EDGE/search/node?keys=rl{}" | grep -c 429 || true)
   # Pager/views-filter bursts must NOT hit the search limit (only general).
-  p429=$(seq 1 90 | xargs -P 16 -I{} curl -s -o /dev/null -w '%{http_code}\n' "$EDGE/node?page={}" | grep -c 429 || true)
+  # A 429 here can also come from the general limit (the suite's own traffic),
+  # so attribute it: count edge error-log lines where the SEARCH zone limited
+  # these marked requests (must be 0).
+  local mk="pg$(rnd)"
+  p429=$(seq 1 90 | xargs -P 16 -I{} curl -s -o /dev/null -w '%{http_code}\n' "$EDGE/node?page={}&rl=$mk" | grep -c 429 || true)
+  sleep 1
+  psz=$(curl -s "$EDGE_CTL/__edge/log/error" | grep "$mk" | grep -c 'zone "edge_search"' || true)
   g429=$(seq 1 320 | xargs -P 16 -I{} curl -s -o /dev/null -w '%{http_code}\n' "$EDGE/core/misc/druplicon.png" | grep -c 429 || true)
   for i in $(seq 1 12); do [[ "$(status_of -X POST --data 'name=x&pass=y' "$(edge_route 8081)/user/login")" == 429 ]] && dry=$((dry+1)); done
   # 10/min refills one request per 6 s; 12 serial POSTs can earn one refill.
-  if [[ "$lg" -ge 10 && "$lg" -le 11 && "$s429" -ge 1 && "$p429" -eq 0 && "$g429" -ge 1 && "$dry" -eq 0 ]]; then
-    say PASS waf_rate_limit "login POST: 10 allowed then 429 ($codes); search: $s429 of 90 got 429; /node?page=N: 0 of 90 limited; general: $g429 of 320 got 429; Detection route: 0 of 12 login POSTs limited (dry run)"
+  if [[ "$lg" -ge 10 && "$lg" -le 11 && "$s429" -ge 1 && "$psz" -eq 0 && "$g429" -ge 1 && "$dry" -eq 0 ]]; then
+    say PASS waf_rate_limit "login POST: 10 allowed then 429 ($codes); search: $s429 of 90 got 429; /node?page=N: 0 of 90 limited by the search zone ($p429 by the general limit); general: $g429 of 320 got 429; Detection route: 0 of 12 login POSTs limited (dry run)"
   else
-    say FAIL waf_rate_limit "login allowed=$lg (want 10, or 11 with one refill) codes:$codes; search 429s=$s429; /node?page=N 429s=$p429 (want 0); general 429s=$g429; detection-route 429s=$dry (want 0)"
+    say FAIL waf_rate_limit "login allowed=$lg (want 10, or 11 with one refill) codes:$codes; search 429s=$s429; /node?page=N search-zone limits=$psz (want 0), 429s=$p429; general 429s=$g429; detection-route 429s=$dry (want 0)"
   fi
 }
 
 # --- Runner -------------------------------------------------------------------
 if [[ "${1:-}" == "--list" ]]; then printf '%s\n' "${ALL_TESTS[@]}" redis_down redis_recover redis_hang; exit 0; fi
 TESTS=("$@"); [[ ${#TESTS[@]} -eq 0 ]] && TESTS=("${ALL_TESTS[@]}")
+# The suite needs production behaviour: switch to prod-like, restore the
+# previous mode at exit. PERF_CACHE_AUTO=0 skips (the host wrappers do it once).
+PERF_CACHE_PREV=""; PERF_CACHE_SWITCHED=0
+perf_cache_restore() {
+  if [[ "$PERF_CACHE_SWITCHED" == 1 ]]; then
+    bash "$PERF_CACHE_SH" "${PERF_CACHE_PREV:-off}" >/dev/null 2>&1
+    echo "# cache mode restored to '${PERF_CACHE_PREV:-off}'"
+  fi
+}
+if [[ "${PERF_CACHE_AUTO:-1}" == 1 ]]; then
+  PERF_CACHE_PREV=$(bash "$PERF_CACHE_SH" current 2>/dev/null | tr -d '[:space:]')
+  if [[ "$PERF_CACHE_PREV" != prod-like ]]; then
+    bash "$PERF_CACHE_SH" prod-like >/dev/null 2>&1; PERF_CACHE_SWITCHED=1
+    echo "# cache mode: '${PERF_CACHE_PREV:-off}' -> prod-like for the suite"
+  fi
+fi
+trap perf_cache_restore EXIT
 echo "# perf test-local.sh $(date -u +%FT%TZ) BASE_URL=$BASE_URL MOCK=$MOCK PREFIX=$PREFIX"
 for t in "${TESTS[@]}"; do
   if declare -F "t_$t" >/dev/null; then "t_$t"; else say FAIL "$t" "unknown test"; fi
