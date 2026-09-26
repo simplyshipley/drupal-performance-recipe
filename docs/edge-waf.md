@@ -31,7 +31,7 @@ and OWASP CRS 3.3.10. Azure's DRS 2.2 is based on CRS 3.3.4.
 | Purge | `POST :8099/__edge/purge {"contentPaths": [...]}`. Matching is by exact path, `/dir/*` or `/*`, case-insensitive and query-string agnostic. mock-afd forwards every successful Drupal purge here. |
 | DRS (managed rules) | CRS 3.3.10, paranoia 1, inbound anomaly threshold 5 (`BLOCKING_PARANOIA`, `ANOMALY_INBOUND`), with the Drupal exclusions on |
 | Custom rules (docs/hardening.md) | ModSecurity rule 10001 blocks `/.env`, `/.git*`, `/vendor/`, `/core/install.php`, `/update.php`, `/core/*.txt`, `/wp-admin`, `/xmlrpc.php` and `/phpmyadmin`. Rule 10002 blocks any `*.php` except `/index.php`. |
-| Rate limits (per socket IP) | Login/password POST `EDGE_RL_LOGIN` 10/min. Search (`/search*` or any query string on non-static requests) `EDGE_RL_SEARCH` 60/min. Everything `EDGE_RL_GENERAL` 300/min. The block answer is 429 with an empty body. |
+| Rate limits (per socket IP) | Login/password POST `EDGE_RL_LOGIN` 10/min. Search (paths matching `EDGE_SEARCH_PATHS`, default `^/search`) `EDGE_RL_SEARCH` 60/min; pagers and views filters such as `?page=2` count only toward the general limit. Everything `EDGE_RL_GENERAL` 300/min. The block answer is 429 with an empty body. |
 | Block response | 403 page "The request is blocked." with a tracking reference |
 | Detection vs Prevention | `EDGE_WAF_MODE=Detection` sets ModSecurity to DetectionOnly and puts rate limits in dry-run. Listener 8081 is always in Detection mode. |
 | WAF logs | ModSecurity JSON audit log at `:8099/__edge/log/audit`. The error log (rate-limit and ModSecurity lines) is at `/__edge/log/error` and the access log (with X-Cache and cache key) at `/__edge/log/access`. |
@@ -64,6 +64,7 @@ objects, while one purge clears the matching path on all of them.
 | `EDGE_CACHE_MAX_SIZE` | `1g` | Cache size limit |
 | `EDGE_WAF_MODE` | `Prevention` | `Prevention` or `Detection` |
 | `EDGE_RL_LOGIN` / `_SEARCH` / `_GENERAL` | 10 / 60 / 300 | Requests per minute per client IP |
+| `EDGE_SEARCH_PATHS` | `^/search` | Case-insensitive regex on the path for the search limit, e.g. `^/(search|find)` |
 | `BLOCKING_PARANOIA`, `ANOMALY_INBOUND` | 1, 5 | CRS paranoia level and anomaly threshold (DRS: PL1, threshold 5) |
 
 Drupal side (lab only, honoured only in DDEV/Lando):

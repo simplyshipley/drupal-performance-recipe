@@ -33,7 +33,7 @@ tmp/lando-run7.log].
 
 ### Edge / WAF tests (docs/edge-waf.md)
 
-These need the `edge` service. `PERF_EDGE=0` skips them. **Fail-proof:** `EDGE_NEGATIVE=1` sends the
+These need the `edge` service. `PERF_EDGE=0` skips them. **Fail-proof:** `EDGE_SEARCH_PATHS=.` on the edge (search limit on every path) makes `waf_rate_limit` FAIL on `/node?page=N` [V: tmp/ddev/run11-edge-failproof.log]. `EDGE_NEGATIVE=1` sends the
 edge requests to the origin (and, for `edge_purge_e2e`, turns off the purge forwarding); all 11
 FAIL in both labs [V: tmp/ddev/edge-failproof.log, tmp/lando-edge-failproof.log].
 
@@ -49,7 +49,7 @@ FAIL in both labs [V: tmp/ddev/edge-failproof.log, tmp/lando-edge-failproof.log]
 | `waf_blocked_paths` | 11 hardening-doc paths, then `/` and `/index.php` | All 11 are 403; `/` and `/index.php` are 200 | PASS both |
 | `waf_detection_mode` | SQLi and `/xmlrpc.php` through the Detection listener (8081), then reads the audit log | Not blocked, and the audit log has CRS 942xxx and custom 10002 for the request marker | PASS both |
 | `origin_headers` | Anonymous `/admin/config` through the edge with spoofed `X-Forwarded-For`/`X-Azure-ClientIP` 203.0.113.9 | Origin saw the synthetic FDID, `Via: 1.1 Azure`, `hops=1`, XFF appended; dblog client IP = this container, not the spoofed IP | PASS both |
-| `waf_rate_limit` | 12 login POSTs, 90 parallel search requests, 320 parallel static requests, then 12 login POSTs on the Detection listener | Login: 10 allowed then 429; search and general produce 429s; Detection listener 0 limited (dry run) | PASS both (DDEV: search 34/90, general 138/320) |
+| `waf_rate_limit` | 12 login POSTs, 90 parallel search requests, 90 parallel `/node?page=N` requests, 320 parallel static requests, then 12 login POSTs on the Detection listener | Login: 10 allowed then 429; search and general produce 429s; `/node?page=N` gets none; Detection listener 0 limited (dry run) | PASS both (DDEV: search 34/90, general 138/320) |
 
 ## Unit tests (fail-open module)
 

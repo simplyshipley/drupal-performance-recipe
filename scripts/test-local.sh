@@ -630,19 +630,21 @@ t_origin_headers() {
 }
 
 t_waf_rate_limit() {
-  local i c codes="" lg n429=0 s429=0 g429 dry=0
+  local i c codes="" lg n429=0 s429=0 p429 g429 dry=0
   for i in $(seq 1 12); do codes="$codes $(status_of -X POST --data 'name=x&pass=y&form_id=user_login_form' "$EDGE/user/login")"; done
   for c in $codes; do [[ "$c" == 429 ]] && n429=$((n429+1)); done
   lg=$((12 - n429))
   # 60/min refills one request per second, so send in parallel.
   s429=$(seq 1 90 | xargs -P 16 -I{} curl -s -o /dev/null -w '%{http_code}\n' "$EDGE/search/node?keys=rl{}" | grep -c 429 || true)
+  # Pager/views-filter bursts must NOT hit the search limit (only general).
+  p429=$(seq 1 90 | xargs -P 16 -I{} curl -s -o /dev/null -w '%{http_code}\n' "$EDGE/node?page={}" | grep -c 429 || true)
   g429=$(seq 1 320 | xargs -P 16 -I{} curl -s -o /dev/null -w '%{http_code}\n' "$EDGE/core/misc/druplicon.png" | grep -c 429 || true)
   for i in $(seq 1 12); do [[ "$(status_of -X POST --data 'name=x&pass=y' "$(edge_route 8081)/user/login")" == 429 ]] && dry=$((dry+1)); done
   # 10/min refills one request per 6 s; 12 serial POSTs can earn one refill.
-  if [[ "$lg" -ge 10 && "$lg" -le 11 && "$s429" -ge 1 && "$g429" -ge 1 && "$dry" -eq 0 ]]; then
-    say PASS waf_rate_limit "login POST: 10 allowed then 429 ($codes); search: $s429 of 90 got 429; general: $g429 of 320 got 429; Detection route: 0 of 12 login POSTs limited (dry run)"
+  if [[ "$lg" -ge 10 && "$lg" -le 11 && "$s429" -ge 1 && "$p429" -eq 0 && "$g429" -ge 1 && "$dry" -eq 0 ]]; then
+    say PASS waf_rate_limit "login POST: 10 allowed then 429 ($codes); search: $s429 of 90 got 429; /node?page=N: 0 of 90 limited; general: $g429 of 320 got 429; Detection route: 0 of 12 login POSTs limited (dry run)"
   else
-    say FAIL waf_rate_limit "login allowed=$lg (want 10, or 11 with one refill) codes:$codes; search 429s=$s429; general 429s=$g429; detection-route 429s=$dry (want 0)"
+    say FAIL waf_rate_limit "login allowed=$lg (want 10, or 11 with one refill) codes:$codes; search 429s=$s429; /node?page=N 429s=$p429 (want 0); general 429s=$g429; detection-route 429s=$dry (want 0)"
   fi
 }
 

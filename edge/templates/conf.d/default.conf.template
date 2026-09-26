@@ -74,11 +74,11 @@ map "$request_method:$uri" $edge_rl_login_key {
     default "";
     "~*^POST:/user/(login|password)" $binary_remote_addr;
 }
-map "$uri|$args" $edge_rl_search_key {
+# Search limit: search paths only (EDGE_SEARCH_PATHS regex, default ^/search).
+# Pagers and views filters (?page=2) are NOT counted here, only by general.
+map $uri $edge_rl_search_key {
     default "";
-    "~*^/search" $binary_remote_addr;
-    "~*\.(css|js|mjs|png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|otf|eot)\|" "";
-    "~\|.+" $binary_remote_addr;
+    "~*${EDGE_SEARCH_PATHS}" $binary_remote_addr;
 }
 limit_req_zone $edge_rl_login_key   zone=edge_login:10m   rate=${EDGE_RL_LOGIN}r/m;
 limit_req_zone $edge_rl_search_key  zone=edge_search:10m  rate=${EDGE_RL_SEARCH}r/m;
