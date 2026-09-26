@@ -30,6 +30,7 @@ config/                          purge.plugins + azure_cdn_purge.settings (no se
 settings/settings.performance.php  env-driven settings include (Redis, proxy, Fast 404, purge credentials)
 settings/redis.services.yml      Redis lock / flood / cache-tag services
 mock-afd/                        mock Azure Front Door purge + token endpoint (Python, Docker)
+edge/                            local Front Door cache + Azure WAF stand-in (nginx + ModSecurity CRS 3.3.10)
 ddev/                            DDEV files (config.perf.yaml, compose for mock, redis.conf, `ddev perf-test`)
 lando/                           Lando snippet (.lando.local.yml), nginx vhost, redis.conf
 scripts/test-local.sh            test suite (runs in the web container)
@@ -45,10 +46,17 @@ docs/                            all documentation
 4. [Lando setup and test walkthrough](docs/lando.md)
 5. [Test reference](docs/tests.md)
 6. [Troubleshooting and known module issues](docs/troubleshooting.md)
-7. Source guides: [Caching on Azure](docs/caching-guide.md), [Hardening](docs/hardening.md)
+7. [Edge: local Front Door + WAF stand-in](docs/edge-waf.md) (setup, static asset caching test, differences) and [research notes](docs/research-afd-waf.md)
+8. Source guides: [Caching on Azure](docs/caching-guide.md), [Hardening](docs/hardening.md)
    (exported from the Claude Doc, 2026-09-25)
 
-## Lab results (2026-09-25, after the Redis ruling)
+## Lab results (2026-09-26, with the edge)
+
+Full suite incl. 11 edge/WAF tests: DDEV 29 PASS / 0 FAIL [V: tmp/ddev/run10-edge.log], Lando
+29 PASS / 0 FAIL [V: tmp/lando-run8-edge.log]. Edge fail-proof (`EDGE_NEGATIVE=1`): 11 of 11 FAIL
+in both labs [V: tmp/ddev/edge-failproof.log, tmp/lando-edge-failproof.log].
+
+## Earlier lab results (2026-09-25, after the Redis ruling)
 
 All 15 in-container tests plus `redis_down`, `redis_recover` and `redis_hang` PASS in both labs
 [V: tmp/ddev/run9.log, tmp/lando-run7.log]. Redis holds only the heavy bins and a

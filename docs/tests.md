@@ -31,6 +31,26 @@ tmp/lando-run7.log].
 | `headers_auth` | Logs in with `drush uli`, requests a node page twice | `X-Drupal-Cache` absent or `UNCACHEABLE (request policy)`, `X-Drupal-Dynamic-Cache: HIT`, `Cache-Control` private/no-cache | PASS both: `must-revalidate, no-cache, private` |
 | `cache_4xx` | Creates an unpublished node, requests it anonymously twice, saves a different node, requests again | 403 cached (second HIT), MISS after the other node's save | PASS both; Redis TTL of the cached 403 = 7200 s (`cache_ttl_4xx` 3600 + `redis_ttl_offset` 3600) |
 
+### Edge / WAF tests (docs/edge-waf.md)
+
+These need the `edge` service. `PERF_EDGE=0` skips them. **Fail-proof:** `EDGE_NEGATIVE=1` sends the
+edge requests to the origin (and, for `edge_purge_e2e`, turns off the purge forwarding); all 11
+FAIL in both labs [V: tmp/ddev/edge-failproof.log, tmp/lando-edge-failproof.log].
+
+| Test | What it does | PASS means | Lab result |
+|---|---|---|---|
+| `edge_static_hit` | Warms the CSS and JS aggregates at the origin, then requests them and `/core/misc/druplicon.png` twice through the edge (gzip) | `TCP_MISS` then `TCP_HIT`, 200, Cache-Control present | PASS both (gzip on CSS/JS) |
+| `edge_querystring` | Image through listeners 8091/8090/8092/8093 with query variants; Drupal CSS aggregate with its parameters reordered | use: MISS/HIT(reordered)/MISS; ignore: MISS/HIT; ignore-specified (utm_source): MISS/HIT/MISS; include-specified (v): MISS/HIT/MISS; aggregate MISS/HIT and `text/css` | PASS both |
+| `edge_bypass_session` | Logs in through the edge (`drush uli --uri=edge`), requests a node with the session cookie, then anonymously | Logged in: `CONFIG_NOCACHE` twice; `/user/login` `CONFIG_NOCACHE`; anonymous is cached | PASS both |
+| `edge_html_ttl` | Sets page max age 300, requests a node twice; sets 0, requests twice; restores | 300: MISS/HIT with `max-age=300, public`; 0: `PRIVATE_NOSTORE` twice | PASS both |
+| `edge_purge_e2e` | Caches a node page at the edge, edits the node, checks the edge still serves the old title, runs `p:queue-work` (mock-afd forwards the purge to the edge), requests again | Old title while cached, new title after the purge | PASS both (`purged: ["edge:8080/node/1"]`) |
+| `waf_block_sqli` | `' OR '1'='1` and `UNION SELECT` in the query | 403 with "The request is blocked." | PASS both |
+| `waf_block_xss` | `<script>` in the query, `onerror=` in a POST body | 403 / 403 | PASS both |
+| `waf_blocked_paths` | 11 hardening-doc paths, then `/` and `/index.php` | All 11 are 403; `/` and `/index.php` are 200 | PASS both |
+| `waf_detection_mode` | SQLi and `/xmlrpc.php` through the Detection listener (8081), then reads the audit log | Not blocked, and the audit log has CRS 942xxx and custom 10002 for the request marker | PASS both |
+| `origin_headers` | Anonymous `/admin/config` through the edge with spoofed `X-Forwarded-For`/`X-Azure-ClientIP` 203.0.113.9 | Origin saw the synthetic FDID, `Via: 1.1 Azure`, `hops=1`, XFF appended; dblog client IP = this container, not the spoofed IP | PASS both |
+| `waf_rate_limit` | 12 login POSTs, 90 parallel search requests, 320 parallel static requests, then 12 login POSTs on the Detection listener | Login: 10 allowed then 429; search and general produce 429s; Detection listener 0 limited (dry run) | PASS both (DDEV: search 34/90, general 138/320) |
+
 ## Unit tests (fail-open module)
 
 `modules/perf_redis_failopen/tests/src/Unit/FailOpenCacheBackendTest.php`, plain PHPUnit:

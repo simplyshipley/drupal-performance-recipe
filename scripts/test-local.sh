@@ -30,6 +30,12 @@ FAILS=0
 PASSES=0
 ALL_TESTS=(redis_bins redis_in_use drush_cr tag_invalidation eviction purge_queue_fills purge_send purge_send_gov purge_retry
   fast404_static fast404_path themed_404 headers_anon headers_auth cache_4xx)
+# Edge tests need the edge service (edge/). waf_rate_limit runs last: it
+# exhausts this client's rate-limit buckets for about a minute.
+# PERF_EDGE=0 skips them (site without the edge).
+EDGE_TESTS=(edge_static_hit edge_querystring edge_bypass_session edge_html_ttl edge_purge_e2e
+  waf_block_sqli waf_block_xss waf_blocked_paths waf_detection_mode origin_headers waf_rate_limit)
+[[ "${PERF_EDGE:-1}" == 1 ]] && ALL_TESTS+=("${EDGE_TESTS[@]}")
 
 say() { printf '%s %s: %s\n' "$1" "$2" "$3"; case "$1" in FAIL) FAILS=$((FAILS+1));; PASS) PASSES=$((PASSES+1));; esac; }
 dr() { $DRUSH "$@" 2>&1; }
@@ -432,6 +438,211 @@ t_cache_4xx() {
     say PASS cache_4xx "unpublished node/$nid: 403 cached (HIT, Redis TTL ${ttl:-n/a}s = cache_ttl_4xx + redis_ttl_offset); saving another node (node/$other) cleared it (next request MISS)"
   else
     say FAIL cache_4xx "status=$(hget "$h2" status) second=$(hget "$h2" x-drupal-cache) after-other-save=$(hget "$h3" x-drupal-cache) ttl=${ttl:-n/a}"
+  fi
+}
+
+# --- Edge (Front Door + WAF stand-in, edge/) --------------------------------
+# PERF_EDGE_URL     main edge route (default http://edge:8080)
+# PERF_EDGE_CONTROL edge control listener (default http://edge:8099)
+# EDGE_NEGATIVE=1   fail-proof: send the "edge" requests straight to the origin
+#                   (BASE_URL); edge_purge_e2e instead keeps the edge and turns
+#                   off the mock-afd -> edge purge forwarding;
+#                   every edge_* / waf_* / origin_headers test must then FAIL.
+EDGE="${PERF_EDGE_URL:-http://edge:8080}"
+EDGE_CTL="${PERF_EDGE_CONTROL:-http://edge:8099}"
+EDGE_HOST="${EDGE#*://}"; EDGE_HOST="${EDGE_HOST%%[:/]*}"
+EDGE_NEG="${EDGE_NEGATIVE:-0}"
+# edge_route <port>: URL of one edge listener (route).
+edge_route() { if [[ "$EDGE_NEG" == 1 ]]; then echo "$BASE_URL"; else echo "http://$EDGE_HOST:$1"; fi; }
+EDGE_REAL="$EDGE"
+[[ "$EDGE_NEG" == 1 ]] && EDGE="$BASE_URL"
+xc() { hget "$(hdr "$@")" x-cache; }
+rnd() { echo "$RANDOM$RANDOM"; }
+# First aggregated CSS URL on the front page (relative, &amp; decoded).
+agg_css() { curl -s "$BASE_URL/" | grep -o '/sites/[^"]*/files/css/css_[^"]*\.css?[^"]*' | head -1 | sed 's/&amp;/\&/g'; }
+agg_js() { curl -s "$BASE_URL/" | grep -o '/sites/[^"]*/files/js/js_[^"]*\.js?[^"]*' | head -1 | sed 's/&amp;/\&/g'; }
+PERF_BLOCK_TEXT="The request is blocked."
+
+t_edge_static_hit() {
+  local agg aggjs u r1 r2 bad="" out="" q
+  agg=$(agg_css); aggjs=$(agg_js); q="edgetest=$(rnd)"
+  # Drupal builds aggregates on first request (a PHP response); warm them at
+  # the origin so the edge sees the static file, as it would in production.
+  curl -s -o /dev/null "$BASE_URL$agg"; curl -s -o /dev/null "$BASE_URL$aggjs"
+  for u in "$agg&$q" "$aggjs&$q" "/core/misc/druplicon.png?$q"; do
+    r1=$(hdr "$EDGE$u" -H 'Accept-Encoding: gzip'); r2=$(hdr "$EDGE$u" -H 'Accept-Encoding: gzip')
+    out="$out ${u%%\?*}: $(hget "$r1" x-cache)->$(hget "$r2" x-cache) cc='$(hget "$r2" cache-control)' ce=$(hget "$r2" content-encoding);"
+    [[ "$(hget "$r1" status)" == 200 && "$(hget "$r1" x-cache)" == TCP_MISS && "$(hget "$r2" x-cache)" == TCP_HIT && -n "$(hget "$r2" cache-control)" ]] || bad="$bad ${u%%\?*}"
+  done
+  [[ -z "$agg" || -z "$aggjs" ]] && bad="$bad no-css-or-js-aggregate-on-front-page"
+  if [[ -z "$bad" ]]; then say PASS edge_static_hit "CSS aggregate/JS/image MISS then HIT:$out"; else say FAIL edge_static_hit "not MISS->HIT with Cache-Control:$bad |$out"; fi
+}
+
+t_edge_querystring() {
+  local r img=/core/misc/druplicon.png bad="" out="" a b c agg re
+  r=$(rnd)
+  # "ignore" mode keys on the path alone, so start from an empty cache for it
+  # (control listener purge, same API mock-afd uses).
+  curl -s -X POST -H 'Content-Type: application/json' -d "{\"contentPaths\":[\"$img\"]}" "$EDGE_CTL/__edge/purge" >/dev/null
+  # use (8091): order-independent, different values are different objects
+  a=$(xc "$(edge_route 8091)$img?a=$r&b=2"); b=$(xc "$(edge_route 8091)$img?b=2&a=$r"); c=$(xc "$(edge_route 8091)$img?a=$r&b=3")
+  out="$out use:$a/$b/$c"; [[ "$a/$b/$c" == TCP_MISS/TCP_HIT/TCP_MISS ]] || bad="$bad use"
+  # ignore (8090): any query string shares one object
+  a=$(xc "$(edge_route 8090)$img?x=$r"); b=$(xc "$(edge_route 8090)$img?x=$r-other")
+  out="$out ignore:$a/$b"; [[ "$a/$b" == TCP_MISS/TCP_HIT ]] || bad="$bad ignore"
+  # ignore-specified (8092, EDGE_QS_IGNORE_PARAMS has utm_source)
+  a=$(xc "$(edge_route 8092)$img?page=$r&utm_source=a"); b=$(xc "$(edge_route 8092)$img?utm_source=b&page=$r"); c=$(xc "$(edge_route 8092)$img?page=$r-2")
+  out="$out ignore-specified:$a/$b/$c"; [[ "$a/$b/$c" == TCP_MISS/TCP_HIT/TCP_MISS ]] || bad="$bad ignore-specified"
+  # include-specified (8093, EDGE_QS_INCLUDE_PARAMS has v)
+  a=$(xc "$(edge_route 8093)$img?v=$r&junk=1"); b=$(xc "$(edge_route 8093)$img?junk=2&v=$r"); c=$(xc "$(edge_route 8093)$img?v=$r-2")
+  out="$out include-specified:$a/$b/$c"; [[ "$a/$b/$c" == TCP_MISS/TCP_HIT/TCP_MISS ]] || bad="$bad include-specified"
+  # Drupal aggregated CSS on the main route (use): its own query params,
+  # reordered, must hit the same object and still be CSS.
+  agg=$(agg_css)
+  if [[ -n "$agg" ]]; then
+    re="${agg%%\?*}?$(printf '%s' "${agg#*\?}&edgeqs=$r" | tr '&' '\n' | sort -r | paste -sd '&' -)"
+    a=$(hdr "$EDGE$agg&edgeqs=$r"); b=$(hdr "$EDGE$re")
+    out="$out drupal-aggregate:$(hget "$a" x-cache)/$(hget "$b" x-cache) type=$(hget "$b" content-type)"
+    [[ "$(hget "$a" x-cache)/$(hget "$b" x-cache)" == TCP_MISS/TCP_HIT && "$(hget "$b" content-type)" == text/css* ]] || bad="$bad drupal-aggregate"
+  else
+    bad="$bad no-aggregate"
+  fi
+  if [[ -z "$bad" ]]; then say PASS edge_querystring "$out"; else say FAIL edge_querystring "wrong:$bad |$out"; fi
+}
+
+t_edge_bypass_session() {
+  local jar=/tmp/perf-edge-cookies.txt link u a1 a2 s1 s2 cc ck
+  : > "$jar"; u="/node/$(first_node)?edgebypass=$(rnd)"
+  link=$($DRUSH uli --uri="$EDGE" --no-browser 2>/dev/null | tail -1)
+  curl -s -o /dev/null -c "$jar" -b "$jar" -L "$link"
+  s1=$(hdr "$EDGE$u" -b "$jar"); s2=$(hdr "$EDGE$u" -b "$jar")
+  a1=$(xc "$EDGE$u"); a2=$(xc "$EDGE$u")
+  cc=$(hget "$s2" cache-control)
+  ck=$(grep -c 'SESS' "$jar" 2>/dev/null || true)
+  : > "$jar"
+  if [[ "$ck" -ge 1 && "$(hget "$s1" x-cache)" == CONFIG_NOCACHE && "$(hget "$s2" x-cache)" == CONFIG_NOCACHE && "$(xc "$EDGE/user/login")" == CONFIG_NOCACHE && -n "$a1" && "$a1" != CONFIG_NOCACHE ]]; then
+    say PASS edge_bypass_session "session cookie: X-Cache $(hget "$s1" x-cache),$(hget "$s2" x-cache) (Cache-Control '$cc'); /user/login CONFIG_NOCACHE; same URL anonymous: $a1,$a2"
+  else
+    say FAIL edge_bypass_session "cookie jar SESS=$ck; logged-in X-Cache '$(hget "$s1" x-cache)','$(hget "$s2" x-cache)'; anon '$a1','$a2'"
+  fi
+}
+
+t_edge_html_ttl() {
+  local prev u h1 h2 p1 p2 cc
+  prev=$(php_eval 'print \Drupal::config("system.performance")->get("cache.page.max_age");' | tail -1)
+  u="$EDGE/node/$(first_node)?edgettl=$(rnd)"
+  php_eval '\Drupal::configFactory()->getEditable("system.performance")->set("cache.page.max_age", 300)->save();' >/dev/null
+  h1=$(hdr "$u"); h2=$(hdr "$u"); cc=$(hget "$h2" cache-control)
+  php_eval '\Drupal::configFactory()->getEditable("system.performance")->set("cache.page.max_age", 0)->save();' >/dev/null
+  u="$u-private"; p1=$(hdr "$u"); p2=$(hdr "$u")
+  php_eval "\Drupal::configFactory()->getEditable('system.performance')->set('cache.page.max_age', (int) '${prev:-0}')->save();" >/dev/null
+  if [[ "$(hget "$h1" x-cache)/$(hget "$h2" x-cache)" == TCP_MISS/TCP_HIT && "$cc" == *max-age=300* && "$(hget "$p1" x-cache)/$(hget "$p2" x-cache)" == PRIVATE_NOSTORE/PRIVATE_NOSTORE ]]; then
+    say PASS edge_html_ttl "max_age 300: $(hget "$h1" x-cache)->$(hget "$h2" x-cache) ('$cc'); max_age 0: $(hget "$p1" x-cache)->$(hget "$p2" x-cache) ('$(hget "$p2" cache-control)'); restored max_age=${prev:-0}"
+  else
+    say FAIL edge_html_ttl "300: $(hget "$h1" x-cache)->$(hget "$h2" x-cache) '$cc'; 0: $(hget "$p1" x-cache)->$(hget "$p2" x-cache) '$(hget "$p2" cache-control)'"
+  fi
+}
+
+t_edge_purge_e2e() {
+  local prev nid path t_old t_new b1 b2 b3 h3 log stale=no fresh=no
+  prev=$(php_eval 'print \Drupal::config("system.performance")->get("cache.page.max_age");' | tail -1)
+  php_eval '\Drupal::configFactory()->getEditable("system.performance")->set("cache.page.max_age", 300)->save();' >/dev/null
+  mock_reset; [[ "$EDGE_NEG" == 1 ]] && curl -s -X POST "$MOCK/__mock/edge-purge?enabled=0" >/dev/null
+  nid=$(first_node); t_old=$(touch_node "$nid" | tail -1); path=$(node_path "$nid")
+  dr p:queue-work --finish >/dev/null; dr p:queue-empty >/dev/null
+  curl -s -o /dev/null "$EDGE_REAL$path"; b1=$(curl -s "$EDGE_REAL$path")
+  t_new=$(touch_node "$nid" | tail -1)
+  b2=$(curl -s "$EDGE_REAL$path")
+  dr p:queue-work --finish >/dev/null
+  h3=$(hdr "$EDGE_REAL$path"); b3=$(curl -s "$EDGE_REAL$path")
+  log=$(mock_log | grep '"kind": "edge_purge"' | tail -1)
+  php_eval "\Drupal::configFactory()->getEditable('system.performance')->set('cache.page.max_age', (int) '${prev:-0}')->save();" >/dev/null
+  [[ "$b2" == *"$t_old"* && "$b2" != *"$t_new"* ]] && stale=yes
+  [[ "$b3" == *"$t_new"* ]] && fresh=yes
+  if [[ "$b1" == *"$t_old"* && "$stale" == yes && "$fresh" == yes ]]; then
+    say PASS edge_purge_e2e "edit node/$nid -> edge still served old title (cached); p:queue-work -> mock-afd -> edge purge ($log) -> $path X-Cache $(hget "$h3" x-cache) with new title"
+  else
+    say FAIL edge_purge_e2e "cached-old-before-purge=$stale fresh-after-purge=$fresh X-Cache after=$(hget "$h3" x-cache); edge_purge log: ${log:-none}"
+  fi
+}
+
+t_waf_block_sqli() {
+  local h b
+  h=$(hdr "$EDGE/node?id=1%27%20OR%20%271%27%3D%271%27%20--%20"); b=$(curl -s "$EDGE/?search=1%20UNION%20SELECT%20password%20FROM%20users--")
+  if [[ "$(hget "$h" status)" == 403 && "$b" == *"$PERF_BLOCK_TEXT"* ]]; then
+    say PASS waf_block_sqli "GET ' OR '1'='1 -> 403; UNION SELECT -> Azure-style block page (ref $(printf '%s' "$b" | grep -o 'reference: [0-9a-f]*'))"
+  else
+    say FAIL waf_block_sqli "status $(hget "$h" status); body: ${b:0:80}"
+  fi
+}
+
+t_waf_block_xss() {
+  local s1 s2
+  s1=$(status_of "$EDGE/?q=%3Cscript%3Ealert(1)%3C%2Fscript%3E")
+  s2=$(status_of -X POST --data-urlencode 'comment=<img src=x onerror=alert(1)>' "$EDGE/")
+  if [[ "$s1" == 403 && "$s2" == 403 ]]; then
+    say PASS waf_block_xss "GET <script> -> $s1; POST body onerror= -> $s2"
+  else
+    say FAIL waf_block_xss "GET <script> -> $s1; POST body -> $s2 (want 403/403)"
+  fi
+}
+
+t_waf_blocked_paths() {
+  local p s bad="" out=""
+  for p in /.env /.git/config /vendor/autoload.php /core/install.php /update.php /core/CHANGELOG.txt /wp-admin/ /xmlrpc.php /phpmyadmin/ /core/rebuild.php /sites/default/settings.php; do
+    s=$(status_of "$EDGE$p"); out="$out $p=$s"; [[ "$s" == 403 ]] || bad="$bad $p=$s"
+  done
+  for p in / /index.php; do
+    s=$(status_of "$EDGE$p"); out="$out $p=$s"; [[ "$s" == 200 ]] || bad="$bad $p=$s(want 200)"
+  done
+  if [[ -z "$bad" ]]; then say PASS waf_blocked_paths "$out"; else say FAIL waf_blocked_paths "wrong:$bad |$out"; fi
+}
+
+t_waf_detection_mode() {
+  local m s1 s2 audit sqli_logged blk_logged
+  m="det$(rnd)"
+  s1=$(status_of "$(edge_route 8081)/node?id=1%27%20OR%20%271%27%3D%271%27%20--%20&m=$m")
+  s2=$(status_of "$(edge_route 8081)/xmlrpc.php?m=$m")
+  sleep 1
+  audit=$(curl -s "$EDGE_CTL/__edge/log/audit" | grep "$m")
+  sqli_logged=$(printf '%s' "$audit" | grep -c '"ruleId":"942' || true)
+  blk_logged=$(printf '%s' "$audit" | grep -c '"ruleId":"10002"' || true)
+  if [[ "$s1" != 403 && "$s2" != 403 && "$sqli_logged" -ge 1 && "$blk_logged" -ge 1 ]]; then
+    say PASS waf_detection_mode "Detection route: SQLi -> $s1, /xmlrpc.php -> $s2 (not blocked); audit log has CRS 942xxx and custom 10002 matches for marker $m"
+  else
+    say FAIL waf_detection_mode "SQLi -> $s1, xmlrpc -> $s2; audit lines with marker: $(printf '%s' "$audit" | grep -c . || true), 942 logged=$sqli_logged, 10002 logged=$blk_logged"
+  fi
+}
+
+t_origin_headers() {
+  local m h seen host mine
+  m="probe$(rnd)"
+  h=$(hdr "$EDGE/admin/config?edgeprobe=$m" -H 'X-Forwarded-For: 203.0.113.9' -H 'X-Azure-ClientIP: 203.0.113.9')
+  seen=$(hget "$h" x-perf-edge-seen)
+  host=$($DRUSH sqlq "SELECT hostname FROM watchdog WHERE location LIKE '%edgeprobe=$m%' ORDER BY wid DESC LIMIT 1" 2>/dev/null | tr -d '[:space:]')
+  mine=" $(hostname -i 2>/dev/null) "
+  if [[ "$seen" == *"fdid=${PERF_EXPECT_FDID:-00000000-0000-0000-0000-0000000fd1d0}"* && "$seen" == *"via=1.1 Azure"* && "$seen" == *"chain=hops=1"* \
+     && "$seen" == *"xff=203.0.113.9, "* && -n "$host" && "$mine" == *" $host "* && "$host" != 203.0.113.9 ]]; then
+    say PASS origin_headers "origin saw: $seen; dblog client IP = $host (this container; spoofed 203.0.113.9 ignored)"
+  else
+    say FAIL origin_headers "origin saw: '${seen:-nothing}'; dblog client IP '$host' (want one of:$mine)"
+  fi
+}
+
+t_waf_rate_limit() {
+  local i c codes="" lg n429=0 s429=0 g429 dry=0
+  for i in $(seq 1 12); do codes="$codes $(status_of -X POST --data 'name=x&pass=y&form_id=user_login_form' "$EDGE/user/login")"; done
+  for c in $codes; do [[ "$c" == 429 ]] && n429=$((n429+1)); done
+  lg=$((12 - n429))
+  # 60/min refills one request per second, so send in parallel.
+  s429=$(seq 1 90 | xargs -P 16 -I{} curl -s -o /dev/null -w '%{http_code}\n' "$EDGE/search/node?keys=rl{}" | grep -c 429 || true)
+  g429=$(seq 1 320 | xargs -P 16 -I{} curl -s -o /dev/null -w '%{http_code}\n' "$EDGE/core/misc/druplicon.png" | grep -c 429 || true)
+  for i in $(seq 1 12); do [[ "$(status_of -X POST --data 'name=x&pass=y' "$(edge_route 8081)/user/login")" == 429 ]] && dry=$((dry+1)); done
+  # 10/min refills one request per 6 s; 12 serial POSTs can earn one refill.
+  if [[ "$lg" -ge 10 && "$lg" -le 11 && "$s429" -ge 1 && "$g429" -ge 1 && "$dry" -eq 0 ]]; then
+    say PASS waf_rate_limit "login POST: 10 allowed then 429 ($codes); search: $s429 of 90 got 429; general: $g429 of 320 got 429; Detection route: 0 of 12 login POSTs limited (dry run)"
+  else
+    say FAIL waf_rate_limit "login allowed=$lg (want 10, or 11 with one refill) codes:$codes; search 429s=$s429; general 429s=$g429; detection-route 429s=$dry (want 0)"
   fi
 }
 
