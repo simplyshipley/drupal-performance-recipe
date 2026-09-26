@@ -1,0 +1,13 @@
+# Cache mode "dev" / "dev-twig" (settings.performance.php, PERF_CACHE_MODE).
+# Loaded after every other container YAML, so these values win over
+# sites/development.services.yml and services.yml.
+parameters:
+  http.response.debug_cacheability_headers: true
+  twig.config:
+    debug: true
+    auto_reload: true
+    cache: false
+    allowed_file_extensions: [css, html, js, svg, twig]
+services:
+  cache.backend.null:
+    class: Drupal\Core\Cache\NullBackendFactory

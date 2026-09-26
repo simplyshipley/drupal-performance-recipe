@@ -48,6 +48,14 @@
  *                           to Redis (settings/redis.services.yml). Default
  *                           off; they stay in the database.
  *
+ * Cache mode (local testing; see docs/cache-modes.md)
+ *   PERF_CACHE_MODE         dev | dev-twig | prod-like. Default: unset = this
+ *                           file changes nothing about Drupal's own caches.
+ *                           A non-empty file <site dir>/perf-cache-mode
+ *                           (written by scripts/perf-cache.sh, gitignore it)
+ *                           takes precedence. Include this file LAST in
+ *                           settings.php so it overrides settings.local.php.
+ *
  * Reverse proxy / hosts
  *   DRUPAL_TRUSTED_HOSTS    Comma-separated host names, e.g.
  *                           "www.example.gov,example.gov". Each is anchored and
@@ -348,6 +356,52 @@ if ($perf_env('PERF_FAST404') === '1') {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Cache mode (local testing). dev: no render/page/dynamic caches, Twig debug,
+// no aggregation, page max-age 0. dev-twig: caches on, Twig debug on.
+// prod-like: what production runs (caches, aggregation, no development
+// services, Twig debug off). Set by PERF_CACHE_MODE or the perf-cache-mode
+// file next to settings.php (the file wins). Must run after settings.local.php
+// and the Redis bins above, so this block is at the end of the file.
+// ---------------------------------------------------------------------------
+$perf_mode_file = $app_root . '/' . $site_path . '/perf-cache-mode';
+$perf_mode = is_readable($perf_mode_file) ? trim((string) file_get_contents($perf_mode_file)) : '';
+if ($perf_mode === '') {
+  $perf_mode = (string) $perf_env('PERF_CACHE_MODE', '');
+}
+if ($perf_mode !== '' && !in_array($perf_mode, ['dev', 'dev-twig', 'prod-like'], TRUE)) {
+  error_log('settings.performance.php: unknown cache mode "' . $perf_mode . '" ignored (use dev, dev-twig or prod-like).');
+  $perf_mode = '';
+}
+if ($perf_mode !== '') {
+  $settings['perf_cache_mode'] = $perf_mode;
+  // Drop development.services.yml and earlier cache-mode files; add ours last.
+  $settings['container_yamls'] = array_values(array_filter($settings['container_yamls'] ?? [], static function ($perf_yml) {
+    return !str_ends_with($perf_yml, '/development.services.yml') && !str_contains($perf_yml, '/cache-mode.');
+  }));
+  $settings['container_yamls'][] = __DIR__ . ($perf_mode === 'prod-like' ? '/cache-mode.prod.services.yml' : '/cache-mode.debug.services.yml');
+  if ($perf_mode === 'dev') {
+    foreach (['render', 'page', 'dynamic_page_cache'] as $perf_bin) {
+      $settings['cache']['bins'][$perf_bin] = 'cache.backend.null';
+    }
+    $config['system.performance']['css']['preprocess'] = FALSE;
+    $config['system.performance']['js']['preprocess'] = FALSE;
+    $config['system.performance']['cache']['page']['max_age'] = 0;
+  }
+  elseif ($perf_mode === 'prod-like') {
+    // Undo null backends a settings.local.php may have set (Redis bins above
+    // were set by this file and are kept).
+    foreach (['render', 'page', 'dynamic_page_cache'] as $perf_bin) {
+      if (($settings['cache']['bins'][$perf_bin] ?? '') === 'cache.backend.null') {
+        unset($settings['cache']['bins'][$perf_bin]);
+      }
+    }
+    $config['system.performance']['css']['preprocess'] = TRUE;
+    $config['system.performance']['js']['preprocess'] = TRUE;
+    // Page max-age is left to site config (recipe: 900) so it stays tunable.
+  }
+}
+
 unset($perf_env, $perf_patterns, $perf_host, $perf_pattern, $perf_redis_dir, $perf_scheme,
   $perf_bins, $perf_bin, $perf_failopen, $perf_backend, $perf_failopen_dir, $perf_azure_map, $perf_cloud, $perf_clouds, $perf_var, $perf_key, $perf_public, $perf_404_pages, $perf_file, $perf_lang,
-  $perf_fast404_inc);
+  $perf_fast404_inc, $perf_mode_file, $perf_mode);

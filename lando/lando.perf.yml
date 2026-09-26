@@ -70,6 +70,10 @@ tooling:
     service: appserver
     description: Run the performance tests inside appserver (use scripts/lando-test.sh for the full run incl. Redis-down)
     cmd: bash -c 'BASE_URL=http://appserver_nginx bash recipes/drupal-performance-recipe/scripts/test-local.sh "$@"' --
+  perf-cache:
+    service: appserver
+    description: "Drupal cache mode for local testing: dev | dev-twig | prod-like | off | status | clear (docs/cache-modes.md)"
+    cmd: bash -c 'BASE_URL=http://appserver_nginx bash recipes/drupal-performance-recipe/scripts/perf-cache.sh "$@"' --
   redis-cli:
     service: cache
     cmd: redis-cli

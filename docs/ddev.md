@@ -86,6 +86,10 @@ The lab also installed a site and SYNTHETIC content first:
 `ddev composer require drupal/devel`, `ddev drush en devel_generate`,
 `ddev drush genc 60 --bundles=article` [V].
 
+## Cache mode (dev vs prod-like)
+
+Copy `ddev/commands/web/perf-cache` to `.ddev/commands/web/`, then use `ddev perf-cache dev|dev-twig|prod-like|off|status`. Add `web/sites/default/perf-cache-mode` to `.gitignore`. `ddev perf-test` switches to prod-like and restores your mode afterwards. See [cache-modes.md](cache-modes.md).
+
 ## 5. Run the tests
 
 ```bash

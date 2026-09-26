@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+## Description: Drupal cache mode for local testing (dev, dev-twig, prod-like, off, status, clear).
+## Usage: perf-cache [dev|dev-twig|prod-like|off|status|clear]
+## Example: "ddev perf-cache dev", "ddev perf-cache prod-like" or "ddev perf-cache status"
+cd /var/www/html || exit 1
+exec bash recipes/drupal-performance-recipe/scripts/perf-cache.sh "$@"

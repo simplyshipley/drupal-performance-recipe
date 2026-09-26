@@ -61,6 +61,10 @@ LANDO_PROXY=OFF lando drush cron
 (The lab first ran `lando drush si standard --db-url=mysql://drupal10:drupal10@database/drupal10`
 and generated 60 SYNTHETIC articles with devel_generate.)
 
+## Cache mode (dev vs prod-like)
+
+`lando perf-cache dev|dev-twig|prod-like|off|status` (tooling in `lando/lando.perf.yml`; `lando rebuild` after copying). Add `web/sites/default/perf-cache-mode` to `.gitignore`. `scripts/lando-test.sh` switches to prod-like and restores your mode afterwards. See [cache-modes.md](cache-modes.md).
+
 ## 4. Run the tests
 
 ```bash
