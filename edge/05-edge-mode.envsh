@@ -1,0 +1,17 @@
+#!/bin/sh
+# Derives settings the nginx/ModSecurity templates need from the EDGE_* vars.
+# Sourced by the image entrypoint before templates are rendered.
+case "${EDGE_WAF_MODE:-Prevention}" in
+  [Dd]etection)
+    export MODSEC_RULE_ENGINE=DetectionOnly EDGE_LIMIT_DRY_RUN=on ;;
+  [Pp]revention)
+    export MODSEC_RULE_ENGINE=On EDGE_LIMIT_DRY_RUN=off ;;
+  *)
+    echo "05-edge-mode: unknown EDGE_WAF_MODE '${EDGE_WAF_MODE}', using Prevention" >&2
+    export MODSEC_RULE_ENGINE=On EDGE_LIMIT_DRY_RUN=off ;;
+esac
+# Front Door rate limits allow N requests per window; nginx limit_req allows
+# 1 + burst immediately, so burst = N - 1.
+export EDGE_RL_LOGIN_BURST=$(( ${EDGE_RL_LOGIN:-10} - 1 ))
+export EDGE_RL_SEARCH_BURST=$(( ${EDGE_RL_SEARCH:-60} - 1 ))
+export EDGE_RL_GENERAL_BURST=$(( ${EDGE_RL_GENERAL:-300} - 1 ))

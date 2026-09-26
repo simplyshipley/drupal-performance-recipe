@@ -29,6 +29,15 @@ Control endpoints (plain HTTP):
   POST /__mock/fail?count=N&status=S
                                   -> the next N purge requests answer status S
                                      (defaults 1 and 500)
+  POST /__mock/edge-purge?enabled=0|1
+                                  -> turn forwarding to the local edge off/on
+                                     (reset turns it back on)
+
+Local edge cache: when $EDGE_PURGE_URL is set (for example
+http://edge:8099/__edge/purge), every successful purge is also forwarded to
+the lab edge (edge/, the Front Door cache stand-in) so the local cache is
+really purged. The edge answer is logged as kind "edge_purge". This is a
+container-to-container call on the lab network, never to Azure.
 
 Every request is appended as one JSON object per line to $MOCK_LOG
 (default /data/requests.jsonl). Client secrets are never logged.
@@ -42,6 +51,7 @@ import ssl
 import sys
 import threading
 import time
+from http.client import HTTPConnection
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
@@ -52,6 +62,27 @@ PORT = int(os.environ.get("MOCK_PORT", "8080"))
 
 _lock = threading.Lock()
 _fail_plan = {"remaining": 0, "status": 500}
+EDGE_PURGE_URL = os.environ.get("EDGE_PURGE_URL", "")
+_edge = {"enabled": True}
+
+
+def _forward_to_edge(paths: object) -> None:
+    """Purge the same content paths from the lab edge cache (lab network only)."""
+    if not EDGE_PURGE_URL or not _edge["enabled"] or not isinstance(paths, list):
+        return
+    target = urlsplit(EDGE_PURGE_URL)
+    data = json.dumps({"contentPaths": paths})
+    try:
+        conn = HTTPConnection(target.hostname or "edge", target.port or 80, timeout=10)
+        conn.request("POST", target.path or "/", body=data, headers={"Content-Type": "application/json"})
+        resp = conn.getresponse()
+        raw = resp.read().decode() or "{}"
+        conn.close()
+        body = json.loads(raw) if resp.status == 200 else {"raw": raw[:200]}
+        _log({"kind": "edge_purge", "status": resp.status,
+              "purged": body.get("purged"), "scanned": body.get("scanned")})
+    except (OSError, ValueError) as exc:
+        _log({"kind": "edge_purge", "status": 0, "error": str(exc)})
 
 
 def _log(entry: dict) -> None:
@@ -140,6 +171,7 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/__mock/reset":
             with _lock:
                 _fail_plan.update(remaining=0, status=500)
+                _edge["enabled"] = True
                 open(LOG_PATH, "w", encoding="utf-8").close()
             self._send(200, {"reset": True})
             return
@@ -152,6 +184,13 @@ class Handler(BaseHTTPRequestHandler):
                 plan = dict(_fail_plan)
             _log({"kind": "control", "fail_plan": plan})
             self._send(200, plan)
+            return
+
+        if url.path == "/__mock/edge-purge":
+            q = parse_qs(url.query)
+            _edge["enabled"] = q.get("enabled", ["1"])[0] != "0"
+            _log({"kind": "control", "edge_purge_enabled": _edge["enabled"]})
+            self._send(200, {"edge_purge_enabled": _edge["enabled"], "url": EDGE_PURGE_URL})
             return
 
         if url.path.endswith("/oauth2/v2.0/token"):
@@ -194,6 +233,8 @@ class Handler(BaseHTTPRequestHandler):
             if fail:
                 self._send(status, {"error": {"code": "MockFailure", "message": "mock told to fail"}})
             else:
+                if isinstance(payload, dict):
+                    _forward_to_edge(payload.get("contentPaths"))
                 self._send(202, b"")
             return
 

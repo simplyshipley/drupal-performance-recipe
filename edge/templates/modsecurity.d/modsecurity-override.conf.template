@@ -1,0 +1,14 @@
+# Edge WAF additions, loaded BEFORE the CRS setup and rules.
+#
+# 1. Drupal exclusions (CRS 3.3 REQUEST-903.9001) so admin forms and
+#    CKEditor posts are not blocked.
+SecAction "id:900130,phase:1,nolog,pass,t:none,setvar:tx.crs_exclusions_drupal=1"
+
+# 2. Custom rules from docs/hardening.md ("blocked paths"). Azure evaluates
+#    custom rules before managed rules; these run before CRS here too.
+#    Rule engine mode (On / DetectionOnly) comes from EDGE_WAF_MODE.
+SecRule REQUEST_FILENAME "@rx (?i)^/(?:\.env|\.git|vendor/|core/install\.php|update\.php|core/[^/]*\.txt$|wp-admin|xmlrpc\.php|phpmyadmin)" \
+    "id:10001,phase:1,deny,status:403,log,auditlog,t:none,t:urlDecodeUni,t:normalizePath,msg:'Edge custom rule: blocked path',tag:'edge-custom'"
+SecRule REQUEST_FILENAME "@rx (?i)\.php$" \
+    "id:10002,phase:1,deny,status:403,log,auditlog,t:none,t:urlDecodeUni,t:normalizePath,msg:'Edge custom rule: PHP file other than /index.php',tag:'edge-custom',chain"
+    SecRule REQUEST_FILENAME "!@streq /index.php" "t:none,t:urlDecodeUni,t:normalizePath"

@@ -1,0 +1,149 @@
+# Edge: Azure Front Door (cache + headers) and Azure WAF stand-in. LAB ONLY.
+# Replaces the image's default.conf.template. Rendered by envsubst; only
+# defined environment variables (upper case) are substituted.
+#
+# Listeners ("routes"):
+#   8080  main route: EDGE_QS_MODE, EDGE_WAF_MODE (Prevention/Detection)
+#   8081  same, WAF forced to Detection (log only) - for side-by-side tests
+#   8090-8093  same as 8080 with query-string mode ignore / use /
+#              ignore-specified / include-specified (one Front Door route each)
+#   8099  control: purge API and logs, private addresses only
+
+js_path /etc/nginx/njs;
+js_import edge from edge.js;
+js_set $edge_cache_key edge.cacheKey;
+
+error_log /tmp/edge-error.log warn;
+log_format edge '$remote_addr [$time_local] "$request" $status $body_bytes_sent '
+                'xcache=$edge_x_cache key="$edge_cache_key" ref=$edge_ref';
+access_log /tmp/edge-access.log edge;
+
+proxy_cache_path /var/cache/nginx/edge levels=1:2 keys_zone=edge:20m
+                 max_size=${EDGE_CACHE_MAX_SIZE} inactive=30d use_temp_path=off;
+
+# --- Compression (Front Door: gzip/brotli, 1 KB - 8 MB, MIME list) ---------
+# Brotli is not in the image; gzip only.
+gzip on;
+gzip_proxied any;
+gzip_min_length 1024;
+gzip_types text/css text/plain text/xml text/csv text/javascript application/javascript
+           application/json application/xml application/xhtml+xml image/svg+xml
+           font/ttf font/otf application/vnd.ms-fontobject;
+
+# --- Caching rules ----------------------------------------------------------
+# Rules-engine style bypass (X-Cache: CONFIG_NOCACHE): Drupal session cookie,
+# account/admin/batch paths, any method other than GET/HEAD.
+map $http_cookie $edge_cookie_bypass {
+    default 0;
+    "~(^|;)\s*S?SESS[0-9a-zA-Z_-]+=" 1;
+}
+map $uri $edge_path_bypass {
+    default 0;
+    "~*^/(user|admin|batch|cron|system/ajax|node/add|node/[0-9]+/(edit|delete|revisions))(/|$)" 1;
+    "~*^/[a-z]{2}(-[a-z]+)?/(user|admin|batch)(/|$)" 1;
+}
+map $request_method $edge_method_bypass {
+    default 1;
+    GET 0;
+    HEAD 0;
+}
+map "$edge_cookie_bypass$edge_path_bypass$edge_method_bypass" $edge_bypass {
+    default 1;
+    "000" 0;
+}
+# Front Door never caches private / no-store / no-cache responses.
+map $upstream_http_cache_control $edge_upstream_nostore {
+    default 0;
+    "~*(private|no-store|no-cache)" 1;
+}
+# X-Cache values as documented for Front Door.
+map "$edge_bypass|$upstream_cache_status|$upstream_http_cache_control" $edge_x_cache {
+    default "";
+    "~^1\|" CONFIG_NOCACHE;
+    "~^0\|(HIT|STALE|UPDATING|REVALIDATED)\|" TCP_HIT;
+    "~*^0\|(MISS|EXPIRED)\|.*(private|no-store)" PRIVATE_NOSTORE;
+    "~^0\|(MISS|EXPIRED)\|" TCP_MISS;
+}
+# X-Azure-Ref stand-in (per request).
+map $request_id $edge_ref {
+    default "0$request_id";
+}
+
+# --- WAF rate limits (docs/hardening.md), per client socket IP --------------
+map "$request_method:$uri" $edge_rl_login_key {
+    default "";
+    "~*^POST:/user/(login|password)" $binary_remote_addr;
+}
+map "$uri|$args" $edge_rl_search_key {
+    default "";
+    "~*^/search" $binary_remote_addr;
+    "~*\.(css|js|mjs|png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|otf|eot)\|" "";
+    "~\|.+" $binary_remote_addr;
+}
+limit_req_zone $edge_rl_login_key   zone=edge_login:10m   rate=${EDGE_RL_LOGIN}r/m;
+limit_req_zone $edge_rl_search_key  zone=edge_search:10m  rate=${EDGE_RL_SEARCH}r/m;
+limit_req_zone $binary_remote_addr  zone=edge_general:10m rate=${EDGE_RL_GENERAL}r/m;
+limit_req_status 429;
+limit_req_log_level warn;
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    '' close;
+}
+
+server {
+    listen 8080 default_server;
+    set $edge_qs_mode "${EDGE_QS_MODE}";
+    limit_req_dry_run ${EDGE_LIMIT_DRY_RUN};
+    include /etc/nginx/edge/route.conf;
+}
+
+server {
+    listen 8081;
+    set $edge_qs_mode "${EDGE_QS_MODE}";
+    modsecurity_rules 'SecRuleEngine DetectionOnly';
+    limit_req_dry_run on;
+    include /etc/nginx/edge/route.conf;
+}
+
+server {
+    listen 8090;
+    set $edge_qs_mode "ignore";
+    limit_req_dry_run ${EDGE_LIMIT_DRY_RUN};
+    include /etc/nginx/edge/route.conf;
+}
+server {
+    listen 8091;
+    set $edge_qs_mode "use";
+    limit_req_dry_run ${EDGE_LIMIT_DRY_RUN};
+    include /etc/nginx/edge/route.conf;
+}
+server {
+    listen 8092;
+    set $edge_qs_mode "ignore-specified";
+    limit_req_dry_run ${EDGE_LIMIT_DRY_RUN};
+    include /etc/nginx/edge/route.conf;
+}
+server {
+    listen 8093;
+    set $edge_qs_mode "include-specified";
+    limit_req_dry_run ${EDGE_LIMIT_DRY_RUN};
+    include /etc/nginx/edge/route.conf;
+}
+
+# Control listener: purge API (called by mock-afd) and logs. Not a Front Door
+# feature; it is how the lab wires the mock purge API to this cache.
+server {
+    listen 8099;
+    modsecurity off;
+    allow 127.0.0.1;
+    allow 10.0.0.0/8;
+    allow 172.16.0.0/12;
+    allow 192.168.0.0/16;
+    deny all;
+    location = /__edge/health { default_type text/plain; return 200 "ok\n"; }
+    location = /__edge/purge  { js_content edge.purge; }
+    location = /__edge/log/audit  { default_type text/plain; alias /tmp/edge-modsec-audit.log; }
+    location = /__edge/log/error  { default_type text/plain; alias /tmp/edge-error.log; }
+    location = /__edge/log/access { default_type text/plain; alias /tmp/edge-access.log; }
+}

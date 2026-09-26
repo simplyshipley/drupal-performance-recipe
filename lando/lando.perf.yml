@@ -32,6 +32,10 @@ services:
         AZURE_CDN_PROFILE: afd-synthetic
         AZURE_CDN_ENDPOINT: ep-synthetic
         AZURE_CDN_ENDPOINT_TYPE: afdEndpoints
+        # Edge (Front Door + WAF stand-in). Lab only.
+        PERF_EDGE_PROXY_HOST: edge
+        PERF_EDGE_URL: http://edge:8080
+        PERF_EDGE_CONTROL: http://edge:8099
   cache:
     type: redis:7
     portforward: false
@@ -44,8 +48,23 @@ services:
         context: ./recipes/drupal-performance-recipe/mock-afd
       image: perf-mock-afd:local
       command: python3 -u /opt/mock/mock_afd.py
+      environment:
+        EDGE_PURGE_URL: http://edge:8099/__edge/purge
       volumes:
         - ./.lando-mock-afd-data:/data
+  # Local stand-in for Azure Front Door caching + Azure WAF (edge/). No host
+  # port; from appserver: http://edge:8080. See docs/edge-waf.md.
+  edge:
+    type: compose
+    services:
+      build:
+        context: ./recipes/drupal-performance-recipe/edge
+      image: perf-edge:local
+      command: /docker-entrypoint.sh nginx -g "daemon off;"
+      environment:
+        EDGE_ORIGIN: http://appserver_nginx:80
+        EDGE_WAF_MODE: Prevention
+        EDGE_QS_MODE: use
 tooling:
   perf-test-in:
     service: appserver

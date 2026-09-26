@@ -19,3 +19,7 @@ web_environment:
   - THEMED_FAST404_BASE_URL=http://localhost
   - PERF_MOCK_URL=http://mock-afd:8080
   - PERF_REDIS_CONTAINER_HINT=ddev
+  # Edge (Front Door + WAF stand-in, docker-compose.edge.yaml). Lab only.
+  - PERF_EDGE_PROXY_HOST=edge
+  - PERF_EDGE_URL=http://edge:8080
+  - PERF_EDGE_CONTROL=http://edge:8099

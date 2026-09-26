@@ -101,6 +101,10 @@ server {
   # location ~ ^/sites/.*/files/imagecache/ { # For Drupal <= 6
   location ~ ^(/[a-z\-]+)?/sites/.*/files/(css|js|styles)/ { # For Drupal >= 7
       try_files $uri @rewrite;
+      # Performance recipe: send a lifetime for aggregates and image styles
+      # (as Drupal's .htaccess does on Apache) so the edge/CDN sees
+      # production-like Cache-Control. File names/tokens change with content.
+      expires max;
   }
   # Handle private files through Drupal. Private file's path can come
   # with a language prefix.

@@ -57,6 +57,10 @@
  *   DRUPAL_REVERSE_PROXY_ADDRESSES
  *                           Comma-separated IPs or CIDR ranges of the proxy
  *                           hop(s) Drupal sees as REMOTE_ADDR.
+ *   PERF_EDGE_PROXY_HOST    LAB ONLY (DDEV/Lando): host name of the local
+ *                           edge (edge/, Front Door stand-in). Resolved per
+ *                           request and trusted as a reverse proxy, because
+ *                           container IPs change. Ignored elsewhere.
  *
  * Cache tuning
  *   DRUPAL_DATABASE_CACHE_MAX_ROWS  Default 5000 (core default). Never -1.
@@ -254,6 +258,34 @@ foreach ($perf_azure_map as $perf_var => $perf_key) {
 // HTML. Must be reachable from the app container itself.
 if ($perf_env('THEMED_FAST404_BASE_URL') !== NULL) {
   $config['themed_fast_404.settings']['base_url'] = $perf_env('THEMED_FAST404_BASE_URL');
+}
+
+// Local lab only: trust the local edge container (edge/) as a reverse proxy.
+// Only its resolved IPs are trusted, so a client cannot spoof X-Forwarded-For.
+if ($perf_env('PERF_EDGE_PROXY_HOST') !== NULL) {
+  if (getenv('IS_DDEV_PROJECT') === 'true' || getenv('LANDO') === 'ON') {
+    $perf_edge_ips = gethostbynamel((string) $perf_env('PERF_EDGE_PROXY_HOST')) ?: [];
+    if ($perf_edge_ips) {
+      $settings['reverse_proxy'] = TRUE;
+      $settings['reverse_proxy_addresses'] = array_values(array_unique(array_merge($settings['reverse_proxy_addresses'] ?? [], $perf_edge_ips)));
+      $settings['reverse_proxy_trusted_headers'] = Request::HEADER_X_FORWARDED_FOR
+        | Request::HEADER_X_FORWARDED_HOST
+        | Request::HEADER_X_FORWARDED_PORT
+        | Request::HEADER_X_FORWARDED_PROTO;
+    }
+    // Echo the Front Door origin headers this request carried, so the lab
+    // tests can prove what the origin received (origin_headers test).
+    if (PHP_SAPI !== 'cli' && isset($_SERVER['HTTP_X_AZURE_FDID'])) {
+      $perf_seen = [];
+      foreach (['fdid' => 'HTTP_X_AZURE_FDID', 'clientip' => 'HTTP_X_AZURE_CLIENTIP', 'socketip' => 'HTTP_X_AZURE_SOCKETIP', 'xff' => 'HTTP_X_FORWARDED_FOR', 'xfh' => 'HTTP_X_FORWARDED_HOST', 'xfproto' => 'HTTP_X_FORWARDED_PROTO', 'via' => 'HTTP_VIA', 'chain' => 'HTTP_X_AZURE_REQUESTCHAIN', 'ref' => 'HTTP_X_AZURE_REF', 'remote' => 'REMOTE_ADDR'] as $perf_k => $perf_h) {
+        $perf_seen[] = $perf_k . '=' . preg_replace('/[^A-Za-z0-9.:,=\/ _-]/', '', substr((string) ($_SERVER[$perf_h] ?? ''), 0, 200));
+      }
+      header('X-Perf-Edge-Seen: ' . implode('; ', $perf_seen));
+    }
+  }
+  else {
+    error_log('settings.performance.php: PERF_EDGE_PROXY_HOST ignored (not a DDEV or Lando environment).');
+  }
 }
 
 // Local lab only: route Drupal's HTTP client through the mock Front Door.

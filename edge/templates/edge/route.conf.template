@@ -1,0 +1,85 @@
+# One Front Door "route": WAF (ModSecurity + CRS, rate limits) then cache.
+# Included by every public listener. $edge_qs_mode is set by the server.
+
+set $edge_cache_dir /var/cache/nginx/edge;
+set $edge_qs_ignore_params "${EDGE_QS_IGNORE_PARAMS}";
+set $edge_qs_include_params "${EDGE_QS_INCLUDE_PARAMS}";
+
+client_max_body_size 64m;
+
+# Rate limits (run before the cache, like the WAF).
+limit_req zone=edge_general burst=${EDGE_RL_GENERAL_BURST} nodelay;
+limit_req zone=edge_search  burst=${EDGE_RL_SEARCH_BURST} nodelay;
+limit_req zone=edge_login   burst=${EDGE_RL_LOGIN_BURST} nodelay;
+
+# Block responses as Azure WAF sends them.
+error_page 403 @edge_waf_block;
+error_page 429 @edge_rate_limited;
+
+# Cache.
+proxy_cache edge;
+proxy_cache_key $edge_cache_key;
+proxy_cache_bypass $edge_bypass;
+proxy_no_cache $edge_bypass $edge_upstream_nostore;
+proxy_cache_revalidate on;
+proxy_cache_lock on;
+proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
+proxy_cache_methods GET HEAD;
+
+# Request headers Front Door does not forward when caching is on.
+proxy_set_header Accept "";
+proxy_set_header Accept-Charset "";
+proxy_set_header Accept-Language "";
+proxy_set_header Vary "";
+# Origin gets identity; the edge compresses (Front Door compresses at the POP).
+proxy_set_header Accept-Encoding "";
+
+# Front Door origin headers (all IDs SYNTHETIC).
+proxy_set_header Host $http_host;
+proxy_set_header Via "1.1 Azure";
+proxy_set_header X-Azure-ClientIP $remote_addr;
+proxy_set_header X-Azure-SocketIP $remote_addr;
+proxy_set_header X-Azure-Ref $edge_ref;
+proxy_set_header X-Azure-RequestChain "hops=1";
+proxy_set_header X-Azure-FDID "${EDGE_FDID}";
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-Host $http_host;
+proxy_set_header X-Forwarded-Proto $scheme;
+proxy_set_header Upgrade $http_upgrade;
+proxy_set_header Connection $connection_upgrade;
+proxy_http_version 1.1;
+proxy_read_timeout 240s;
+
+add_header X-Cache $edge_x_cache always;
+add_header X-Azure-Ref $edge_ref always;
+
+# Static files: "Override always" with a long TTL (still never caches
+# private/no-store, same as Front Door). Private file paths are excluded.
+location ~* ^/(system/files|sites/[^/]+/private)/ {
+    proxy_ignore_headers Vary;
+    proxy_pass ${EDGE_ORIGIN};
+}
+location ~* \.(css|js|mjs|png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|otf|eot|map|mp4|webm|pdf)$ {
+    proxy_ignore_headers Cache-Control Expires Vary Set-Cookie;
+    proxy_hide_header Set-Cookie;
+    proxy_cache_valid 200 206 301 ${EDGE_STATIC_TTL};
+    proxy_pass ${EDGE_ORIGIN};
+}
+
+# Everything else: honour origin headers; EDGE_DEFAULT_TTL only when the
+# origin sends none (Front Door uses a random 1-3 days).
+location / {
+    proxy_ignore_headers Vary;
+    proxy_cache_valid 200 301 ${EDGE_DEFAULT_TTL};
+    proxy_pass ${EDGE_ORIGIN};
+}
+
+location @edge_waf_block {
+    default_type text/html;
+    add_header X-Azure-Ref $edge_ref always;
+    return 403 "<!DOCTYPE html><html><head><title>403</title></head><body><h2>The request is blocked.</h2><p>Tracking reference: $edge_ref</p></body></html>\n";
+}
+location @edge_rate_limited {
+    add_header X-Azure-Ref $edge_ref always;
+    return 429 "";
+}

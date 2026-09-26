@@ -1,0 +1,26 @@
+# Edge: local stand-in for Azure Front Door caching + Azure WAF (copy to
+# .ddev/). LOCAL TESTING ONLY. Publishes no host port. From the web
+# container: http://edge:8080 (see docs/edge-waf.md for all listeners).
+# Needs docker-compose.mock-afd.yaml too (purge forwarding) and in
+# config.perf.yaml: PERF_EDGE_PROXY_HOST=edge, PERF_EDGE_URL=http://edge:8080.
+services:
+  edge:
+    container_name: ddev-${DDEV_SITENAME}-edge
+    build:
+      context: ../recipes/drupal-performance-recipe/edge
+    image: perf-edge:local
+    labels:
+      com.ddev.site-name: ${DDEV_SITENAME}
+      com.ddev.approot: ${DDEV_APPROOT}
+    restart: "no"
+    expose:
+      - 8080
+    environment:
+      - EDGE_ORIGIN=http://web:80
+      - EDGE_WAF_MODE=Prevention
+      - EDGE_QS_MODE=use
+    depends_on:
+      - web
+  mock-afd:
+    environment:
+      - EDGE_PURGE_URL=http://edge:8099/__edge/purge
