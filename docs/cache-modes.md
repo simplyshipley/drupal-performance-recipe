@@ -34,7 +34,7 @@ The commands are the same in every environment.
 | Anywhere | `scripts/perf-cache.sh …`, run in the web container from the project root |
 
 Switching a mode:
-1. Writes the mode to `<site dir>/perf-cache-mode`, e.g. `web/sites/default/perf-cache-mode`. **Add it to `.gitignore`.**
+1. Writes the mode to `<site dir>/perf-cache-mode`, e.g. `web/sites/default/perf-cache-mode`. **Add it to `.gitignore`** (snippet below).
 2. Sets core's `development_settings` key_value to match, so the admin page at `/admin/config/development/settings` never contradicts the mode.
 3. Runs `drush cr`. This is needed because container YAMLs change.
 4. Deletes the Redis keys under `REDIS_PREFIX`. It refuses to do this without a prefix, so a shared Redis is never flushed.
@@ -73,6 +73,22 @@ Verified in the DDEV lab with the example `settings.local.php` enabled:
 - aggregation off.
 
 `prod-like` gave FailOpen (Redis) bins, Twig debug off, aggregation on and no development.services.yml. `dev-twig` gave Twig debug with caches on [V: `ddev perf-cache status` output, 2026-09-26].
+
+## Guard and .gitignore
+
+`dev` and `dev-twig` are honoured **only** inside DDEV or Lando, where `IS_DDEV_PROJECT=true` or `LANDO=ON`. Anywhere else they are refused:
+- `error_log` records the refusal;
+- `perf-cache status` prints a `REFUSED` warning;
+- the site's own settings apply, the same as `off`.
+
+`prod-like` is allowed anywhere. The guard is the real protection, but keep the file out of Git too. Add this to the site's root `.gitignore`:
+
+```
+# drupal-performance-recipe cache mode switch (local only)
+web/sites/*/perf-cache-mode
+```
+
+Test `cache_mode_guard` sets `dev`, runs drush with `PERF_CACHE_GUARD_SIMULATE_REMOTE=1` (acts as outside DDEV/Lando; it can only refuse, never allow — unsetting `IS_DDEV_PROJECT` would also drop DDEV's database settings), and expects the mode refused and the render bin not null. Fail-proof: `CACHE_GUARD_NEGATIVE=1` keeps the markers and FAILS [V: tmp/ddev/run13-guard-failproof.log].
 
 ## When to use which
 

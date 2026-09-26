@@ -32,6 +32,7 @@ tmp/lando-run7.log].
 | `cache_4xx` | Creates an unpublished node, requests it anonymously twice, saves a different node, requests again | 403 cached (second HIT), MISS after the other node's save | PASS both; Redis TTL of the cached 403 = 7200 s (`cache_ttl_4xx` 3600 + `redis_ttl_offset` 3600) |
 | `cache_mode_dev` | `perf-cache.sh dev`, requests a node twice, switches back to prod-like ([cache-modes.md](cache-modes.md)) | render bin `NullBackend`, second request not HIT, `Cache-Control` no-cache, Twig debug comments, no aggregated CSS | PASS both (52 THEME DEBUG comments). Fail-proof `CACHE_MODE_NEGATIVE=1` FAILS [V: tmp/ddev/cache-mode-failproof.log, tmp/lando-cache-mode-failproof.log] |
 | `cache_mode_prod` | `perf-cache.sh prod-like`, same checks | not NullBackend, HIT, `public`, no Twig comments, aggregated CSS | PASS both. Same fail-proof FAILS |
+| `cache_mode_guard` | Sets `dev`, runs drush with `PERF_CACHE_GUARD_SIMULATE_REMOTE=1` (non-local simulation) | Mode refused (`perf_cache_mode_refused=dev`), render bin not null | PASS DDEV. Fail-proof `CACHE_GUARD_NEGATIVE=1` FAILS [V: tmp/ddev/run13-guard-failproof.log] |
 
 ### Edge / WAF tests (docs/edge-waf.md)
 

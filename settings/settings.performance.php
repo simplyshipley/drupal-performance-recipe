@@ -53,7 +53,8 @@
  *                           file changes nothing about Drupal's own caches.
  *                           A non-empty file <site dir>/perf-cache-mode
  *                           (written by scripts/perf-cache.sh, gitignore it)
- *                           takes precedence. Include this file LAST in
+ *                           takes precedence. dev/dev-twig are refused
+ *                           (logged) outside DDEV/Lando. Include this file LAST in
  *                           settings.php so it overrides settings.local.php.
  *
  * Reverse proxy / hosts
@@ -373,6 +374,18 @@ if ($perf_mode !== '' && !in_array($perf_mode, ['dev', 'dev-twig', 'prod-like'],
   error_log('settings.performance.php: unknown cache mode "' . $perf_mode . '" ignored (use dev, dev-twig or prod-like).');
   $perf_mode = '';
 }
+// dev / dev-twig switch caches and Twig debug off/on: only honoured inside
+// DDEV or Lando. Anywhere else they are refused (logged) and the site's own
+// settings decide, so a stray perf-cache-mode file cannot slow production.
+// PERF_CACHE_GUARD_SIMULATE_REMOTE=1 makes the guard act as if outside
+// DDEV/Lando (it can only refuse, never allow); used by cache_mode_guard,
+// because unsetting IS_DDEV_PROJECT would also drop DDEV's database settings.
+$perf_local = (getenv('IS_DDEV_PROJECT') === 'true' || getenv('LANDO') === 'ON') && getenv('PERF_CACHE_GUARD_SIMULATE_REMOTE') !== '1';
+if (in_array($perf_mode, ['dev', 'dev-twig'], TRUE) && !$perf_local) {
+  error_log('settings.performance.php: cache mode "' . $perf_mode . '" refused outside DDEV/Lando; site settings apply.');
+  $settings['perf_cache_mode_refused'] = $perf_mode;
+  $perf_mode = '';
+}
 if ($perf_mode !== '') {
   $settings['perf_cache_mode'] = $perf_mode;
   // Drop development.services.yml and earlier cache-mode files; add ours last.
@@ -404,4 +417,4 @@ if ($perf_mode !== '') {
 
 unset($perf_env, $perf_patterns, $perf_host, $perf_pattern, $perf_redis_dir, $perf_scheme,
   $perf_bins, $perf_bin, $perf_failopen, $perf_backend, $perf_failopen_dir, $perf_azure_map, $perf_cloud, $perf_clouds, $perf_var, $perf_key, $perf_public, $perf_404_pages, $perf_file, $perf_lang,
-  $perf_fast404_inc, $perf_mode_file, $perf_mode);
+  $perf_fast404_inc, $perf_mode_file, $perf_mode, $perf_local);

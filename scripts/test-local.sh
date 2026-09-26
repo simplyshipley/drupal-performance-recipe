@@ -29,7 +29,7 @@ PREFIX="${REDIS_PREFIX:-}"
 FAILS=0
 PASSES=0
 ALL_TESTS=(redis_bins redis_in_use drush_cr tag_invalidation eviction purge_queue_fills purge_send purge_send_gov purge_retry
-  fast404_static fast404_path themed_404 headers_anon headers_auth cache_4xx cache_mode_dev cache_mode_prod)
+  fast404_static fast404_path themed_404 headers_anon headers_auth cache_4xx cache_mode_dev cache_mode_prod cache_mode_guard)
 # Edge tests need the edge service (edge/). waf_rate_limit runs last: it
 # exhausts this client's rate-limit buckets for about a minute.
 # PERF_EDGE=0 skips them (site without the edge).
@@ -475,6 +475,24 @@ t_cache_mode_prod() {
     say PASS cache_mode_prod "prod-like: render bin $MP_CLS, 2nd request X-Drupal-Cache=HIT, Cache-Control '$MP_CC', no THEME DEBUG, $MP_AGG aggregated CSS link(s)"
   else
     say FAIL cache_mode_prod "mode $target: render bin $MP_CLS, X-Drupal-Cache='${MP_PC:-absent}', Cache-Control '$MP_CC', twig comments $MP_TWIG, aggregated CSS links $MP_AGG"
+  fi
+}
+
+# Guard: dev must be refused outside DDEV/Lando. Simulated with
+# PERF_CACHE_GUARD_SIMULATE_REMOTE=1 (removing IS_DDEV_PROJECT would also drop
+# DDEV's database settings). CACHE_GUARD_NEGATIVE=1 omits it (fail-proof:
+# dev is then accepted and the test FAILS).
+t_cache_mode_guard() {
+  local out envcmd="env PERF_CACHE_GUARD_SIMULATE_REMOTE=1"
+  [[ "${CACHE_GUARD_NEGATIVE:-0}" == 1 ]] && envcmd="env"
+  bash "$PERF_CACHE_SH" dev >/dev/null 2>&1
+  out=$($envcmd $DRUSH php:eval 'use Drupal\Core\Site\Settings; print "[" . Settings::get("perf_cache_mode", "none") . "|" . Settings::get("perf_cache_mode_refused", "") . "|" . (new \ReflectionClass(\Drupal::cache("render")))->getShortName() . "]";' 2>&1)
+  bash "$PERF_CACHE_SH" prod-like >/dev/null 2>&1
+  out=$(printf '%s' "$out" | grep -o '\[[^]]*\]' | tail -1)
+  if [[ "$out" == "[none|dev|"* && "$out" != *"|NullBackend]" ]]; then
+    say PASS cache_mode_guard "mode file = dev, simulated non-local: $out (refused, render bin not null); back to prod-like"
+  else
+    say FAIL cache_mode_guard "mode file = dev, simulated non-local=$([[ "${CACHE_GUARD_NEGATIVE:-0}" == 1 ]] && echo no || echo yes): $out (want [none|dev|<not NullBackend>])"
   fi
 }
 

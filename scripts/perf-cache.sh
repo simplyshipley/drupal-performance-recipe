@@ -81,6 +81,7 @@ status() {
     use Drupal\Core\Site\Settings;
     $c = \Drupal::getContainer();
     printf("effective mode setting: %s\n", Settings::get("perf_cache_mode", "(none)"));
+    if ($r = Settings::get("perf_cache_mode_refused")) { printf("WARNING: mode \"%s\" REFUSED (not DDEV/Lando); site settings apply\n", $r); }
     foreach (["render", "page", "dynamic_page_cache", "data", "entity", "config"] as $b) {
       $o = \Drupal::cache($b);
       $cls = (new \ReflectionClass($o))->getShortName();
