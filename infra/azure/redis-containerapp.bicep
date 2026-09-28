@@ -10,6 +10,8 @@
 //   separate, unsynchronised caches.
 // - No persistence (cache only), explicit maxmemory, allkeys-lru.
 // - Password from a Container Apps secret (pass it in from Key Vault).
+// - Image: infra/redis-image (non-root, config rendered from env, dangerous
+//   commands denied by ACL), pulled from ACR with a managed identity.
 // - TCP liveness/readiness probes; the platform restarts the replica.
 
 targetScope = 'resourceGroup'
@@ -30,8 +32,14 @@ param logAnalyticsWorkspaceId string
 @secure()
 param redisPassword string
 
-@description('Container image, pinned by version. Swap for a hardened image (e.g. Iron Bank redis) if available.')
-param redisImage string = 'docker.io/library/redis:7.4.11'
+@description('Container image built from infra/redis-image (docs/redis-image.md), pinned by tag. Placeholder registry name.')
+param redisImage string = '<registry-name>.azurecr.us/perf-redis:7.4.11-1'
+
+@description('ACR login server to pull from, e.g. <registry-name>.azurecr.us. Empty = public image, no registry auth.')
+param acrServer string = ''
+
+@description('Resource ID of a user-assigned managed identity with AcrPull on the registry (required when acrServer is set).')
+param acrPullIdentityId string = ''
 
 @description('Redis maxmemory. Keep about 25 percent below the container memory.')
 param maxmemory string = '768mb'
@@ -79,11 +87,23 @@ resource env 'Microsoft.App/managedEnvironments@2024-03-01' = {
 resource redis 'Microsoft.App/containerApps@2024-03-01' = {
   name: '${namePrefix}-redis'
   location: location
+  identity: empty(acrPullIdentityId) ? { type: 'None' } : {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${acrPullIdentityId}': {}
+    }
+  }
   properties: {
     managedEnvironmentId: env.id
     workloadProfileName: 'Consumption'
     configuration: {
       activeRevisionsMode: 'Single'
+      registries: empty(acrServer) ? [] : [
+        {
+          server: acrServer
+          identity: acrPullIdentityId
+        }
+      ]
       secrets: [
         {
           name: 'redis-password'
@@ -106,20 +126,18 @@ resource redis 'Microsoft.App/containerApps@2024-03-01' = {
             cpu: json(cpu)
             memory: memory
           }
+          // The image's entrypoint renders redis.conf from these variables
+          // (no persistence, allkeys-lru, protected mode, ACL: FLUSHALL,
+          // CONFIG, KEYS, DEBUG... denied for the app user).
           env: [
             {
               name: 'REDIS_PASSWORD'
               secretRef: 'redis-password'
             }
-          ]
-          // sh -c so the password comes from the environment, not the
-          // command line stored in the resource definition.
-          command: [
-            'sh'
-            '-c'
-          ]
-          args: [
-            'exec redis-server --requirepass "$REDIS_PASSWORD" --maxmemory ${maxmemory} --maxmemory-policy allkeys-lru --appendonly no --save "" --protected-mode no'
+            {
+              name: 'REDIS_MAXMEMORY'
+              value: maxmemory
+            }
           ]
           probes: [
             {

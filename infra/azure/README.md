@@ -24,7 +24,7 @@ Before use:
 
 | File | What |
 |---|---|
-| `redis-containerapp.bicep` | Internal Container Apps environment in your VNet, the Redis app (1 replica, internal TCP ingress 6379, no persistence, `maxmemory` + `allkeys-lru`, `requirepass` from a secret, TCP liveness/readiness probes), optional restart and memory alerts |
+| `redis-containerapp.bicep` | Internal Container Apps environment in your VNet, the Redis app (1 replica, internal TCP ingress 6379, no persistence, `maxmemory` + `allkeys-lru`, password from a secret, TCP liveness/readiness probes). **Since 2026-09-28 it runs the custom image from `infra/redis-image` pulled from ACR** ([docs/redis-image.md](../../docs/redis-image.md)); the CLI example below still shows the older stock-image variant, optional restart and memory alerts |
 
 ## Deploy with Bicep
 

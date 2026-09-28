@@ -50,7 +50,8 @@ docs/                            all documentation
 7. [Edge: local Front Door + WAF stand-in](docs/edge-waf.md) (setup, static asset caching test, differences) and [research notes](docs/research-afd-waf.md)
 8. [Cache modes for local testing](docs/cache-modes.md) (`perf-cache dev|prod-like|status`)
 9. [Cache sync: Drupal, Redis, purge queue and Front Door](docs/cache-sync.md) (edge cases, findings, open decisions)
-10. Source guides: [Caching on Azure](docs/caching-guide.md), [Hardening](docs/hardening.md)
+10. [Redis image for Azure](docs/redis-image.md) and [one vs shared Redis](docs/redis-sharing.md)
+11. Source guides: [Caching on Azure](docs/caching-guide.md), [Hardening](docs/hardening.md)
    (exported from the Claude Doc, 2026-09-25)
 
 ## Lab results (2026-09-28, cache sync)

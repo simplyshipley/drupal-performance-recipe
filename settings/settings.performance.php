@@ -27,6 +27,8 @@
  *   REDIS_PORT              Default 6379 (Azure managed Redis TLS: 6380 or 10000).
  *   REDIS_SCHEME            tcp (default) or tls.
  *   REDIS_PASSWORD          Access key / password.
+ *   REDIS_USERNAME          ACL user (Redis 6+), e.g. one per site on a shared
+ *                           instance (docs/redis-sharing.md).
  *   REDIS_DB                Database number (default: not selected = 0).
  *   REDIS_PREFIX            Key prefix, required when several sites share one
  *                           Redis. Sets $settings['cache_prefix'].
@@ -171,7 +173,11 @@ if ($perf_env('REDIS_HOST') !== NULL
   $settings['redis.connection']['host'] = $perf_scheme === 'tls' ? 'tls://' . $perf_host : $perf_host;
   $settings['redis.connection']['port'] = (int) $perf_env('REDIS_PORT', $perf_scheme === 'tls' ? '6380' : '6379');
   if ($perf_env('REDIS_PASSWORD') !== NULL) {
-    $settings['redis.connection']['password'] = $perf_env('REDIS_PASSWORD');
+    // With REDIS_USERNAME (Redis 6+ ACL user, e.g. on a shared instance)
+    // phpredis authenticates with [user, password].
+    $settings['redis.connection']['password'] = $perf_env('REDIS_USERNAME') !== NULL
+      ? [$perf_env('REDIS_USERNAME'), $perf_env('REDIS_PASSWORD')]
+      : $perf_env('REDIS_PASSWORD');
   }
   if ($perf_env('REDIS_DB') !== NULL) {
     $settings['redis.connection']['base'] = (int) $perf_env('REDIS_DB');
