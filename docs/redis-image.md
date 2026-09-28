@@ -14,7 +14,7 @@ Bo's decision of 2026-09-25. The image is built from the pinned official `redis:
 | **Single-site mode** | `REDIS_PASSWORD`. The `default` user may use all keys but no `@dangerous` commands: FLUSHALL, FLUSHDB, CONFIG, KEYS, DEBUG, SHUTDOWN, MONITOR, ACL and the rest. INFO is allowed again. This uses ACL, not `rename-command`. |
 | **Shared mode** | `REDIS_APP_USERS=sitea,siteb` with `REDIS_APP_PASSWORD_SITEA` and so on. Each user can only touch `<name>:*` keys, so the site must set `REDIS_PREFIX=<name>`. Also denied: `@dangerous`, SELECT and SCAN. See [redis-sharing.md](redis-sharing.md). |
 | **Admin user** | `REDIS_ADMIN_PASSWORD` creates `admin` with all commands, for operators only. |
-| **ACL file** | `REDIS_ACL_FILE=/path/users.acl` uses your own ACL file instead. The generated users are then ignored, and the healthcheck is a no-op. |
+| **ACL file** | `REDIS_ACL_FILE=/path/users.acl` uses your own ACL file instead. The generated users are then ignored. The healthcheck then PINGs without a password: a NOAUTH answer counts as alive, no answer fails (test `aclfile_health`). |
 | **TLS** | `REDIS_TLS=1` with `REDIS_TLS_CERT_FILE`, `REDIS_TLS_KEY_FILE`, optional `REDIS_TLS_CA_FILE`, `REDIS_TLS_PORT` (6380) and `REDIS_TLS_AUTH_CLIENTS` (no). TLS is then the only listener; the plain port is closed. |
 | **Healthcheck** | `redis-cli PING` as the user `health`, which has no password and may run PING only. |
 | **Memory** | `REDIS_MAXMEMORY` (256mb) and `REDIS_MAXMEMORY_POLICY` (allkeys-lru). Keep maxmemory about 25 % below the container memory. |
@@ -24,10 +24,10 @@ Bo's decision of 2026-09-25. The image is built from the pinned official `redis:
 ```
 cd infra/redis-image
 docker build -t perf-redis:7.4.11-1 .
-bash test-image.sh      # 4 checks: no-auth refusal, single site, shared ACL, TLS (self-signed CA)
+bash test-image.sh      # 5 checks: no-auth refusal, single site, shared ACL, TLS (self-signed CA), ACL-file healthcheck
 ```
 
-Lab results (2026-09-28): 4 PASS [V: tmp/redis-image/test-image.log]. ACL detail is in
+Lab results (2026-09-28): 5 PASS [V: tmp/redis-image/test-image.log]. ACL detail is in
 [V: tmp/redis-image/acl-checks.log].
 
 **Trivy scan:** `docker run -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.74.0 image --severity HIGH,CRITICAL perf-redis:7.4.11-1`

@@ -14,6 +14,14 @@ fails=0
 {
   # Tests need production behaviour: prod-like once for the whole run, then
   # the previous cache mode is restored (docs/cache-modes.md).
+  # Wait for the edge (if this project has one) before testing.
+  if docker ps -a --format '{{.Names}}' | grep -qx "ddev-$NAME-edge"; then
+    if ddev exec 'for i in $(seq 1 60); do curl -sf -m 2 -o /dev/null http://edge:8099/__edge/health && exit 0; sleep 1; done; exit 1' >/dev/null 2>&1; then
+      echo "# edge healthy"
+    else
+      echo "# edge NOT healthy after 60 s:"; docker ps -a --filter "name=ddev-$NAME-edge" --format '{{.Names}} {{.Status}}'; docker logs --tail 5 "ddev-$NAME-edge" 2>&1
+    fi
+  fi
   PREV=$(ddev exec "bash $MODE current" 2>/dev/null | tr -d '[:space:]')
   echo "# cache mode: '${PREV:-off}' -> prod-like for the suite"
   ddev exec "bash $MODE prod-like" >/dev/null

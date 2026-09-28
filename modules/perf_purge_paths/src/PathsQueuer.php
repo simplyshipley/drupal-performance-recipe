@@ -23,6 +23,9 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
  * - <entity>_list: configured listing paths (front page, /node, feeds);
  * - block_content, menus: configured site-wide paths (e.g. "/*").
  *
+ * Each path is queued once per request. The recipe's patch
+ * azure_cdn_purge-skip-node-hook-with-perf-purge-paths.patch stops the
+ * module's own node hook from queueing the alias a second time.
  * Queued with the azure_cdn_purge "path_queuer" into the purge queue, so the
  * existing processors (cron, drush) send them after the transaction commits.
  * Settings (settings.performance.php, env PERF_PURGE_*):
@@ -48,6 +51,13 @@ final class PathsQueuer implements CacheTagsInvalidatorInterface {
    */
   private array $seen = [];
 
+  /**
+   * Paths already queued in this request (several tags map to one path).
+   *
+   * @var array<string, bool>
+   */
+  private array $queued = [];
+
   public function __construct(private readonly ContainerInterface $container) {}
 
   /**
@@ -70,7 +80,9 @@ final class PathsQueuer implements CacheTagsInvalidatorInterface {
         $this->container->get('logger.factory')->get('perf_purge_paths')->warning('Could not map tag @tag: @msg', ['@tag' => $tag, '@msg' => $e->getMessage()]);
       }
     }
+    $paths = array_diff_key($paths, $this->queued);
     if ($paths) {
+      $this->queued += $paths;
       $this->queue(array_keys($paths));
     }
   }
@@ -145,7 +157,9 @@ final class PathsQueuer implements CacheTagsInvalidatorInterface {
     }
     $path = '/' . ltrim($path, '/');
     $paths[$path] = TRUE;
-    if ($path !== '/' && !str_ends_with($path, '*') && Settings::get('perf_purge_trailing_slash', TRUE)) {
+    // No "path/" twin for the front page, wildcards or files (a path whose
+    // last segment has an extension, e.g. /rss.xml or an image).
+    if ($path !== '/' && !str_ends_with($path, '*') && !preg_match('/\.[A-Za-z0-9]{1,8}$/', $path) && Settings::get('perf_purge_trailing_slash', TRUE)) {
       $paths[rtrim($path, '/') . '/'] = TRUE;
     }
   }

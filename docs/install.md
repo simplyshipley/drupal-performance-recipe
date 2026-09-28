@@ -101,7 +101,8 @@ composer require cweagans/composer-patches:^2
 composer config --json extra.patches.drupal/azure_cdn_purge '[
   {"description":"drupal.org #3427718 MR !6 at 9859fc45 (Azure cloud selector)","url":"patches/azure_cdn_purge-3427718-mr6-9859fc45.patch"},
   {"description":"Follow-up to #3427718: commercial default, host overrides, scope from cloud, config schema","url":"patches/azure_cdn_purge-3427718-followup-default-cloud.patch"},
-  {"description":"Send wildcardpath invalidations to Azure (were marked done without an API call)","url":"patches/azure_cdn_purge-wildcardpath-purged.patch"}]'
+  {"description":"Send wildcardpath invalidations to Azure (were marked done without an API call)","url":"patches/azure_cdn_purge-wildcardpath-purged.patch"},
+  {"description":"Skip the module's node hook when perf_purge_paths queues the paths (no duplicates)","url":"patches/azure_cdn_purge-skip-node-hook-with-perf-purge-paths.patch"}]'
 composer patches-relock
 composer patches-repatch
 ```
@@ -146,3 +147,15 @@ drush pm:uninstall dblog -y
 ## Optional: unpublished content as 404/410
 
 Not built (MANIFEST open item). See the caching guide, "Reducing 403 load".
+
+## Front Door path purging is ON by default (PERF_PURGE_PATHS)
+
+`settings.performance.php` registers `modules/perf_purge_paths` on every site that includes it.
+The module turns cache tag invalidations into Front Door purge paths. **It is on by default**
+(`PERF_PURGE_PATHS` unset = on) and acts only when the purge queue exists. Without it,
+azure_cdn_purge purges only the alias of an updated node. Listings, `/node/N`, deletes,
+terms, files and old aliases would stay stale at Front Door ([cache-sync.md](cache-sync.md)).
+
+- **Patches:** apply both extra patches above. The wildcard patch makes `news/*`-style list paths work. The skip-node-hook patch stops the module from queueing the alias a second time. Without it, each node save queues the alias twice. That is harmless, but it is wasted work.
+- **Queue volume:** about 6–10 items per node save, and more with `PERF_PURGE_LIST_PATHS`/`PERF_PURGE_SITEWIDE_PATHS`. See the numbers in cache-sync.md.
+- **Turn it off:** set `PERF_PURGE_PATHS=0`. You then get azure_cdn_purge's original behaviour, because the patched node hook runs again (it skips only while the setting is on).

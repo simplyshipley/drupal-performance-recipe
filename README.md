@@ -8,6 +8,12 @@ Evidence labels used in every doc: **[V: evidence]** = verified in the SYNTHETIC
 (DDEV `perflab106`, Lando `perflab106lando`, Drupal 10.6.17, PHP 8.3) on 2026-09-25, with the
 evidence named; **[ASSUMED]** = not tested here.
 
+## Front Door path purging is on by default
+
+`PERF_PURGE_PATHS` is on unless set to `0`: every cache tag invalidation (node, term, file, listing...) queues the
+matching Front Door paths. It needs the recipe's azure_cdn_purge patches applied from the root composer.json
+([install.md](docs/install.md), [cache-sync.md](docs/cache-sync.md)).
+
 ## What it installs
 
 | Piece | What | Version verified |
@@ -56,8 +62,8 @@ docs/                            all documentation
 
 ## Lab results (2026-09-28, cache sync)
 
-Full suite incl. 13 cache-sync tests: DDEV 45 PASS / 0 FAIL / 2 FINDING [V: tmp/ddev/run14-sync.log], Lando 45 / 0 / 2
-[V: tmp/lando-run10-sync.log]. Findings = open decisions in docs/cache-sync.md.
+Full suite incl. 14 cache-sync tests: DDEV 46 PASS / 0 FAIL / 2 FINDING [V: tmp/ddev/run15.log], Lando 46 / 0 / 2
+[V: tmp/lando-run11.log]. Findings = open decisions in docs/cache-sync.md.
 
 ## Earlier lab results (2026-09-26, cache modes)
 

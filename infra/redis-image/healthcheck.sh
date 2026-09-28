@@ -6,6 +6,15 @@ if [ "${REDIS_TLS:-0}" = "1" ]; then
 else
   set -- -p "${REDIS_PORT:-6379}"
 fi
-[ -n "${REDIS_ACL_FILE:-}" ] && exit 0
-out=$(redis-cli "$@" --user health --pass x --no-auth-warning ping 2>&1) || exit 1
-[ "$out" = "PONG" ]
+# Always contact redis-server. Generated config: the "health" user may PING.
+# ACL-file mode: users are yours, so PING unauthenticated; a NOAUTH/NOPERM
+# answer still proves the server is up. Connection errors fail.
+if [ -n "${REDIS_ACL_FILE:-}" ]; then
+  out=$(redis-cli "$@" ping 2>&1)
+else
+  out=$(redis-cli "$@" --user health --pass x --no-auth-warning ping 2>&1)
+fi
+case "$out" in
+  PONG|NOAUTH*|NOPERM*|*"Authentication required"*) exit 0 ;;
+  *) echo "healthcheck: $out" >&2; exit 1 ;;
+esac

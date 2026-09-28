@@ -1,0 +1,15 @@
+--- a/azure_cdn_purge.module	2026-09-28 07:06:01
++++ b/azure_cdn_purge.module	2026-09-28 07:06:01
+@@ -11,6 +11,12 @@
+  * Implements hook_node_update().
+  */
+ function azure_cdn_purge_node_update(EntityInterface $node) {
++  // drupal-performance-recipe: perf_purge_paths already queues this node's
++  // paths (alias, /node/N, listings) from its cache tags; skip to avoid
++  // queueing the alias twice.
++  if (\Drupal\Core\Site\Settings::get('perf_purge_paths_enabled', FALSE)) {
++    return;
++  }
+   // Azure purger add node to queuer.
+   $path = \Drupal::service('path_alias.manager')->getAliasByPath('/node/' . $node->id());
+   $path = ltrim($path, '/');

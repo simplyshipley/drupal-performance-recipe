@@ -35,7 +35,7 @@ ALL_TESTS=(redis_bins redis_in_use drush_cr tag_invalidation eviction purge_queu
 # PERF_EDGE=0 skips them (site without the edge).
 EDGE_TESTS=(edge_static_hit edge_querystring edge_bypass_session edge_html_ttl edge_purge_e2e
   waf_block_sqli waf_block_xss waf_blocked_paths waf_detection_mode origin_headers
-  sync_alias sync_listing sync_alias_change sync_delete sync_publish_cycle sync_revert sync_new_path_404
+  sync_alias sync_single_save sync_listing sync_alias_change sync_delete sync_publish_cycle sync_revert sync_new_path_404
   sync_other_entities sync_menu_block sync_file sync_bulk sync_cron sync_wildcard
   waf_rate_limit)
 [[ "${PERF_EDGE:-1}" == 1 ]] && ALL_TESTS+=("${EDGE_TESTS[@]}")
@@ -747,6 +747,18 @@ t_sync_alias() {
   res=$(after "$a" "/node/$nid" "/node/$nid/" "$a/" "$a?x=1"); sync_end
   if all_miss "$res"; then say PASS sync_alias "node/$nid saved: alias, /node/N, trailing-slash and ?query variants all purged: $res (queued: $q)"
   else say FAIL sync_alias "stale at the edge after save + queue-work: $res (queued: $q)"; fi
+}
+
+t_sync_single_save() {
+  local r nid a q n u dup
+  sync_begin; r=$(rnd); a="/synthetic-sync-once-$r"; nid=$(new_node once "$a"); dr p:queue-empty >/dev/null
+  sphp "\$n = \Drupal\node\Entity\Node::load($nid); \$n->setTitle('SYNTHETIC sync once ' . mt_rand()); \$n->save();" >/dev/null
+  q=$(queued); dr p:queue-empty >/dev/null; sync_end
+  n=$(printf '%s\n' $q | grep -c . || true); u=$(printf '%s\n' $q | sort -u | grep -c . || true)
+  dup=$(printf '%s\n' $q | sort | uniq -d | tr '\n' ' ')
+  if [[ "$n" -gt 0 && "$n" == "$u" && " $q " == *" path:${a#/} "* && " $q " == *" path:node/$nid "* && " $q " != *"rss.xml/"* ]]; then
+    say PASS sync_single_save "one save of node/$nid queued $n invalidations, each once: $q"
+  else say FAIL sync_single_save "one save queued $n items, $u unique; duplicates: '${dup}'; items: $q"; fi
 }
 
 t_sync_listing() {

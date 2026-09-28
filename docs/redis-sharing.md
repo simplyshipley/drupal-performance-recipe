@@ -28,6 +28,11 @@ tmp/redis-image/test-image.log].
   - SELECT cannot be limited per database in ACL, so DB numbers give no separation. That is why the image denies SELECT for app users.
   - DB numbers are also absent from Redis Cluster, and `FLUSHDB` is too coarse.
 - **SCAN leaks key names:** ACL patterns do not filter SCAN results. In the lab, `sitea` listed `siteb:k1` before SCAN was denied [V: acl-checks.log]. Cache IDs contain URLs, so the image denies SCAN. The redis module only needs SCAN on its report page (admin/reports/redis), which will show errors on a shared instance.
+- **Not allowed on a shared instance:**
+  - The redis module's queue backends (`queue.redis`, `queue.redis_reliable`) use KEYS (`ReliablePredis.php:136`, `Relay.php:138`), which app users are denied.
+  - `REDIS_DB` / SELECT is also denied.
+  - The redis report page (admin/reports/redis) needs SCAN, so it errors for app users.
+  - This recipe uses Redis only for cache bins, which need none of these.
 - **Flush safety:**
   - `drush cr` is safe. redis 1.11 writes a per-bin "deleted before" timestamp under the site's prefix, so no key is deleted and no other prefix is touched.
   - Tested: after site A's `drush cr`, site B's cached item was still returned. With both sites on the same prefix (fail-proof), B's item was gone.

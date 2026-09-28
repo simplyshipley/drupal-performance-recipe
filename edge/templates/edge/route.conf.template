@@ -2,6 +2,11 @@
 # Included by every public listener. $edge_qs_mode is set by the server.
 
 set $edge_cache_dir /var/cache/nginx/edge;
+# Origin in a variable: nginx then resolves it per request (resolver from
+# nginx.conf = the container's DNS) instead of at start-up. A literal host
+# made the edge exit with "host not found in upstream" when it started
+# before the origin container (Lando, 2026-09-28).
+set $edge_origin "${EDGE_ORIGIN}";
 set $edge_qs_ignore_params "${EDGE_QS_IGNORE_PARAMS}";
 set $edge_qs_include_params "${EDGE_QS_INCLUDE_PARAMS}";
 
@@ -57,13 +62,13 @@ add_header X-Azure-Ref $edge_ref always;
 # private/no-store, same as Front Door). Private file paths are excluded.
 location ~* ^/(system/files|sites/[^/]+/private)/ {
     proxy_ignore_headers Vary;
-    proxy_pass ${EDGE_ORIGIN};
+    proxy_pass $edge_origin;
 }
 location ~* \.(css|js|mjs|png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|otf|eot|map|mp4|webm|pdf)$ {
     proxy_ignore_headers Cache-Control Expires Vary Set-Cookie;
     proxy_hide_header Set-Cookie;
     proxy_cache_valid 200 206 301 ${EDGE_STATIC_TTL};
-    proxy_pass ${EDGE_ORIGIN};
+    proxy_pass $edge_origin;
 }
 
 # Everything else: honour origin headers; EDGE_DEFAULT_TTL only when the
@@ -71,7 +76,7 @@ location ~* \.(css|js|mjs|png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|otf|eot|map
 location / {
     proxy_ignore_headers Vary;
     proxy_cache_valid 200 301 ${EDGE_DEFAULT_TTL};
-    proxy_pass ${EDGE_ORIGIN};
+    proxy_pass $edge_origin;
 }
 
 location @edge_waf_block {

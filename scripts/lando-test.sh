@@ -16,6 +16,15 @@ mode_in() { lando ssh -s appserver -c "cd /app && BASE_URL=http://appserver_ngin
 {
   # Tests need production behaviour: prod-like once for the whole run, then
   # the previous cache mode is restored (docs/cache-modes.md).
+  # Wait for the edge (if this app has one) before testing.
+  EDGE_C=$(docker ps -a --filter "label=com.docker.compose.project=$PROJECT" --filter "label=com.docker.compose.service=edge" --format '{{.Names}}' | head -1)
+  if [[ -n "$EDGE_C" ]]; then
+    if lando ssh -s appserver -c 'for i in $(seq 1 60); do curl -sf -m 2 -o /dev/null http://edge:8099/__edge/health && exit 0; sleep 1; done; exit 1' >/dev/null 2>&1; then
+      echo "# edge healthy"
+    else
+      echo "# edge NOT healthy after 60 s:"; docker ps -a --filter "name=$EDGE_C" --format '{{.Names}} {{.Status}}'; docker logs --tail 5 "$EDGE_C" 2>&1
+    fi
+  fi
   PREV=$(mode_in current | tr -d '[:space:]')
   echo "# cache mode: '${PREV:-off}' -> prod-like for the suite"
   mode_in prod-like >/dev/null

@@ -10,7 +10,7 @@ cd "$(dirname "$0")"
 IMG=perf-redis:local NET=perf-redis-test FAILS=0
 OUT="${OUT:-$(mktemp -d)}"
 say() { printf '%s %s: %s\n' "$1" "$2" "$3"; [[ "$1" == FAIL ]] && FAILS=$((FAILS+1)); return 0; }
-cleanup() { for c in prt-single prt-shared prt-tls prt-bad; do docker container remove -f "$c" >/dev/null 2>&1; done; docker network remove "$NET" >/dev/null 2>&1; }
+cleanup() { for c in prt-single prt-shared prt-tls prt-bad prt-aclfile; do docker container remove -f "$c" >/dev/null 2>&1; done; docker network remove "$NET" >/dev/null 2>&1; }
 trap cleanup EXIT
 cleanup
 docker build -q -t "$IMG" . >/dev/null || { echo "FAIL build"; exit 1; }
@@ -66,6 +66,19 @@ if [[ -s "$OUT/redis.crt" ]]; then
     else say FAIL tls "tls='$t1' plain-on-6380='$t2' 6379='$t3'"; fi
   else say FAIL tls "not healthy: $(docker logs prt-tls 2>&1 | tail -2)"; fi
 else say FAIL tls "could not generate test certificates"; fi
+
+# 5. ACL-file mode: healthcheck must contact redis-server (alive -> 0) and fail
+#    when nothing answers (dead -> non-zero). redis-server is PID 1, so a
+#    "dead" server is simulated by pointing the check at a closed port.
+mkdir -p "$OUT/acl"; printf 'user default off\nuser ops on #%s ~* &* +@all\n' "$(printf 'synthetic-ops' | shasum -a 256 | cut -d' ' -f1)" > "$OUT/acl/users.acl"; chmod 0644 "$OUT/acl/users.acl"
+docker run -d --name prt-aclfile --network "$NET" -v "$OUT/acl:/acl:ro" -e REDIS_ACL_FILE=/acl/users.acl "$IMG" >/dev/null
+if wait_healthy prt-aclfile; then
+  docker exec prt-aclfile /usr/local/bin/perf-redis-healthcheck >/dev/null 2>&1; alive=$?
+  docker exec -e REDIS_PORT=6390 prt-aclfile /usr/local/bin/perf-redis-healthcheck >/dev/null 2>&1; dead=$?
+  ops=$(cli prt-aclfile --user ops --pass synthetic-ops ping)
+  if [[ "$alive" == 0 && "$dead" != 0 && "$ops" == PONG ]]; then say PASS aclfile_health "ACL file loaded (ops PING $ops); healthcheck alive=$alive, with no server on the port=$dead (fails)"
+  else say FAIL aclfile_health "alive=$alive dead=$dead ops='$ops'"; fi
+else say FAIL aclfile_health "not healthy: $(docker logs prt-aclfile 2>&1 | tail -2)"; fi
 
 echo "# summary: $FAILS failed"
 exit "$FAILS"
