@@ -24,6 +24,7 @@ mode_in() { lando ssh -s appserver -c "cd /app && BASE_URL=http://appserver_ngin
     echo "# redis_down: stopping $CACHE"
     docker stop "$CACHE" >/dev/null
     run_in redis_down
+    run_in sync_redis_down
     docker start "$CACHE" >/dev/null
     sleep 2
     run_in redis_recover

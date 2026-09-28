@@ -1,0 +1,8 @@
+# Loaded through $settings['container_yamls'] by settings.performance.php (no
+# module install needed). Maps cache tag invalidations to Front Door paths.
+services:
+  perf_purge_paths.queuer:
+    class: Drupal\perf_purge_paths\PathsQueuer
+    arguments: ['@service_container']
+    tags:
+      - { name: cache_tags_invalidator }

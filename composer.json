@@ -12,6 +12,6 @@
         "drupal/themed_fast_404": "^1.0"
     },
     "suggest": {
-        "cweagans/composer-patches": "Needed for Azure Government: apply patches/azure_cdn_purge-3427718-mr6-9859fc45.patch then patches/azure_cdn_purge-3427718-followup-default-cloud.patch from the ROOT composer.json (docs/install.md section 5b)."
+        "cweagans/composer-patches": "Needed for Azure Government: apply patches/azure_cdn_purge-3427718-mr6-9859fc45.patch then patches/azure_cdn_purge-3427718-followup-default-cloud.patch, and for wildcard purges patches/azure_cdn_purge-wildcardpath-purged.patch, from the ROOT composer.json (docs/install.md section 5b)."
     }
 }

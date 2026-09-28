@@ -56,6 +56,14 @@ FAIL in both labs [V: tmp/ddev/edge-failproof.log, tmp/lando-edge-failproof.log]
 
 The suite switches to `prod-like` for its run and restores the previous cache mode at exit (`PERF_CACHE_AUTO=0` skips; the host wrappers do it once around the whole run).
 
+### Cache sync tests (docs/cache-sync.md)
+
+13 `sync_*` tests (alias, listing, alias change, delete, publish cycle, revert, 404-then-create, term/user,
+menu, same-URL file, bulk/chunking, cron processor, wildcard) plus `sync_redis_down` (wrappers, Redis
+stopped). Results and before/after table: [cache-sync.md](cache-sync.md). A third status, `FINDING`,
+marks known gaps left as open decisions; it does not count as FAIL. Fail-proof: `SYNC_NEGATIVE=1`
+(`PERF_PURGE_PATHS=0`) makes the fix-dependent tests FAIL [V: tmp/ddev/sync-failproof.log].
+
 ## Unit tests (fail-open module)
 
 `modules/perf_redis_failopen/tests/src/Unit/FailOpenCacheBackendTest.php`, plain PHPUnit:

@@ -48,6 +48,15 @@
  *                           to Redis (settings/redis.services.yml). Default
  *                           off; they stay in the database.
  *
+ * Front Door path purging (modules/perf_purge_paths, docs/cache-sync.md)
+ *   PERF_PURGE_PATHS        1 (default) = map cache tag invalidations to paths
+ *                           (alias, old alias, /node/N, listings, files).
+ *   PERF_PURGE_LIST_PATHS   Paths purged when a *_list tag is invalidated
+ *                           (default "/,/node,/rss.xml"; "/news/*" allowed).
+ *   PERF_PURGE_SITEWIDE_PATHS  Paths purged on menu / block changes (default
+ *                           empty; "/*" purges everything).
+ *   PERF_PURGE_TRAILING_SLASH  1 (default) = also purge "path/".
+ *
  * Cache mode (local testing; see docs/cache-modes.md)
  *   PERF_CACHE_MODE         dev | dev-twig | prod-like. Default: unset = this
  *                           file changes nothing about Drupal's own caches.
@@ -356,6 +365,18 @@ if ($perf_env('PERF_FAST404') === '1') {
     fast404_preboot(['fast404_path_check' => FALSE] + $settings);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Front Door path purging (modules/perf_purge_paths). Registered without a
+// module install, like the fail-open wrapper; it only acts when the purge
+// queue exists and PERF_PURGE_PATHS is not 0.
+// ---------------------------------------------------------------------------
+$settings['perf_purge_paths_enabled'] = $perf_env('PERF_PURGE_PATHS', '1') !== '0';
+$settings['perf_purge_list_paths'] = (string) $perf_env('PERF_PURGE_LIST_PATHS', '/,/node,/rss.xml');
+$settings['perf_purge_sitewide_paths'] = (string) $perf_env('PERF_PURGE_SITEWIDE_PATHS', '');
+$settings['perf_purge_trailing_slash'] = $perf_env('PERF_PURGE_TRAILING_SLASH', '1') !== '0';
+$settings['container_yamls'][] = dirname(__DIR__) . '/modules/perf_purge_paths/perf_purge_paths.services.yml';
+$class_loader->addPsr4('Drupal\\perf_purge_paths\\', dirname(__DIR__) . '/modules/perf_purge_paths/src');
 
 // ---------------------------------------------------------------------------
 // Cache mode (local testing). dev: no render/page/dynamic caches, Twig debug,

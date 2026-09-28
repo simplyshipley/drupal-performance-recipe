@@ -22,6 +22,7 @@ fails=0
     echo "# redis_down: stopping ddev-$NAME-redis"
     docker stop "ddev-$NAME-redis" >/dev/null
     ddev exec "PERF_CACHE_AUTO=0 BASE_URL=http://localhost bash $SCRIPT redis_down"; fails=$((fails + $?))
+    ddev exec "PERF_CACHE_AUTO=0 BASE_URL=http://localhost bash $SCRIPT sync_redis_down"; fails=$((fails + $?))
     docker start "ddev-$NAME-redis" >/dev/null
     sleep 2
     ddev exec "PERF_CACHE_AUTO=0 BASE_URL=http://localhost bash $SCRIPT redis_recover"; fails=$((fails + $?))

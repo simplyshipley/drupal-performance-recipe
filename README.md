@@ -49,10 +49,16 @@ docs/                            all documentation
 6. [Troubleshooting and known module issues](docs/troubleshooting.md)
 7. [Edge: local Front Door + WAF stand-in](docs/edge-waf.md) (setup, static asset caching test, differences) and [research notes](docs/research-afd-waf.md)
 8. [Cache modes for local testing](docs/cache-modes.md) (`perf-cache dev|prod-like|status`)
-9. Source guides: [Caching on Azure](docs/caching-guide.md), [Hardening](docs/hardening.md)
+9. [Cache sync: Drupal, Redis, purge queue and Front Door](docs/cache-sync.md) (edge cases, findings, open decisions)
+10. Source guides: [Caching on Azure](docs/caching-guide.md), [Hardening](docs/hardening.md)
    (exported from the Claude Doc, 2026-09-25)
 
-## Lab results (2026-09-26, cache modes)
+## Lab results (2026-09-28, cache sync)
+
+Full suite incl. 13 cache-sync tests: DDEV 45 PASS / 0 FAIL / 2 FINDING [V: tmp/ddev/run14-sync.log], Lando 45 / 0 / 2
+[V: tmp/lando-run10-sync.log]. Findings = open decisions in docs/cache-sync.md.
+
+## Earlier lab results (2026-09-26, cache modes)
 
 Full suite incl. cache_mode_dev/prod: DDEV 31 PASS / 0 FAIL [V: tmp/ddev/run12-modes.log], Lando 31 PASS /
 0 FAIL [V: tmp/lando-run9-modes.log]; both started in `dev` and were restored to `dev`.

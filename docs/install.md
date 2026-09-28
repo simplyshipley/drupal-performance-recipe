@@ -95,12 +95,13 @@ path against the project root, so declaring it in the recipe's `composer.json` f
 
 ```bash
 mkdir -p patches
-cp recipes/drupal-performance-recipe/patches/azure_cdn_purge-3427718-*.patch patches/
+cp recipes/drupal-performance-recipe/patches/azure_cdn_purge-*.patch patches/
 composer config allow-plugins.cweagans/composer-patches true
 composer require cweagans/composer-patches:^2
 composer config --json extra.patches.drupal/azure_cdn_purge '[
   {"description":"drupal.org #3427718 MR !6 at 9859fc45 (Azure cloud selector)","url":"patches/azure_cdn_purge-3427718-mr6-9859fc45.patch"},
-  {"description":"Follow-up to #3427718: commercial default, host overrides, scope from cloud, config schema","url":"patches/azure_cdn_purge-3427718-followup-default-cloud.patch"}]'
+  {"description":"Follow-up to #3427718: commercial default, host overrides, scope from cloud, config schema","url":"patches/azure_cdn_purge-3427718-followup-default-cloud.patch"},
+  {"description":"Send wildcardpath invalidations to Azure (were marked done without an API call)","url":"patches/azure_cdn_purge-wildcardpath-purged.patch"}]'
 composer patches-relock
 composer patches-repatch
 ```

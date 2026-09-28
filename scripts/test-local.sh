@@ -34,10 +34,14 @@ ALL_TESTS=(redis_bins redis_in_use drush_cr tag_invalidation eviction purge_queu
 # exhausts this client's rate-limit buckets for about a minute.
 # PERF_EDGE=0 skips them (site without the edge).
 EDGE_TESTS=(edge_static_hit edge_querystring edge_bypass_session edge_html_ttl edge_purge_e2e
-  waf_block_sqli waf_block_xss waf_blocked_paths waf_detection_mode origin_headers waf_rate_limit)
+  waf_block_sqli waf_block_xss waf_blocked_paths waf_detection_mode origin_headers
+  sync_alias sync_listing sync_alias_change sync_delete sync_publish_cycle sync_revert sync_new_path_404
+  sync_other_entities sync_menu_block sync_file sync_bulk sync_cron sync_wildcard
+  waf_rate_limit)
 [[ "${PERF_EDGE:-1}" == 1 ]] && ALL_TESTS+=("${EDGE_TESTS[@]}")
 
-say() { printf '%s %s: %s\n' "$1" "$2" "$3"; case "$1" in FAIL) FAILS=$((FAILS+1));; PASS) PASSES=$((PASSES+1));; esac; }
+FINDINGS=0
+say() { printf '%s %s: %s\n' "$1" "$2" "$3"; case "$1" in FAIL) FAILS=$((FAILS+1));; PASS) PASSES=$((PASSES+1));; FINDING) FINDINGS=$((FINDINGS+1));; esac; }
 dr() { $DRUSH "$@" 2>&1; }
 php_eval() { $DRUSH php:eval "$1" 2>&1; }
 
@@ -709,8 +713,193 @@ t_waf_rate_limit() {
   fi
 }
 
+# --- Cache sync: Drupal/Redis <-> purge queue <-> Front Door (docs/cache-sync.md)
+# Each test warms URLs at the local edge (TCP_HIT), changes content with
+# drush, works the purge queue, and checks the first edge response after it:
+# TCP_MISS = purged, TCP_HIT = still cached (stale).
+# SYNC_NEGATIVE=1 fail-proof: the content change runs with PERF_PURGE_PATHS=0
+# (only azure_cdn_purge's own node alias purge), so the tests that depend on
+# the perf_purge_paths fix FAIL.
+# FINDING lines = known gaps left as open decisions (docs/cache-sync.md).
+sync_env() { if [[ "${SYNC_NEGATIVE:-0}" == 1 ]]; then echo "PERF_PURGE_PATHS=0"; else echo "PERF_PURGE_PATHS=1"; fi; }
+sphp() { env $(sync_env) ${SYNC_EXTRA_ENV:-} $DRUSH php:eval "$1" 2>&1; }
+SYNC_PREV_MAXAGE=""
+sync_begin() {
+  [[ -z "$SYNC_PREV_MAXAGE" ]] && SYNC_PREV_MAXAGE=$(php_eval 'print \Drupal::config("system.performance")->get("cache.page.max_age");' | tail -1)
+  php_eval '\Drupal::configFactory()->getEditable("system.performance")->set("cache.page.max_age", 300)->save();' >/dev/null
+  mock_reset; dr p:queue-empty >/dev/null
+}
+sync_end() { php_eval "\Drupal::configFactory()->getEditable('system.performance')->set('cache.page.max_age', (int) '${SYNC_PREV_MAXAGE:-900}')->save();" >/dev/null; }
+sync_work() { dr p:queue-work --finish >/dev/null; }
+warm() { local u; for u in "$@"; do curl -s -o /dev/null "$EDGE_REAL$u"; curl -s -o /dev/null "$EDGE_REAL$u"; done; }
+# after <urls...>: "url=XCACHE/status ..." for the first request after purge.
+after() { local u h; for u in "$@"; do h=$(hdr "$EDGE_REAL$u"); printf '%s=%s/%s ' "$u" "$(hget "$h" x-cache)" "$(hget "$h" status)"; done; }
+all_miss() { [[ "$1" != *TCP_HIT* && "$1" == *TCP_MISS* ]]; }
+queued() { php_eval 'print implode(" ", array_map(fn($d) => ($x = unserialize($d)) ? ($x[0] . ":" . $x[2]) : "?", \Drupal::database()->query("SELECT data FROM {purge_queue}")->fetchCol()));' | tail -1; }
+new_node() { php_eval "\$n = \Drupal\node\Entity\Node::create(['type' => 'article', 'title' => 'SYNTHETIC sync $1 ' . mt_rand(), 'status' => ${3:-1}, 'promote' => 1, 'path' => ['alias' => '$2', 'pathauto' => 0]]); \$n->save(); print \$n->id();" | tail -1; }
+
+t_sync_alias() {
+  local r nid a res q
+  sync_begin; r=$(rnd); nid=$(new_node alias "/synthetic-sync-$r"); a="/synthetic-sync-$r"
+  sync_work; warm "$a" "/node/$nid" "/node/$nid/" "$a/" "$a?x=1"
+  sphp "\$n = \Drupal\node\Entity\Node::load($nid); \$n->setTitle('SYNTHETIC sync alias edited ' . mt_rand()); \$n->save();" >/dev/null
+  q=$(queued); sync_work
+  res=$(after "$a" "/node/$nid" "/node/$nid/" "$a/" "$a?x=1"); sync_end
+  if all_miss "$res"; then say PASS sync_alias "node/$nid saved: alias, /node/N, trailing-slash and ?query variants all purged: $res (queued: $q)"
+  else say FAIL sync_alias "stale at the edge after save + queue-work: $res (queued: $q)"; fi
+}
+
+t_sync_listing() {
+  local nid res t body
+  sync_begin; warm / /node /rss.xml "/?page=0"
+  nid=$(sphp "\$n = \Drupal\node\Entity\Node::create(['type' => 'article', 'title' => 'SYNTHETIC sync listing ' . mt_rand(), 'status' => 1, 'promote' => 1]); \$n->save(); print \$n->id();" | tail -1)
+  t=$(php_eval "print \Drupal\node\Entity\Node::load($nid)->label();" | tail -1)
+  sync_work; res=$(after / /node /rss.xml "/?page=0"); body=$(curl -s "$EDGE_REAL/"); sync_end
+  if all_miss "$res" && [[ "$body" == *"$t"* ]]; then say PASS sync_listing "new node/$nid: front page, /node, /rss.xml (and ?page=0 variant) purged and the new title is on the front page: $res"
+  else say FAIL sync_listing "after creating node/$nid: $res; new title on edge front page: $([[ "$body" == *"$t"* ]] && echo yes || echo no)"; fi
+}
+
+t_sync_alias_change() {
+  local r nid old new res
+  sync_begin; r=$(rnd); old="/synthetic-sync-old-$r"; new="/synthetic-sync-new-$r"
+  nid=$(new_node aliaschange "$old"); sync_work; warm "$old"
+  sphp "\$n = \Drupal\node\Entity\Node::load($nid); \$n->path->alias = '$new'; \$n->save();" >/dev/null
+  sync_work; res=$(after "$old" "$new"); sync_end
+  if [[ "$res" == "$old="*"/404 "* && "$res" != "$old=TCP_HIT"* ]]; then say PASS sync_alias_change "alias $old -> $new (UI-style update of the same alias): old alias purged, now 404: $res"
+  else say FAIL sync_alias_change "old alias still served from the edge after the alias change: $res"; fi
+}
+
+t_sync_delete() {
+  local r nid a res
+  sync_begin; r=$(rnd); a="/synthetic-sync-del-$r"; nid=$(new_node delete "$a"); sync_work; warm "$a" "/node/$nid"
+  sphp "\Drupal\node\Entity\Node::load($nid)->delete();" >/dev/null
+  sync_work; res=$(after "$a" "/node/$nid"); sync_end
+  if [[ "$res" != *TCP_HIT* ]]; then say PASS sync_delete "deleted node/$nid: alias and /node/N purged (404): $res"
+  elif [[ "$res" == *"/node/$nid=TCP_MISS"* ]]; then say FINDING sync_delete "deleted node/$nid: /node/N purged but the ALIAS is still served from the edge until its TTL: $res. Likely cause [ASSUMED]: the alias row is already deleted when the tags reach the queuer. Fix needs a hook module (docs/cache-sync.md open decision 1)"
+  else say FAIL sync_delete "deleted node still at the edge: $res"; fi
+}
+
+t_sync_publish_cycle() {
+  local r nid a res1 res2
+  sync_begin; r=$(rnd); a="/synthetic-sync-pub-$r"; nid=$(new_node publish "$a"); sync_work; warm "$a"
+  sphp "\$n = \Drupal\node\Entity\Node::load($nid); \$n->setUnpublished()->save();" >/dev/null
+  sync_work; res1=$(after "$a"); warm "$a"
+  sphp "\$n = \Drupal\node\Entity\Node::load($nid); \$n->setPublished()->save();" >/dev/null
+  sync_work; res2=$(after "$a"); sync_end
+  if [[ "$res1" == *"TCP_MISS/403"* && "$res2" == *"TCP_MISS/200"* ]]; then say PASS sync_publish_cycle "unpublish: $res1 (403 then cached at the edge); publish again: $res2"
+  else say FAIL sync_publish_cycle "unpublish -> $res1; publish -> $res2 (want MISS/403 then MISS/200)"; fi
+}
+
+t_sync_revert() {
+  local r nid a res
+  sync_begin; r=$(rnd); a="/synthetic-sync-rev-$r"; nid=$(new_node revert "$a")
+  php_eval "\$n = \Drupal\node\Entity\Node::load($nid); \$n->setNewRevision(TRUE); \$n->setTitle('SYNTHETIC sync revert B'); \$n->save();" >/dev/null
+  sync_work; warm "$a"
+  sphp "\$s = \Drupal::entityTypeManager()->getStorage('node'); \$ids = array_values(\$s->revisionIds(\$s->load($nid))); \$old = \$s->loadRevision(\$ids[0]); \$old->setNewRevision(TRUE); \$old->isDefaultRevision(TRUE); \$old->save();" >/dev/null
+  sync_work; res=$(after "$a"); local body; body=$(curl -s "$EDGE_REAL$a"); sync_end
+  if [[ "$res" == *TCP_MISS/200* && "$body" != *"SYNTHETIC sync revert B"* ]]; then say PASS sync_revert "revision revert on node/$nid purged the alias: $res"
+  else say FAIL sync_revert "after revert: $res; old title B still shown: $([[ "$body" == *"SYNTHETIC sync revert B"* ]] && echo yes || echo no)"; fi
+}
+
+t_sync_new_path_404() {
+  local r a res
+  sync_begin; r=$(rnd); a="/synthetic-sync-future-$r"; warm "$a"
+  local pre; pre=$(hdr "$EDGE_REAL$a")
+  new_node future "$a" >/dev/null; sync_work; res=$(after "$a"); sync_end
+  if [[ -z "$(hget "$pre" x-cache)" ]]; then say FAIL sync_new_path_404 "edge did not answer (no X-Cache): $res"
+  elif [[ "$res" == *TCP_MISS/200* ]]; then say PASS sync_new_path_404 "unknown path before the node existed: $(hget "$pre" x-cache)/$(hget "$pre" status) Cache-Control '$(hget "$pre" cache-control)' (a 404 is not stored at the edge); after create: $res"
+  else say FINDING sync_new_path_404 "a 404 cached at the edge (before: $(hget "$pre" x-cache)/$(hget "$pre" status), Cache-Control '$(hget "$pre" cache-control)') is NOT purged when a node is created at that alias: $res. Core invalidates only list tags + 4xx-response on insert. Open decision (docs/cache-sync.md)"; fi
+}
+
+t_sync_other_entities() {
+  local r tid ta uid res tres ures
+  sync_begin; r=$(rnd); ta="/synthetic-sync-term-$r"
+  tid=$(php_eval "\$t = \Drupal\taxonomy\Entity\Term::create(['vid' => 'tags', 'name' => 'SYNTHETIC term $r', 'path' => ['alias' => '$ta', 'pathauto' => 0]]); \$t->save(); print \$t->id();" | tail -1)
+  uid=$(php_eval "\$u = \Drupal\user\Entity\User::create(['name' => 'synthetic_sync_$r', 'mail' => 'synthetic_sync_$r@example.invalid', 'status' => 1]); \$u->save(); print \$u->id();" | tail -1)
+  sync_work; warm "$ta" "/taxonomy/term/$tid" "/user/$uid"
+  sphp "\$t = \Drupal\taxonomy\Entity\Term::load($tid); \$t->setName('SYNTHETIC term edited $r'); \$t->save(); \$u = \Drupal\user\Entity\User::load($uid); \$u->setUsername('synthetic_sync_b_$r'); \$u->save();" >/dev/null
+  sync_work; tres=$(after "$ta" "/taxonomy/term/$tid"); ures=$(after "/user/$uid"); sync_end
+  local media; media=$(php_eval 'print \Drupal::moduleHandler()->moduleExists("media") ? "yes" : "no";' | tail -1)
+  # /user/* is a bypass path at the edge (CONFIG_NOCACHE): never cached, nothing to purge.
+  if all_miss "$tres" && { all_miss "$ures" || [[ "$ures" == *CONFIG_NOCACHE* ]]; }; then say PASS sync_other_entities "taxonomy term: $tres; user: $ures (bypassed at the edge); media module installed: $media (media:N maps the same way, untested when not installed)"
+  else say FAIL sync_other_entities "term: $tres; user: $ures"; fi
+}
+
+t_sync_menu_block() {
+  local nid p res1 res2
+  sync_begin; nid=$(first_node); p=$(node_path "$nid"); warm "$p"
+  sphp "\$l = \Drupal\menu_link_content\Entity\MenuLinkContent::create(['title' => 'SYNTHETIC sync menu ' . mt_rand(), 'link' => ['uri' => 'internal:/node/$nid'], 'menu_name' => 'main']); \$l->save();" >/dev/null
+  sync_work; res1=$(after "$p")
+  warm "$p"
+  SYNC_EXTRA_ENV="PERF_PURGE_SITEWIDE_PATHS=/*" sphp "\$l = \Drupal\menu_link_content\Entity\MenuLinkContent::create(['title' => 'SYNTHETIC sync menu2 ' . mt_rand(), 'link' => ['uri' => 'internal:/node/$nid'], 'menu_name' => 'main']); \$l->save();" >/dev/null
+  sync_work; res2=$(after "$p"); sync_end
+  if [[ "$res2" == *TCP_MISS* ]]; then
+    [[ "$res1" == *TCP_HIT* ]] && say FINDING sync_menu_block "default (PERF_PURGE_SITEWIDE_PATHS empty): a menu change leaves every page stale at the edge: $res1 (until HTML TTL)."
+    say PASS sync_menu_block "with PERF_PURGE_SITEWIDE_PATHS=/* a menu change purges pages: $res2"
+  else say FAIL sync_menu_block "even with PERF_PURGE_SITEWIDE_PATHS=/* the page stayed cached: $res2 (default: $res1)"; fi
+}
+
+t_sync_file() {
+  local r fid u res body
+  sync_begin; r=$(rnd)
+  fid=$(php_eval "\$uri = 'public://synthetic-sync-$r.txt'; file_put_contents(\$uri, 'SYNTHETIC version A'); \$f = \Drupal\file\Entity\File::create(['uri' => \$uri, 'status' => 1]); \$f->save(); print \$f->id();" | tail -1)
+  u="/sites/default/files/synthetic-sync-$r.txt"; sync_work; warm "$u"
+  local cc; cc=$(hget "$(hdr "$EDGE_REAL$u")" cache-control)
+  sphp "\$f = \Drupal\file\Entity\File::load($fid); file_put_contents(\$f->getFileUri(), 'SYNTHETIC version B'); \$f->save();" >/dev/null
+  sync_work; res=$(after "$u"); body=$(curl -s "$EDGE_REAL$u"); sync_end
+  if [[ "$res" == *TCP_MISS* && "$body" == *"version B"* ]]; then say PASS sync_file "file replaced at the same URL + file entity saved: $res, new content served (edge had Cache-Control '$cc')"
+  else say FAIL sync_file "same-URL replacement: $res, body '$body' (edge Cache-Control '$cc')"; fi
+}
+
+t_sync_bulk() {
+  local ids n reqs maxp v
+  sync_begin
+  ids=$(php_eval '$ids = \Drupal::entityQuery("node")->accessCheck(FALSE)->range(0, 60)->execute(); print implode(",", $ids);' | tail -1)
+  sphp "foreach (\Drupal\node\Entity\Node::loadMultiple([$ids]) as \$n) { \$n->save(); }" >/dev/null
+  v=$(queue_volume); dr p:queue-work --finish >/dev/null
+  reqs=$(mock_log | grep -c '"kind": "purge"' || true)
+  maxp=$(mock_log | grep '"kind": "purge"' | sed -n 's/.*"content_paths": \[\([^]]*\)\].*/\1/p' | awk -F', ' '{print NF}' | sort -n | tail -1)
+  n=$(printf '%s' "$ids" | tr ',' '\n' | grep -c .); sync_end
+  if [[ "${v:-0}" -gt 0 && "$reqs" -ge 2 && "${maxp:-99}" -le 50 && "$(queue_volume)" == 0 ]]; then say PASS sync_bulk "$n nodes saved in one drush call: $v invalidations queued, sent as $reqs purge requests, largest $maxp paths (chunk_size 50); queue empty"
+  else say FAIL sync_bulk "$n nodes: queued $v, purge requests $reqs, largest $maxp paths, queue now $(queue_volume)"; fi
+}
+
+t_sync_cron() {
+  local r nid a res lr
+  sync_begin; r=$(rnd); a="/synthetic-sync-cron-$r"; nid=$(new_node cron "$a"); sync_work; warm "$a"
+  sphp "\$n = \Drupal\node\Entity\Node::load($nid); \$n->setTitle('SYNTHETIC sync cron ' . mt_rand()); \$n->save();" >/dev/null
+  res=$(after "$a"); warm "$a"
+  dr cron >/dev/null; local res2; res2=$(after "$a")
+  lr=$(php_eval 'print \Drupal::moduleHandler()->moduleExists("purge_processor_lateruntime") ? "on" : "off";' | tail -1); sync_end
+  if [[ "$res" == *TCP_HIT* && "$res2" == *TCP_MISS* ]]; then say PASS sync_cron "before any processor ran the edge still served the old page ($res); drush cron (purge_processor_cron) purged it ($res2). Late-runtime processor: $lr"
+  else say FAIL sync_cron "before processing: $res; after drush cron: $res2"; fi
+}
+
+t_sync_wildcard() {
+  local out log
+  mock_reset
+  out=$(dr p:invalidate wildcardpath "synthetic-sync-wild/*" 2>&1 | tail -1)
+  log=$(mock_log | grep '"kind": "purge"' | tail -1)
+  if [[ "$log" == *'"/synthetic-sync-wild/*"'* ]]; then say PASS sync_wildcard "wildcardpath invalidation reached Front Door: ${log:0:200}"
+  else say FAIL sync_wildcard "wildcardpath invalidation ('$out') sent no purge request (purger marks it done without an API call)"; fi
+}
+
+# Run by the host wrappers while Redis is stopped (after redis_down).
+t_sync_redis_down() {
+  local r nid a q
+  php_eval '\Drupal::configFactory()->getEditable("system.performance")->set("cache.page.max_age", 300)->save();' >/dev/null
+  mock_reset; dr p:queue-empty >/dev/null
+  nid=$(first_node); a=$(node_path "$nid"); warm "$a"
+  sphp "\$n = \Drupal\node\Entity\Node::load($nid); \$n->setTitle('SYNTHETIC sync redis down ' . mt_rand()); \$n->save();" >/dev/null
+  q=$(queued); sync_work; local res; res=$(after "$a"); local t; t=$(php_eval "print \Drupal\node\Entity\Node::load($nid)->label();" | tail -1)
+  local body; body=$(curl -s "$EDGE_REAL$a")
+  php_eval "\Drupal::configFactory()->getEditable('system.performance')->set('cache.page.max_age', 900)->save();" >/dev/null
+  if [[ "$res" == *TCP_MISS/200* && "$body" == *"$t"* ]]; then say PASS sync_redis_down "Redis stopped: save queued ($q), purge sent, edge serves the new title: $res"
+  else say FAIL sync_redis_down "Redis stopped: queued '$q', after purge $res, new title shown: $([[ "$body" == *"$t"* ]] && echo yes || echo no)"; fi
+}
+
 # --- Runner -------------------------------------------------------------------
-if [[ "${1:-}" == "--list" ]]; then printf '%s\n' "${ALL_TESTS[@]}" redis_down redis_recover redis_hang; exit 0; fi
+if [[ "${1:-}" == "--list" ]]; then printf '%s\n' "${ALL_TESTS[@]}" redis_down sync_redis_down redis_recover redis_hang; exit 0; fi
 TESTS=("$@"); [[ ${#TESTS[@]} -eq 0 ]] && TESTS=("${ALL_TESTS[@]}")
 # The suite needs production behaviour: switch to prod-like, restore the
 # previous mode at exit. PERF_CACHE_AUTO=0 skips (the host wrappers do it once).
@@ -733,5 +922,5 @@ echo "# perf test-local.sh $(date -u +%FT%TZ) BASE_URL=$BASE_URL MOCK=$MOCK PREF
 for t in "${TESTS[@]}"; do
   if declare -F "t_$t" >/dev/null; then "t_$t"; else say FAIL "$t" "unknown test"; fi
 done
-echo "# summary: $PASSES passed, $FAILS failed"
+echo "# summary: $PASSES passed, $FAILS failed, $FINDINGS findings (open decisions, see docs/cache-sync.md)"
 exit "$FAILS"

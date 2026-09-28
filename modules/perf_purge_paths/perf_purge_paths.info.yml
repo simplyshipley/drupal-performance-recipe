@@ -1,0 +1,6 @@
+name: 'Performance recipe: purge paths'
+type: module
+description: 'Maps cache tag invalidations to Azure Front Door purge paths (aliases, old aliases, listings, files). Registered by settings.performance.php; no install needed.'
+core_version_requirement: ^10.3 || ^11
+package: Performance
+hidden: true
