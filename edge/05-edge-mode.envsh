@@ -17,6 +17,10 @@ if [ "${EDGE_CHALLENGE:-on}" = "off" ] || [ "$EDGE_LIMIT_DRY_RUN" = "on" ]; then
 else
   export EDGE_CHALLENGE_ENFORCE=1
 fi
+case "${EDGE_CHALLENGE_MISSING:-both}" in
+  either) export EDGE_CHALLENGE_MISSING=either ;;
+  *) export EDGE_CHALLENGE_MISSING=both ;;
+esac
 if [ "${EDGE_CHALLENGE:-on}" = "off" ]; then export EDGE_CHALLENGE_ACTIVE=0; else export EDGE_CHALLENGE_ACTIVE=1; fi
 # Security response headers (empty value = header not sent).
 if [ "${EDGE_SEC_HEADERS:-on}" = "off" ]; then

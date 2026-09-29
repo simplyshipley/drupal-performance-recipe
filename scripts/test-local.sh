@@ -717,21 +717,26 @@ t_waf_rate_limit() {
 # --- Bot header-consistency challenge + security headers (docs/edge-waf.md) --
 CHROME_UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
 t_bot_challenge() {
-  local u b1 b2 c3 s4 s5 s6 d7 bad="" out
+  local u b1 b2 c3 s4 s5 s6 d7 k8 bad="" out
   u="/node/$(first_node)?bot=$(rnd)"
   b1=$(hdr "$EDGE$u" -A "$CHROME_UA" -H 'Sec-Fetch-Mode: navigate' -H 'Accept-Language: en-US,en;q=0.9')
   b2=$(hdr "$EDGE$u" -A "$CHROME_UA")
   c3=$(status_of "$EDGE$u")
   s4=$(status_of -A "$CHROME_UA" "$EDGE/core/misc/druplicon.png")
   s5=$(status_of -A "$CHROME_UA" "$EDGE/rss.xml")
-  s6=$(hdr "$EDGE$u" -A "$CHROME_UA" -H 'Sec-Fetch-Mode: navigate')
+  s6=$(hdr "$EDGE$u" -A "$CHROME_UA" -H 'Accept-Language: en-US')
   d7=$(hdr "$(edge_route 8081)$u" -A "$CHROME_UA")
+  # Logged-in user (session cookie), no Sec-Fetch-Mode/Accept-Language.
+  # BOT_COOKIE_NEGATIVE=1 sends a non-session cookie instead (fail-proof).
+  local ck="SSESSsyntheticbot$(rnd)=synthetic"; [[ "${BOT_COOKIE_NEGATIVE:-0}" == 1 ]] && ck="notasession=synthetic"
+  k8=$(hdr "$EDGE$u" -A "$CHROME_UA" -H "Cookie: $ck")
   [[ "$(hget "$b1" status)" == 200 && -z "$(hget "$b1" x-edge-action)" ]] || bad="$bad browser-like"
   [[ "$(hget "$b2" status)" == 403 && "$(hget "$b2" x-edge-action)" == challenge ]] || bad="$bad bare-chrome"
-  [[ "$(hget "$s6" status)" == 403 ]] || bad="$bad chrome-no-accept-language"
+  [[ "$(hget "$s6" status)" == 200 && -z "$(hget "$s6" x-edge-action)" ]] || bad="$bad one-header-present(default both)"
   [[ "$s4" == 200 && "$s5" == 200 ]] || bad="$bad static-or-feed"
   [[ "$(hget "$d7" status)" == 200 && "$(hget "$d7" x-edge-would-challenge)" == header-consistency ]] || bad="$bad detection"
-  out="browser-like $(hget "$b1" status); Chrome UA without Sec-Fetch-Mode/Accept-Language $(hget "$b2" status) X-Edge-Action=$(hget "$b2" x-edge-action); Chrome UA without Accept-Language $(hget "$s6" status); plain curl UA $c3 (not a browser UA: rule does not apply, documented); static image $s4, /rss.xml $s5; Detection route $(hget "$d7" status) X-Edge-Would-Challenge=$(hget "$d7" x-edge-would-challenge)"
+  [[ "$(hget "$k8" status)" != 403 && -z "$(hget "$k8" x-edge-action)" ]] || bad="$bad session-cookie"
+  out="browser-like $(hget "$b1" status); Chrome UA with neither header $(hget "$b2" status) X-Edge-Action=$(hget "$b2" x-edge-action); Chrome UA with Accept-Language only $(hget "$s6" status) (default EDGE_CHALLENGE_MISSING=both); Chrome UA + session cookie, no headers $(hget "$k8" status) X-Edge-Action='$(hget "$k8" x-edge-action)'; plain curl UA $c3 (not a browser UA: rule does not apply); static image $s4, /rss.xml $s5; Detection route $(hget "$d7" status) X-Edge-Would-Challenge=$(hget "$d7" x-edge-would-challenge)"
   if [[ -z "$bad" ]]; then say PASS bot_challenge "$out"; else say FAIL bot_challenge "wrong:$bad | $out"; fi
 }
 

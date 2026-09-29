@@ -77,7 +77,10 @@ Drupal side (lab only, honoured only in DDEV/Lando):
 ### Bot header-consistency challenge and security headers (2026-09-29)
 
 **Challenge:**
-- **Trigger:** a GET/HEAD request with a browser user agent (`Chrome/`, `Firefox/`, `Safari/`, `Edg/`) but no `Sec-Fetch-Mode` or no `Accept-Language`, on an HTML route.
+- **Trigger:** a GET/HEAD request with a browser user agent (`Chrome/`, `Firefox/`, `Safari/`, `Edg/`) that has **neither** `Sec-Fetch-Mode` **nor** `Accept-Language`, on an HTML route. `EDGE_CHALLENGE_MISSING=either` challenges when just one is missing; that setting is untested in the lab.
+- **Why both is the default:** real browsers can lack `Sec-Fetch-Mode`. Per MDN browser-compat-data `http/headers/Sec-Fetch-Mode.json` (https://raw.githubusercontent.com/mdn/browser-compat-data/main/http/headers/Sec-Fetch-Mode.json, read 2026-09-29): version_added Chrome 76, Edge mirrors Chrome, Firefox 90, Safari 16.4, Safari iOS mirrors Safari, older Safari (before 16.4), Firefox before 90 and Chrome before 76 do not send it. Privacy tools may strip it too.
+- **Session cookie:** requests with a Drupal session cookie (the same `S?SESS` match as the cache bypass) are never challenged, so logged-in editors are not affected. Test: `bot_challenge`; fail-proof `BOT_COOKIE_NEGATIVE=1` [V: tmp/ddev/bot-cookie-failproof.log].
+- **Rollout:** run it in Detection for at least a week and review who would have been challenged. At Front Door use a JS challenge, **never Block**.
 - **Answer:** `403` with `X-Edge-Action: challenge` and a "Checking your browser" body. Front Door Premium would serve a JavaScript challenge instead; the local edge cannot, and a real browser would pass it.
 - **Never challenged:** static files, `/sites/*/files`, `/system/files`, `/core|modules|themes|libraries/`, feeds (`/rss.xml`, `/feed`), PDFs and office documents.
 - **Not a browser user agent (plain curl, monitors):** not challenged. This rule only catches clients that claim to be a browser; plain scripts are the job of Bot Manager and rate limits.

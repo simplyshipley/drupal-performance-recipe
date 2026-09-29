@@ -87,18 +87,30 @@ limit_req_status 429;
 limit_req_log_level warn;
 
 # --- Header-consistency challenge (docs/edge-waf.md) ------------------------
-# Browser user agent without Sec-Fetch-Mode or Accept-Language on an HTML
-# route -> "challenge". Front Door would serve a JavaScript challenge; the
+# Browser user agent without Sec-Fetch-Mode and Accept-Language (default;
+# EDGE_CHALLENGE_MISSING=either: without one of them) on an HTML route, no
+# session cookie -> "challenge". Front Door would serve a JavaScript challenge; the
 # edge answers 403 with X-Edge-Action: challenge. Never for static files,
 # files, feeds, PDFs, or non-GET/HEAD requests.
 map $http_user_agent $edge_browser_ua {
     default 0;
     "~(Chrome|Firefox|Safari|Edg)/" 1;
 }
-map "$http_sec_fetch_mode|$http_accept_language" $edge_headers_missing {
+# EDGE_CHALLENGE_MISSING=both (default): challenge only when BOTH headers are
+# missing; "either": when one is missing. Real browsers can lack Sec-Fetch-*
+# (Safari before 16.4, older Chrome/Firefox; privacy tools may strip them).
+map $http_sec_fetch_mode $edge_sfm_missing {
     default 0;
-    "~^\|" 1;
-    "~\|$" 1;
+    "" 1;
+}
+map $http_accept_language $edge_al_missing {
+    default 0;
+    "" 1;
+}
+map "$edge_challenge_missing_mode:$edge_sfm_missing$edge_al_missing" $edge_headers_missing {
+    default 0;
+    "both:11" 1;
+    "~^either:(1.|.1)$" 1;
 }
 map $uri $edge_challenge_path {
     default 1;
@@ -111,9 +123,11 @@ map $request_method $edge_challenge_method {
     GET 1;
     HEAD 1;
 }
-map "$edge_challenge_active$edge_browser_ua$edge_headers_missing$edge_challenge_path$edge_challenge_method" $edge_would_challenge {
+# Requests with a Drupal session cookie (logged-in users) are never
+# challenged (same S?SESS match as the cache bypass).
+map "$edge_challenge_active$edge_browser_ua$edge_headers_missing$edge_challenge_path$edge_challenge_method$edge_cookie_bypass" $edge_would_challenge {
     default "";
-    "11111" "header-consistency";
+    "111110" "header-consistency";
 }
 map "$edge_would_challenge:$edge_challenge_enforce" $edge_challenge_now {
     default 0;

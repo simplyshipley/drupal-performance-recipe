@@ -80,14 +80,33 @@ Never allow by user agent alone; it is trivially spoofed.
 JavaScript challenge is a Front Door **Premium** custom-rule and Bot Manager 1.x action
 [V: JS challenge page]. It applies to HTML only: AJAX, API and embedded CSS/JS/images are not
 supported. Its cookie is `afd_azwaf_jsclearance`, valid for 5–1,440 minutes (default 30). Custom
-rule conditions are ANDed, so "missing A **or** missing B" is two rules.
+rule conditions are ANDed, so one rule with both conditions means "both headers missing".
 
 The action string `JSChallenge` and the "header missing" test (regex `.+` negated) are [ASSUMED]:
 verify both in a non-production policy.
 
+**Spot check (2026-09-29):** the Front Door WAF REST reference
+(https://learn.microsoft.com/en-us/rest/api/frontdoor/webapplicationfirewall/policies/create-or-update,
+api-version 2022-05-01) lists `ActionType` as `Allow`, `Block`, `Log`, `Redirect` and
+`AnomalyScoring`, with **no JSChallenge**. The JS challenge page says the action exists on Premium,
+so it needs a newer API version or portal setting. `JSChallenge` stays [ASSUMED] until checked in
+our tenant.
+
+The bot rule set name `Microsoft_BotManagerRuleSet` is verified
+(https://learn.microsoft.com/en-us/azure/web-application-firewall/afds/waf-front-door-policy-configure-bot-protection,
+`az network front-door waf-policy managed-rules add --type Microsoft_BotManagerRuleSet --version 1.0`).
+
+**Match both headers missing, not either.** Real browsers can lack `Sec-Fetch-Mode`. Per MDN browser-compat-data `http/headers/Sec-Fetch-Mode.json` (https://raw.githubusercontent.com/mdn/browser-compat-data/main/http/headers/Sec-Fetch-Mode.json, read 2026-09-29): version_added Chrome 76, Edge mirrors Chrome, Firefox 90, Safari 16.4, Safari iOS mirrors Safari, older
+Safari (before 16.4), Firefox before 90 and Chrome before 76 do not send it, and privacy tools can strip
+it. So:
+- **One rule:** put **both** missing-header conditions (`Sec-Fetch-Mode` and `Accept-Language`) in one rule. Conditions are ANDed, which matches the local default `EDGE_CHALLENGE_MISSING=both`.
+- **Session cookie exemption:** add a negated `Cookies` condition for the Drupal session cookie, so logged-in users are never challenged.
+- **Detection first:** keep the rule on `Log` (Detection) for at least a week.
+- **Challenge, never Block:** then use JS challenge only.
+
 ```json
 {
-  "name": "ChallengeBrowserNoSecFetch",
+  "name": "ChallengeBrowserNoBrowserHeaders",
   "priority": 20,
   "ruleType": "MatchRule",
   "matchConditions": [
@@ -96,6 +115,10 @@ verify both in a non-production policy.
       "matchValue": ["(Chrome|Firefox|Safari|Edg)/"] },
     { "matchVariable": "RequestHeader", "selector": "Sec-Fetch-Mode", "operator": "Regex",
       "negateCondition": true, "matchValue": [".+"] },
+    { "matchVariable": "RequestHeader", "selector": "Accept-Language", "operator": "Regex",
+      "negateCondition": true, "matchValue": [".+"] },
+    { "matchVariable": "RequestHeader", "selector": "Cookie", "operator": "Regex",
+      "negateCondition": true, "matchValue": ["S?SESS[0-9a-f]+="] },
     { "matchVariable": "RequestUri", "operator": "Regex", "negateCondition": true,
       "transforms": ["Lowercase"],
       "matchValue": ["\\.(css|js|png|jpe?g|gif|svg|ico|webp|woff2?|pdf|xml|rss|json|txt|csv|docx?|xlsx?|zip)(\\?|$)",
@@ -105,7 +128,7 @@ verify both in a non-production policy.
 }
 ```
 
-- **The second rule:** duplicate the rule (priority 21) with `Accept-Language` instead of `Sec-Fetch-Mode`.
+- **The second condition:** add `Accept-Language` (regex `.+`, negated) to the same rule, so both headers must be missing.
 - **After review:** set the action to `JSChallenge`.
 - **Privacy tools** can strip these headers. That is why the action is a challenge, not Block.
 
@@ -130,8 +153,8 @@ names with `--help` on your CLI version [ASSUMED].
 
 ### Bot Manager
 
-Enable the managed rule set `Microsoft_BotManagerRuleSet` 1.1 (Premium) next to DRS [ASSUMED:
-exact name and version in Azure Government]:
+Enable the managed rule set `Microsoft_BotManagerRuleSet` (verified name; 1.0 in Microsoft's example,
+1.1 if offered; availability in Azure Government [ASSUMED]) next to DRS:
 - **Bad bots:** Block.
 - **Unknown bots:** Log first, then JSChallenge.
 - **Good (verified) bots:** Allow.

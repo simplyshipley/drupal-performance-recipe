@@ -12,6 +12,7 @@ set $edge_qs_include_params "${EDGE_QS_INCLUDE_PARAMS}";
 
 client_max_body_size 64m;
 set $edge_challenge_active ${EDGE_CHALLENGE_ACTIVE};
+set $edge_challenge_missing_mode "${EDGE_CHALLENGE_MISSING}";
 
 # Header-consistency challenge (maps in default.conf). Runs before the WAF,
 # rate limits and cache. Detection: only X-Edge-Would-Challenge is added.
