@@ -10,6 +10,26 @@ case "${EDGE_WAF_MODE:-Prevention}" in
     echo "05-edge-mode: unknown EDGE_WAF_MODE '${EDGE_WAF_MODE}', using Prevention" >&2
     export MODSEC_RULE_ENGINE=On EDGE_LIMIT_DRY_RUN=off ;;
 esac
+# Header-consistency challenge: on unless EDGE_CHALLENGE=off; Detection mode
+# only reports it (X-Edge-Would-Challenge header + access log).
+if [ "${EDGE_CHALLENGE:-on}" = "off" ] || [ "$EDGE_LIMIT_DRY_RUN" = "on" ]; then
+  export EDGE_CHALLENGE_ENFORCE=0
+else
+  export EDGE_CHALLENGE_ENFORCE=1
+fi
+if [ "${EDGE_CHALLENGE:-on}" = "off" ]; then export EDGE_CHALLENGE_ACTIVE=0; else export EDGE_CHALLENGE_ACTIVE=1; fi
+# Security response headers (empty value = header not sent).
+if [ "${EDGE_SEC_HEADERS:-on}" = "off" ]; then
+  export EDGE_HSTS="" EDGE_PERMISSIONS_POLICY="" EDGE_COOP="" EDGE_CSP_REPORT_ONLY="" EDGE_CSP="" EDGE_XFO=""
+else
+  export EDGE_HSTS="${EDGE_HSTS-max-age=31536000; includeSubDomains}"
+  export EDGE_PERMISSIONS_POLICY="${EDGE_PERMISSIONS_POLICY-camera=(), microphone=(), geolocation=(), payment=(), usb=()}"
+  export EDGE_COOP="${EDGE_COOP-same-origin}"
+  export EDGE_CSP_REPORT_ONLY="${EDGE_CSP_REPORT_ONLY-default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; frame-src 'self'; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests}"
+  # frame-ancestors is ignored in Report-Only, so it is enforced on its own.
+  export EDGE_CSP="${EDGE_CSP-frame-ancestors 'self'}"
+  export EDGE_XFO="${EDGE_XFO-SAMEORIGIN}"
+fi
 # Front Door rate limits allow N requests per window; nginx limit_req allows
 # 1 + burst immediately, so burst = N - 1.
 export EDGE_RL_LOGIN_BURST=$(( ${EDGE_RL_LOGIN:-10} - 1 ))

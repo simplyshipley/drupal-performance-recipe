@@ -159,3 +159,8 @@ terms, files and old aliases would stay stale at Front Door ([cache-sync.md](cac
 - **Patches:** apply both extra patches above. The wildcard patch makes `news/*`-style list paths work. The skip-node-hook patch stops the module from queueing the alias a second time. Without it, each node save queues the alias twice. That is harmless, but it is wasted work.
 - **Queue volume:** about 6–10 items per node save, and more with `PERF_PURGE_LIST_PATHS`/`PERF_PURGE_SITEWIDE_PATHS`. See the numbers in cache-sync.md.
 - **Turn it off:** set `PERF_PURGE_PATHS=0`. You then get azure_cdn_purge's original behaviour, because the patched node hook runs again (it skips only while the setting is on).
+
+## Optional: remove the Generator meta tag
+
+Use `drupal/remove_http_headers` (^2.1) with `headers_to_remove: [X-Generator]` only. Its default list also strips
+`X-Drupal-Cache`/`X-Drupal-Dynamic-Cache`. See [hardening.md](hardening.md#generator-meta-tag).

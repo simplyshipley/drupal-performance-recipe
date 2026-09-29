@@ -15,7 +15,7 @@ js_set $edge_cache_key edge.cacheKey;
 
 error_log /tmp/edge-error.log warn;
 log_format edge '$remote_addr [$time_local] "$request" $status $body_bytes_sent '
-                'xcache=$edge_x_cache key="$edge_cache_key" ref=$edge_ref';
+                'xcache=$edge_x_cache key="$edge_cache_key" ref=$edge_ref challenge=$edge_would_challenge';
 access_log /tmp/edge-access.log edge;
 
 proxy_cache_path /var/cache/nginx/edge levels=1:2 keys_zone=edge:20m
@@ -86,6 +86,40 @@ limit_req_zone $binary_remote_addr  zone=edge_general:10m rate=${EDGE_RL_GENERAL
 limit_req_status 429;
 limit_req_log_level warn;
 
+# --- Header-consistency challenge (docs/edge-waf.md) ------------------------
+# Browser user agent without Sec-Fetch-Mode or Accept-Language on an HTML
+# route -> "challenge". Front Door would serve a JavaScript challenge; the
+# edge answers 403 with X-Edge-Action: challenge. Never for static files,
+# files, feeds, PDFs, or non-GET/HEAD requests.
+map $http_user_agent $edge_browser_ua {
+    default 0;
+    "~(Chrome|Firefox|Safari|Edg)/" 1;
+}
+map "$http_sec_fetch_mode|$http_accept_language" $edge_headers_missing {
+    default 0;
+    "~^\|" 1;
+    "~\|$" 1;
+}
+map $uri $edge_challenge_path {
+    default 1;
+    "~*\.(css|js|mjs|map|png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|otf|eot|mp4|webm|mp3|pdf|xml|rss|atom|json|txt|csv|docx?|xlsx?|pptx?|zip)$" 0;
+    "~*^/(sites/[^/]+/files|system/files|core|modules|themes|libraries)/" 0;
+    "~*^/(rss\.xml|feed|feeds)(/|$)" 0;
+}
+map $request_method $edge_challenge_method {
+    default 0;
+    GET 1;
+    HEAD 1;
+}
+map "$edge_challenge_active$edge_browser_ua$edge_headers_missing$edge_challenge_path$edge_challenge_method" $edge_would_challenge {
+    default "";
+    "11111" "header-consistency";
+}
+map "$edge_would_challenge:$edge_challenge_enforce" $edge_challenge_now {
+    default 0;
+    "header-consistency:1" 1;
+}
+
 map $http_upgrade $connection_upgrade {
     default upgrade;
     '' close;
@@ -94,6 +128,7 @@ map $http_upgrade $connection_upgrade {
 server {
     listen 8080 default_server;
     set $edge_qs_mode "${EDGE_QS_MODE}";
+    set $edge_challenge_enforce ${EDGE_CHALLENGE_ENFORCE};
     limit_req_dry_run ${EDGE_LIMIT_DRY_RUN};
     include /etc/nginx/edge/route.conf;
 }
@@ -101,6 +136,7 @@ server {
 server {
     listen 8081;
     set $edge_qs_mode "${EDGE_QS_MODE}";
+    set $edge_challenge_enforce 0;
     modsecurity_rules 'SecRuleEngine DetectionOnly';
     limit_req_dry_run on;
     include /etc/nginx/edge/route.conf;
@@ -109,24 +145,28 @@ server {
 server {
     listen 8090;
     set $edge_qs_mode "ignore";
+    set $edge_challenge_enforce ${EDGE_CHALLENGE_ENFORCE};
     limit_req_dry_run ${EDGE_LIMIT_DRY_RUN};
     include /etc/nginx/edge/route.conf;
 }
 server {
     listen 8091;
     set $edge_qs_mode "use";
+    set $edge_challenge_enforce ${EDGE_CHALLENGE_ENFORCE};
     limit_req_dry_run ${EDGE_LIMIT_DRY_RUN};
     include /etc/nginx/edge/route.conf;
 }
 server {
     listen 8092;
     set $edge_qs_mode "ignore-specified";
+    set $edge_challenge_enforce ${EDGE_CHALLENGE_ENFORCE};
     limit_req_dry_run ${EDGE_LIMIT_DRY_RUN};
     include /etc/nginx/edge/route.conf;
 }
 server {
     listen 8093;
     set $edge_qs_mode "include-specified";
+    set $edge_challenge_enforce ${EDGE_CHALLENGE_ENFORCE};
     limit_req_dry_run ${EDGE_LIMIT_DRY_RUN};
     include /etc/nginx/edge/route.conf;
 }

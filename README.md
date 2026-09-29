@@ -57,10 +57,15 @@ docs/                            all documentation
 8. [Cache modes for local testing](docs/cache-modes.md) (`perf-cache dev|prod-like|status`)
 9. [Cache sync: Drupal, Redis, purge queue and Front Door](docs/cache-sync.md) (edge cases, findings, open decisions)
 10. [Redis image for Azure](docs/redis-image.md) and [one vs shared Redis](docs/redis-sharing.md)
-11. Source guides: [Caching on Azure](docs/caching-guide.md), [Hardening](docs/hardening.md)
+11. [uspsoig.gov caching and bot check](docs/uspsoig-cache-bot-check.md) (findings that drove the bot and header work)
+12. Source guides: [Caching on Azure](docs/caching-guide.md), [Hardening](docs/hardening.md)
    (exported from the Claude Doc, 2026-09-25)
 
-## Lab results (2026-09-28, cache sync)
+## Lab results (2026-09-29, bot challenge + headers)
+
+DDEV 49 PASS / 0 FAIL / 2 FINDING [V: tmp/ddev/run16-bot.log]; Lando 49 / 0 / 2 [V: tmp/lando-run12-bot.log].
+
+## Earlier lab results (2026-09-28, cache sync)
 
 Full suite incl. 14 cache-sync tests: DDEV 46 PASS / 0 FAIL / 2 FINDING [V: tmp/ddev/run15.log], Lando 46 / 0 / 2
 [V: tmp/lando-run11.log]. Findings = open decisions in docs/cache-sync.md.

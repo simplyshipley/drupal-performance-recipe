@@ -35,6 +35,7 @@ ALL_TESTS=(redis_bins redis_in_use drush_cr tag_invalidation eviction purge_queu
 # PERF_EDGE=0 skips them (site without the edge).
 EDGE_TESTS=(edge_static_hit edge_querystring edge_bypass_session edge_html_ttl edge_purge_e2e
   waf_block_sqli waf_block_xss waf_blocked_paths waf_detection_mode origin_headers
+  bot_challenge security_headers generator_removed
   sync_alias sync_single_save sync_listing sync_alias_change sync_delete sync_publish_cycle sync_revert sync_new_path_404
   sync_other_entities sync_menu_block sync_file sync_bulk sync_cron sync_wildcard
   waf_rate_limit)
@@ -713,6 +714,50 @@ t_waf_rate_limit() {
   fi
 }
 
+# --- Bot header-consistency challenge + security headers (docs/edge-waf.md) --
+CHROME_UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
+t_bot_challenge() {
+  local u b1 b2 c3 s4 s5 s6 d7 bad="" out
+  u="/node/$(first_node)?bot=$(rnd)"
+  b1=$(hdr "$EDGE$u" -A "$CHROME_UA" -H 'Sec-Fetch-Mode: navigate' -H 'Accept-Language: en-US,en;q=0.9')
+  b2=$(hdr "$EDGE$u" -A "$CHROME_UA")
+  c3=$(status_of "$EDGE$u")
+  s4=$(status_of -A "$CHROME_UA" "$EDGE/core/misc/druplicon.png")
+  s5=$(status_of -A "$CHROME_UA" "$EDGE/rss.xml")
+  s6=$(hdr "$EDGE$u" -A "$CHROME_UA" -H 'Sec-Fetch-Mode: navigate')
+  d7=$(hdr "$(edge_route 8081)$u" -A "$CHROME_UA")
+  [[ "$(hget "$b1" status)" == 200 && -z "$(hget "$b1" x-edge-action)" ]] || bad="$bad browser-like"
+  [[ "$(hget "$b2" status)" == 403 && "$(hget "$b2" x-edge-action)" == challenge ]] || bad="$bad bare-chrome"
+  [[ "$(hget "$s6" status)" == 403 ]] || bad="$bad chrome-no-accept-language"
+  [[ "$s4" == 200 && "$s5" == 200 ]] || bad="$bad static-or-feed"
+  [[ "$(hget "$d7" status)" == 200 && "$(hget "$d7" x-edge-would-challenge)" == header-consistency ]] || bad="$bad detection"
+  out="browser-like $(hget "$b1" status); Chrome UA without Sec-Fetch-Mode/Accept-Language $(hget "$b2" status) X-Edge-Action=$(hget "$b2" x-edge-action); Chrome UA without Accept-Language $(hget "$s6" status); plain curl UA $c3 (not a browser UA: rule does not apply, documented); static image $s4, /rss.xml $s5; Detection route $(hget "$d7" status) X-Edge-Would-Challenge=$(hget "$d7" x-edge-would-challenge)"
+  if [[ -z "$bad" ]]; then say PASS bot_challenge "$out"; else say FAIL bot_challenge "wrong:$bad | $out"; fi
+}
+
+t_security_headers() {
+  local h bad="" v
+  h=$(hdr "$EDGE/")
+  [[ "$(hget "$h" strict-transport-security)" == *includeSubDomains* ]] || bad="$bad HSTS"
+  [[ "$(hget "$h" permissions-policy)" == *"camera=()"* ]] || bad="$bad Permissions-Policy"
+  [[ "$(hget "$h" cross-origin-opener-policy)" == same-origin ]] || bad="$bad COOP"
+  [[ "$(hget "$h" content-security-policy-report-only)" == *"default-src 'self'"* ]] || bad="$bad CSP-Report-Only"
+  [[ "$(hget "$h" content-security-policy)" == *"frame-ancestors 'self'"* ]] || bad="$bad CSP-frame-ancestors"
+  v=$(hget "$(hdr "$EDGE/.env")" strict-transport-security)
+  [[ -n "$v" ]] || bad="$bad HSTS-on-block-page"
+  if [[ -z "$bad" ]]; then say PASS security_headers "HSTS '$(hget "$h" strict-transport-security)'; Permissions-Policy '$(hget "$h" permissions-policy)'; COOP $(hget "$h" cross-origin-opener-policy); CSP-Report-Only set; CSP '$(hget "$h" content-security-policy)'; also on the 403 block page"
+  else say FAIL security_headers "missing:$bad"; fi
+}
+
+t_generator_removed() {
+  local body h m
+  body=$(curl -s "$BASE_URL/"); h=$(hdr "$BASE_URL/")
+  m=$(php_eval 'print \Drupal::moduleHandler()->moduleExists("remove_http_headers") ? "on" : "off";' | tail -1)
+  if [[ "$body" != *'name="Generator"'* && -z "$(hget "$h" x-generator)" ]]; then
+    say PASS generator_removed "no Generator meta tag and no X-Generator header (remove_http_headers: $m)"
+  else say FINDING generator_removed "Generator meta tag/X-Generator header present (remove_http_headers: $m). Install drupal/remove_http_headers and set headers_to_remove to [X-Generator] (docs/hardening.md)"; fi
+}
+
 # --- Cache sync: Drupal/Redis <-> purge queue <-> Front Door (docs/cache-sync.md)
 # Each test warms URLs at the local edge (TCP_HIT), changes content with
 # drush, works the purge queue, and checks the first edge response after it:
@@ -881,10 +926,14 @@ t_sync_cron() {
   sync_begin; r=$(rnd); a="/synthetic-sync-cron-$r"; nid=$(new_node cron "$a"); sync_work; warm "$a"
   sphp "\$n = \Drupal\node\Entity\Node::load($nid); \$n->setTitle('SYNTHETIC sync cron ' . mt_rand()); \$n->save();" >/dev/null
   res=$(after "$a"); warm "$a"
+  # Another cron (automated_cron from a page request) may hold the lock; its
+  # search_cron can take ~50 s in the lab. drush cron would then skip.
+  local waited=0
+  while [[ "$(php_eval 'print \Drupal::lock()->lockMayBeAvailable("cron") ? "free" : "held";' | tail -1)" == held && $waited -lt 180 ]]; do sleep 5; waited=$((waited+5)); done
   dr cron >/dev/null; local res2; res2=$(after "$a")
   lr=$(php_eval 'print \Drupal::moduleHandler()->moduleExists("purge_processor_lateruntime") ? "on" : "off";' | tail -1); sync_end
-  if [[ "$res" == *TCP_HIT* && "$res2" == *TCP_MISS* ]]; then say PASS sync_cron "before any processor ran the edge still served the old page ($res); drush cron (purge_processor_cron) purged it ($res2). Late-runtime processor: $lr"
-  else say FAIL sync_cron "before processing: $res; after drush cron: $res2"; fi
+  if [[ "$res" == *TCP_HIT* && "$res2" == *TCP_MISS* ]]; then say PASS sync_cron "before any processor ran the edge still served the old page ($res); drush cron (purge_processor_cron) purged it ($res2). Waited ${waited}s for another cron run to finish. Late-runtime processor: $lr"
+  else say FAIL sync_cron "before processing: $res; after drush cron: $res2 (waited ${waited}s for the cron lock)"; fi
 }
 
 t_sync_wildcard() {

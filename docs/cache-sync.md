@@ -119,6 +119,21 @@ These counts were measured with the skip-node-hook patch applied [V: tmp/ddev/ru
 
    Recommendation: A (5 minutes) with a short HTML TTL.
 
+## Cron contention (found 2026-09-29, Lando)
+
+In the Lando lab a full-suite `sync_cron` FAILED:
+- `drush cron` did nothing because another cron run held the lock. Watchdog shows many "Attempting to re-run cron while it is already running".
+- The holder was an `automated_cron` run that a page request started at 20:47:38Z.
+- Measured with `drush cron -v`: `search_cron()` took **46.7 s**, indexing the lab's backlog of synthetic nodes. A run like that blocks the purge processor until it finishes.
+- Stopping the lab killed that run, so the lock stayed until it expired after 900 s.
+
+**Production implication:** the purge cron processor waits behind every slow cron hook (search indexing, feeds, and so on), and page requests pay for automated_cron. Recommendation:
+- **Disable automated_cron.** Run cron from a scheduler instead.
+- **Work the purge queue separately.** Run `drush p:queue-work --finish` on its own short schedule, every 1–5 minutes.
+- **Watch the lock.** Alert on a cron lock older than a few minutes.
+
+The test now waits up to 180 s for the lock before running cron, and reports the wait.
+
 ## Recommended settings
 
 - **HTML TTL:** 15–60 min. This bounds every remaining gap.

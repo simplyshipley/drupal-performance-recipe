@@ -27,6 +27,171 @@ The WAF policy on Front Door Premium is the main barrier, because it acts before
 - **JavaScript challenge:** For bot-heavy paths like search, use the JS challenge action where available instead of an outright block. \[ASSUMED availability\]
 - **Scanner signatures:** Blocking known scanner user agents is easy to bypass but cuts noise; treat it as a bonus, not a control.
 
+## Bot controls and response headers at Front Door (2026-09-29)
+
+These are the Azure versions of what the local edge emulates ([edge-waf.md](edge-waf.md), tests
+`bot_challenge` and `security_headers`). They come from the uspsoig.gov check
+([uspsoig-cache-bot-check.md](uspsoig-cache-bot-check.md)).
+
+Sources opened:
+- https://learn.microsoft.com/en-us/azure/web-application-firewall/afds/waf-front-door-custom-rules
+- https://learn.microsoft.com/en-us/azure/web-application-firewall/waf-javascript-challenge
+
+Everything not stated on those pages is marked [ASSUMED], including availability in our Azure
+Government SKU.
+
+### Rollout: Detection first
+
+1. **Log first.** Add each new rule with action **Log**. Custom-rule `Log` continues evaluation, so the rule is effectively in Detection mode while the policy stays in Prevention. [V: custom-rules page, "Log … continues to evaluate the next rule"]
+2. **Review.** After about a week, check the WAF logs (`FrontDoorWebApplicationFirewallLog`): what would have been challenged, and which user agents and IPs.
+3. **Switch the action.** Change it to **JSChallenge** (HTML routes) or **Block**. Keep the allow rules at a lower priority number, so they are evaluated first.
+
+### Allow list first (lowest priority numbers)
+
+Things that must keep working:
+- search engines;
+- search.gov;
+- the Digital Analytics Program (DAP);
+- uptime monitors and accessibility scanners;
+- partners fetching RSS or PDFs.
+
+Prefer, in order:
+- **Verified bots:** Bot Manager's "good bots" group, i.e. verified search engines. [ASSUMED: group names as in Bot Manager 1.1]
+- **Monitor IP ranges:** exact IP ranges published by the monitor vendor (`RemoteAddr` `IPMatch`).
+- **A secret header:** for partners, a header value rotated like a password.
+
+Never allow by user agent alone; it is trivially spoofed.
+
+```json
+{
+  "name": "AllowMonitors",
+  "priority": 5,
+  "ruleType": "MatchRule",
+  "matchConditions": [
+    { "matchVariable": "RemoteAddr", "operator": "IPMatch", "negateCondition": false,
+      "matchValue": [ "<monitor-cidr-1>", "<monitor-cidr-2>" ] }
+  ],
+  "action": "Allow"
+}
+```
+
+### Header-consistency rule (browser UA without browser headers)
+
+JavaScript challenge is a Front Door **Premium** custom-rule and Bot Manager 1.x action
+[V: JS challenge page]. It applies to HTML only: AJAX, API and embedded CSS/JS/images are not
+supported. Its cookie is `afd_azwaf_jsclearance`, valid for 5–1,440 minutes (default 30). Custom
+rule conditions are ANDed, so "missing A **or** missing B" is two rules.
+
+The action string `JSChallenge` and the "header missing" test (regex `.+` negated) are [ASSUMED]:
+verify both in a non-production policy.
+
+```json
+{
+  "name": "ChallengeBrowserNoSecFetch",
+  "priority": 20,
+  "ruleType": "MatchRule",
+  "matchConditions": [
+    { "matchVariable": "RequestMethod", "operator": "Equal", "matchValue": ["GET", "HEAD"] },
+    { "matchVariable": "RequestHeader", "selector": "User-Agent", "operator": "Regex",
+      "matchValue": ["(Chrome|Firefox|Safari|Edg)/"] },
+    { "matchVariable": "RequestHeader", "selector": "Sec-Fetch-Mode", "operator": "Regex",
+      "negateCondition": true, "matchValue": [".+"] },
+    { "matchVariable": "RequestUri", "operator": "Regex", "negateCondition": true,
+      "transforms": ["Lowercase"],
+      "matchValue": ["\\.(css|js|png|jpe?g|gif|svg|ico|webp|woff2?|pdf|xml|rss|json|txt|csv|docx?|xlsx?|zip)(\\?|$)",
+                     "/(sites/[^/]+/files|system/files|core|modules|themes)/", "/(rss\\.xml|feed)"] }
+  ],
+  "action": "Log"
+}
+```
+
+- **The second rule:** duplicate the rule (priority 21) with `Accept-Language` instead of `Sec-Fetch-Mode`.
+- **After review:** set the action to `JSChallenge`.
+- **Privacy tools** can strip these headers. That is why the action is a challenge, not Block.
+
+az CLI:
+
+```
+az network front-door waf-policy rule create -g <rg> --policy-name <policy> \
+  --name ChallengeBrowserNoSecFetch --priority 20 --rule-type MatchRule --action Log --defer
+az network front-door waf-policy rule match-condition add -g <rg> --policy-name <policy> \
+  --name ChallengeBrowserNoSecFetch --match-variable RequestHeader.User-Agent \
+  --operator RegEx --values "(Chrome|Firefox|Safari|Edg)/"
+az network front-door waf-policy rule match-condition add -g <rg> --policy-name <policy> \
+  --name ChallengeBrowserNoSecFetch --match-variable RequestHeader.Sec-Fetch-Mode \
+  --operator RegEx --values ".+" --negate true
+# ... RequestMethod and RequestUri conditions as in the JSON; then:
+az network front-door waf-policy rule update -g <rg> --policy-name <policy> \
+  --name ChallengeBrowserNoSecFetch --action JSChallenge
+```
+
+The `az network front-door waf-policy` commands apply to Standard/Premium policies. Check the flag
+names with `--help` on your CLI version [ASSUMED].
+
+### Bot Manager
+
+Enable the managed rule set `Microsoft_BotManagerRuleSet` 1.1 (Premium) next to DRS [ASSUMED:
+exact name and version in Azure Government]:
+- **Bad bots:** Block.
+- **Unknown bots:** Log first, then JSChallenge.
+- **Good (verified) bots:** Allow.
+
+Review in the WAF logs by `ruleName` before changing the actions.
+
+### Data-center challenge (HTML only)
+
+The custom rules page lists AS-number match conditions. Challenge HTML requests from the ASNs of
+large cloud and hosting providers, and exclude the allow-listed monitors and partners first:
+
+```json
+{ "name": "ChallengeDataCenters", "priority": 30, "ruleType": "MatchRule",
+  "matchConditions": [
+    { "matchVariable": "RemoteAddr", "operator": "<ASN operator>", "matchValue": ["<asn-list>"] },
+    { "matchVariable": "RequestUri", "operator": "Regex", "negateCondition": true,
+      "matchValue": ["\\.(css|js|png|jpe?g|gif|svg|ico|woff2?|pdf|xml|rss)(\\?|$)"] } ],
+  "action": "Log" }
+```
+
+The ASN operator and match-variable names are [ASSUMED]; they were not on the opened page.
+
+### Response headers (rules engine, or origin)
+
+Set these in a Front Door rule set with the action **Modify response header → Overwrite**, or in
+the origin web server. The recommended values, and what the local edge sends by default
+(`EDGE_*` variables), are:
+
+| Header | Value |
+|---|---|
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains`. Add `preload` only after every subdomain serves HTTPS. |
+| `Permissions-Policy` | `camera=(), microphone=(), geolocation=(), payment=(), usb=()` |
+| `Cross-Origin-Opener-Policy` | `same-origin` (test pop-ups first) |
+| `Content-Security-Policy-Report-Only` | The starter policy in [uspsoig-cache-bot-check.md](uspsoig-cache-bot-check.md#csp-rollout) |
+| `Content-Security-Policy` | `frame-ancestors 'self'`. frame-ancestors is ignored in Report-Only, so enforce it separately. |
+| `X-Frame-Options` | `SAMEORIGIN` (legacy browsers) |
+
+**Enforcing CSP later:** use the drupal.org `csp` module (2.2.4, Drupal 10.2+/11, security
+coverage) for nonces and reporting, instead of a hand-written header.
+
+### Generator meta tag
+
+**Choice:** drupal.org **remove_http_headers** 2.1.2 (Drupal ^10.3 || ^11, security advisory
+coverage, about 13.9k sites). When `X-Generator` is in its list, it removes the `X-Generator`
+header and the `<meta name="Generator">` tag. security kit (seckit) does not cover the generator
+tag.
+
+**Watch out:** its default list also removes `X-Drupal-Cache` and `X-Drupal-Dynamic-Cache`, which
+the recipe's tests and cache debugging rely on. Set the list to `X-Generator` only:
+
+```
+composer require drupal/remove_http_headers:^2.1
+drush en remove_http_headers -y
+drush php:eval '\Drupal::configFactory()->getEditable("remove_http_headers.settings")->set("headers_to_remove", ["X-Generator"])->save();'
+drush cex
+```
+
+Lab test `generator_removed`: PASS with the module, FINDING without it
+[V: tmp/ddev/run16-bot.log, tmp/ddev/bot-failproof.log].
+
 ## App Service and container
 
 The origin must be unreachable except through Front Door, or every edge control can be bypassed. \[ASSUMED\]

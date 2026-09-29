@@ -11,6 +11,30 @@ set $edge_qs_ignore_params "${EDGE_QS_IGNORE_PARAMS}";
 set $edge_qs_include_params "${EDGE_QS_INCLUDE_PARAMS}";
 
 client_max_body_size 64m;
+set $edge_challenge_active ${EDGE_CHALLENGE_ACTIVE};
+
+# Header-consistency challenge (maps in default.conf). Runs before the WAF,
+# rate limits and cache. Detection: only X-Edge-Would-Challenge is added.
+if ($edge_challenge_now) {
+    rewrite ^ /__edge/challenge last;
+}
+location = /__edge/challenge {
+    internal;
+    default_type text/html;
+    more_set_headers "X-Edge-Action: challenge" "X-Azure-Ref: $edge_ref" "Cache-Control: no-store";
+    return 403 "<!DOCTYPE html><html><head><title>Challenge</title></head><body><h2>Checking your browser.</h2><p>Front Door would run a JavaScript challenge here (local edge: 403). Reference: $edge_ref</p></body></html>\n";
+}
+
+# Security response headers (EDGE_SEC_HEADERS / EDGE_* in docs/edge-waf.md).
+# more_set_headers applies to every response incl. errors; an empty value
+# means the header is not sent.
+more_set_headers "Strict-Transport-Security: ${EDGE_HSTS}";
+more_set_headers "Permissions-Policy: ${EDGE_PERMISSIONS_POLICY}";
+more_set_headers "Cross-Origin-Opener-Policy: ${EDGE_COOP}";
+more_set_headers "Content-Security-Policy-Report-Only: ${EDGE_CSP_REPORT_ONLY}";
+more_set_headers "Content-Security-Policy: ${EDGE_CSP}";
+more_set_headers "X-Frame-Options: ${EDGE_XFO}";
+more_set_headers "X-Edge-Would-Challenge: $edge_would_challenge";
 
 # Rate limits (run before the cache, like the WAF).
 limit_req zone=edge_general burst=${EDGE_RL_GENERAL_BURST} nodelay;

@@ -74,6 +74,26 @@ Drupal side (lab only, honoured only in DDEV/Lando):
 - It also echoes the Front Door headers the origin received in `X-Perf-Edge-Seen`.
 - In Azure, use `DRUPAL_REVERSE_PROXY` and `DRUPAL_REVERSE_PROXY_ADDRESSES` instead (see [azure.md](azure.md)).
 
+### Bot header-consistency challenge and security headers (2026-09-29)
+
+**Challenge:**
+- **Trigger:** a GET/HEAD request with a browser user agent (`Chrome/`, `Firefox/`, `Safari/`, `Edg/`) but no `Sec-Fetch-Mode` or no `Accept-Language`, on an HTML route.
+- **Answer:** `403` with `X-Edge-Action: challenge` and a "Checking your browser" body. Front Door Premium would serve a JavaScript challenge instead; the local edge cannot, and a real browser would pass it.
+- **Never challenged:** static files, `/sites/*/files`, `/system/files`, `/core|modules|themes|libraries/`, feeds (`/rss.xml`, `/feed`), PDFs and office documents.
+- **Not a browser user agent (plain curl, monitors):** not challenged. This rule only catches clients that claim to be a browser; plain scripts are the job of Bot Manager and rate limits.
+- **Detection:** with `EDGE_WAF_MODE=Detection`, on listener 8081, or with `EDGE_CHALLENGE=off` enforcement is skipped. In Detection the response carries `X-Edge-Would-Challenge: header-consistency`, and the access log records `challenge=`.
+- **Order:** it runs before the WAF, the rate limits and the cache.
+
+**Security headers:** HSTS (`includeSubDomains`), Permissions-Policy, COOP `same-origin`,
+CSP-Report-Only (starter policy), enforcing CSP `frame-ancestors 'self'` and X-Frame-Options are
+set on every response, error pages included.
+- Configure them with `EDGE_HSTS`, `EDGE_PERMISSIONS_POLICY`, `EDGE_COOP`, `EDGE_CSP_REPORT_ONLY`, `EDGE_CSP` and `EDGE_XFO`. An empty value means the header is not sent.
+- `EDGE_SEC_HEADERS=off` turns them all off.
+- Azure equivalents are in [hardening.md](hardening.md#bot-controls-and-response-headers-at-front-door-2026-09-29).
+
+**Tests:** `bot_challenge`, `security_headers` and `generator_removed`. The fail-proof
+`EDGE_NEGATIVE=1` fails the first two [V: tmp/ddev/bot-failproof.log].
+
 ## Setup: DDEV
 
 1. Install the recipe as in [ddev.md](ddev.md), with the mock Front Door already set up.
