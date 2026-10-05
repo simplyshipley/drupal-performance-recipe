@@ -1,0 +1,10 @@
+name: 'Performance: purge paths'
+type: module
+description: 'Turns cache tag invalidations into Azure Front Door purge paths (aliases, old aliases, listings, files, deleted aliases and files). While installed it replaces the node hook of azure_cdn_purge, which would queue the alias a second time.'
+package: Performance
+core_version_requirement: ^10.6 || ^11
+dependencies:
+  - azure_cdn_purge:azure_cdn_purge
+  - drupal:file
+  - drupal:path_alias
+  - purge:purge

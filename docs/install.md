@@ -160,6 +160,24 @@ terms, files and old aliases would stay stale at Front Door ([cache-sync.md](cac
 - **Queue volume:** about 6–10 items per node save, and more with `PERF_PURGE_LIST_PATHS`/`PERF_PURGE_SITEWIDE_PATHS`. See the numbers in cache-sync.md.
 - **Turn it off:** set `PERF_PURGE_PATHS=0`. You then get azure_cdn_purge's original behaviour, because the patched node hook runs again (it skips only while the setting is on).
 
+## Optional: purge deleted aliases and files
+
+Closes the delete and rename gaps (open decision 1 in [cache-sync.md](cache-sync.md#open-decisions-for-bo)):
+a deleted or renamed alias and a deleted file stay cached at Front Door without it. Drupal only
+finds modules under `web/modules`, so copy it from the recipe:
+
+```bash
+mkdir -p web/modules/custom
+cp -R recipes/drupal-performance-recipe/modules/perf_purge_deleted web/modules/custom/
+drush en perf_purge_deleted -y
+```
+
+- **Needs** `settings.performance.php` included and `PERF_PURGE_PATHS` not `0`. Otherwise it does nothing.
+- **Not in `recipe.yml`:** the recipe must still apply on a site without it.
+- **Update it with the recipe:** copy it again, because it calls methods added to `perf_purge_paths`. An old queuer fails safe: a warning in dblog, and the delete still goes through [V: tmp/lando-probe-old-queuer-failsafe.log].
+- **Remove it:** `drush pmu perf_purge_deleted -y`.
+- **Tested in the labs** [V: tmp/lando-deleted-on.log, tmp/lando-deleted-off.log].
+
 ## Optional: remove the Generator meta tag
 
 Use `drupal/remove_http_headers` (^2.1) with `headers_to_remove: [X-Generator]` only. Its default list also strips

@@ -1,7 +1,0 @@
-name: 'Performance: Redis fail-open'
-type: module
-description: 'Wraps the Redis cache backend so a Redis outage becomes cache misses instead of HTTP 500.'
-package: Performance
-core_version_requirement: ^10.3 || ^11
-dependencies:
-  - redis:redis

@@ -58,7 +58,7 @@ The tests use `node/1` and `node/2` on SYNTHETIC content.
 - DDEV: `ddev perf-test`, or named tests: `ddev perf-test purge_send headers_anon`. Full runs stop and restart this project's Redis.
 - Lando: `bash recipes/drupal-performance-recipe/scripts/lando-test.sh`, from the app root.
 - Strict bot challenge, Lando only: set the edge to `either`, then run with `EDGE_CHALLENGE_MISSING=either`. DDEV and `lando perf-test-in` do not pass it, so `bot_challenge` FAILS there against a strict edge ([edge-waf.md](edge-waf.md#bot-header-consistency-challenge-and-security-headers-2026-09-29)).
-- Expected on Lando: 49 PASS / 0 FAIL / 2 FINDING ([README](../README.md#lab-results-2026-10-05-lando-on-the-final-edge-code)). A `FINDING` is an open decision, not a failure ([tests.md](tests.md)).
+- Expected on DDEV and Lando with the optional `perf_purge_deleted` module enabled: 53 PASS / 0 FAIL / 1 FINDING ([README](../README.md#lab-results-2026-10-05-perf_purge_deleted)). Without the module, the four delete tests report FINDING instead of PASS. A `FINDING` is an open decision, not a failure ([tests.md](tests.md)).
 - The test wrappers switch to prod-like and restore your mode. To switch by hand: `ddev perf-cache dev|dev-twig|prod-like|off|status` or `lando perf-cache ...`. Add `web/sites/*/perf-cache-mode` to `.gitignore` ([cache-modes.md](cache-modes.md)).
 
 ## Phase 2: Install into an existing site
@@ -78,8 +78,9 @@ Patches (step 3) go before the settings include and the recipe apply, so the ord
 4. Include the settings file after `$databases` in `settings.php`, as the last include: [install.md](install.md#4-include-the-settings-file).
 5. Apply the recipe: `drush recipe ../recipes/drupal-performance-recipe`, then `drush cr` and `drush cron` (writes the Themed Fast 404 static page).
    Check: `drush cget azure_cdn_purge.settings` shows `endpoint_type: afdEndpoints`.
-6. Export config: `drush cex`. Credentials stay in the environment.
-7. Set environment variables (3.7).
+6. Optional: purge deleted and renamed aliases and deleted files. Copy the module, then enable it: `cp -R recipes/drupal-performance-recipe/modules/perf_purge_deleted web/modules/custom/` and `drush en perf_purge_deleted -y` ([install.md](install.md#optional-purge-deleted-aliases-and-files)).
+7. Export config: `drush cex`. Credentials stay in the environment.
+8. Set environment variables (3.7).
 
 ## Phase 3: Azure
 
@@ -182,7 +183,7 @@ Proposed, not yet run on Azure. Use a non-production subscription. Each check mi
 ## Phase 6: Open decisions and gaps
 
 Bo decides:
-- Deleted node, alias stays cached at Front Door. Recommended: option A on sites that delete or rename public pages often, otherwise B (short HTML TTL). Only a hook that captures the alias before the node's `postDelete()` closes it ([cache-sync.md](cache-sync.md#open-decisions-for-bo)).
+- Deleted or renamed alias, deleted file: stale at Front Door. Option A is built (`perf_purge_deleted`, optional) and lab-tested; shipping it is Bo's call. Recommended on sites that delete or rename public pages or files often, otherwise B (short HTML TTL) ([cache-sync.md](cache-sync.md#open-decisions-for-bo)).
 - Menu and block changes do not purge other pages; `PERF_PURGE_SITEWIDE_PATHS=/*` is the alternative ([cache-sync.md](cache-sync.md#open-decisions-for-bo)).
 - Stale window, processor interval plus Azure propagation ([cache-sync.md](cache-sync.md#open-decisions-for-bo)).
 - 404 vs 410 for unpublished content; documented, not built ([install.md](install.md#optional-unpublished-content-as-404410)).

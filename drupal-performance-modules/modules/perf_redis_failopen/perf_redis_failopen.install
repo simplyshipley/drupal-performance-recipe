@@ -1,0 +1,56 @@
+<?php
+
+/**
+ * @file
+ * Install, schema and requirements hooks for the Redis fail-open module.
+ */
+
+declare(strict_types=1);
+
+use Drupal\Core\Hook\Attribute\LegacyRequirementsHook;
+use Drupal\perf_redis_failopen\Requirements\FailOpenRequirements;
+
+/**
+ * Implements hook_schema().
+ *
+ * One row per cache bin whose deletes or invalidations were lost while Redis
+ * was unreachable. The table is dropped when the module is uninstalled.
+ */
+function perf_redis_failopen_schema(): array {
+  $schema['perf_redis_failopen_flush'] = [
+    'description' => 'Cache bins that must be emptied once Redis answers again.',
+    'fields' => [
+      'bin' => [
+        'description' => 'The cache bin whose deletes or invalidations were lost.',
+        'type' => 'varchar_ascii',
+        'length' => 128,
+        'not null' => TRUE,
+        'default' => '',
+      ],
+      'token' => [
+        'description' => 'A random value that changes with every record, so a flush clears only the record it read.',
+        'type' => 'varchar_ascii',
+        'length' => 64,
+        'not null' => TRUE,
+        'default' => '',
+      ],
+    ],
+    'primary key' => ['bin'],
+  ];
+  return $schema;
+}
+
+/**
+ * Implements hook_requirements().
+ *
+ * Drupal 11.3 and later run the OOP runtime_requirements hook instead (see
+ * \Drupal\perf_redis_failopen\Hook\PerfRedisFailopenHooks); this shim is the
+ * Drupal 10.6 to 11.2 path.
+ */
+#[LegacyRequirementsHook]
+function perf_redis_failopen_requirements(string $phase): array {
+  if ($phase !== 'runtime') {
+    return [];
+  }
+  return \Drupal::service(FailOpenRequirements::class)->runtime();
+}

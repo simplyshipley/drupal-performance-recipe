@@ -1,0 +1,31 @@
+# Static analysis for the performance modules (mglaman/phpstan-drupal and the
+# deprecation rules are picked up by phpstan/extension-installer). Run with
+# `composer qa` or `bash scripts/qa.sh phpstan` from the installed package.
+parameters:
+  level: 5
+  paths:
+    - modules
+  excludePaths:
+    analyse:
+      # Files retired in place (renamed with an __ARCHIVED_ prefix).
+      - modules/*/__ARCHIVED_*
+      - modules/*/*/__ARCHIVED_*
+      - modules/*/*/*/__ARCHIVED_*
+      - modules/*/*/*/*/__ARCHIVED_*
+  # The modules support Drupal 10.6 and 11. The OOP hook attributes, the
+  # ProceduralCall class and the RequirementSeverity enum only exist on Drupal
+  # 11 (11.1 to 11.3, see the docblocks that use them); on 10.6 they are never
+  # instantiated, so a missing class is expected there and not an error.
+  # reportUnmatchedIgnoredErrors is off so the same file works on Drupal 11,
+  # where nothing matches.
+  reportUnmatchedIgnoredErrors: false
+  ignoreErrors:
+    # Drupal 10.6 runs PHPUnit 9, which has no attribute classes. The tests
+    # carry both the docblock annotations (PHPUnit 9) and the attributes
+    # (PHPUnit 10 and later, Drupal 11).
+    -
+      message: '#^Attribute class PHPUnit\\Framework\\Attributes\\[A-Za-z]+ does not exist\.$#'
+    -
+      message: '#^Attribute class Drupal\\Core\\Hook\\Attribute\\(Hook|LegacyHook|RemoveHook|LegacyModuleImplementsAlter|LegacyRequirementsHook) does not exist\.$#'
+    -
+      message: '#^Class Drupal\\Core\\Extension\\(ProceduralCall|Requirement\\RequirementSeverity) not found\.$#'

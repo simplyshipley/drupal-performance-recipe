@@ -1,0 +1,29 @@
+# The settings include only ever names cache.backend.redis for the Redis bins.
+# This module DECORATES that service, so the fail-open wrapper exists exactly
+# while the module is installed. Before it is installed, while a recipe is
+# applied and after it is uninstalled the bins run on the plain Redis backend,
+# and no request fails on a service that does not exist yet.
+services:
+  _defaults:
+    autowire: true
+
+  logger.channel.perf_redis_failopen:
+    parent: logger.channel_base
+    arguments: ['perf_redis_failopen']
+
+  Drupal\perf_redis_failopen\Cache\DatabasePendingFlushStore: ~
+  Drupal\perf_redis_failopen\Cache\PendingFlushStoreInterface: '@Drupal\perf_redis_failopen\Cache\DatabasePendingFlushStore'
+
+  Drupal\perf_redis_failopen\Cache\RedisHealth: ~
+
+  perf_redis_failopen.cache_factory:
+    class: Drupal\perf_redis_failopen\Cache\FailOpenCacheBackendFactory
+    decorates: cache.backend.redis
+
+  Drupal\perf_redis_failopen\Client\ClientOptions: ~
+
+  # Applied to redis.factory by PerfRedisFailopenServiceProvider.
+  Drupal\perf_redis_failopen\Client\TimeoutClientInstaller: ~
+
+  Drupal\perf_redis_failopen\Requirements\FailOpenRequirements: ~
+  Drupal\perf_redis_failopen\Hook\PerfRedisFailopenHooks: ~

@@ -10,9 +10,12 @@ install:
   - purge
   - purge_ui
   - purge_processor_cron
-  - purge_queuer_coretags
   - purge_drush
   - azure_cdn_purge
+  # From the drupal-performance-modules Composer package (web/modules/custom).
+  # They depend on redis, purge and azure_cdn_purge above.
+  - perf_redis_failopen
+  - perf_purge_paths
   - fast404
   - themed_fast_404
 config:

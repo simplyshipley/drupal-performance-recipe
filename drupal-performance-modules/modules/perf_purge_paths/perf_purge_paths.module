@@ -1,0 +1,56 @@
+<?php
+
+/**
+ * @file
+ * Procedural hook shims for Drupal 10.6 (Drupal 11.1 and later use the class).
+ *
+ * The logic is in \Drupal\perf_purge_paths\Hook\PerfPurgePathsHooks. Each
+ * function below only passes its arguments on, and carries #[LegacyHook] so
+ * that Drupal 11 does not run it a second time next to the #[Hook] method.
+ */
+
+declare(strict_types=1);
+
+use Drupal\Core\Hook\Attribute\LegacyHook;
+use Drupal\Core\Hook\Attribute\LegacyModuleImplementsAlter;
+use Drupal\file\FileInterface;
+use Drupal\path_alias\PathAliasInterface;
+use Drupal\perf_purge_paths\Hook\PerfPurgePathsHooks;
+use Drupal\perf_purge_paths\ImplementationFilter;
+
+/**
+ * Implements hook_path_alias_delete().
+ */
+#[LegacyHook]
+function perf_purge_paths_path_alias_delete(PathAliasInterface $alias): void {
+  \Drupal::service(PerfPurgePathsHooks::class)->pathAliasDelete($alias);
+}
+
+/**
+ * Implements hook_path_alias_update().
+ */
+#[LegacyHook]
+function perf_purge_paths_path_alias_update(PathAliasInterface $alias): void {
+  \Drupal::service(PerfPurgePathsHooks::class)->pathAliasUpdate($alias);
+}
+
+/**
+ * Implements hook_file_delete().
+ */
+#[LegacyHook]
+function perf_purge_paths_file_delete(FileInterface $file): void {
+  \Drupal::service(PerfPurgePathsHooks::class)->fileDelete($file);
+}
+
+/**
+ * Implements hook_module_implements_alter().
+ *
+ * Drupal 10.6 to 11.1: drops azure_cdn_purge's hook_node_update(). Drupal
+ * 11.2 and later use #[RemoveHook] on the hook class and skip this function.
+ * It calls plain static code, not a service: implementations are looked up
+ * while services are still being created.
+ */
+#[LegacyModuleImplementsAlter]
+function perf_purge_paths_module_implements_alter(array &$implementations, string $hook): void {
+  ImplementationFilter::apply($implementations, $hook);
+}

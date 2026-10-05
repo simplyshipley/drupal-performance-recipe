@@ -61,11 +61,26 @@ The suite switches to `prod-like` for its run and restores the previous cache mo
 
 ### Cache sync tests (docs/cache-sync.md)
 
-13 `sync_*` tests (alias, listing, alias change, delete, publish cycle, revert, 404-then-create, term/user,
-menu, same-URL file, bulk/chunking, cron processor, wildcard) plus `sync_redis_down` (wrappers, Redis
-stopped). Results and before/after table: [cache-sync.md](cache-sync.md). A third status, `FINDING`,
-marks known gaps left as open decisions; it does not count as FAIL. Fail-proof: `SYNC_NEGATIVE=1`
-(`PERF_PURGE_PATHS=0`) makes the fix-dependent tests FAIL [V: tmp/ddev/sync-failproof.log].
+17 `sync_*` tests (alias, single save, listing, alias change, delete, alias delete, publish cycle,
+revert, 404-then-create, term/user, menu, same-URL file, file delete, file swap, bulk/chunking,
+cron processor, wildcard) plus `sync_redis_down` (wrappers, Redis stopped). Results and before/after
+table: [cache-sync.md](cache-sync.md). A third status, `FINDING`, marks known gaps left as open
+decisions; it does not count as FAIL. Fail-proof: `SYNC_NEGATIVE=1` (`PERF_PURGE_PATHS=0`) makes
+the fix-dependent tests FAIL [V: tmp/ddev/sync-failproof.log].
+
+Three tests need the optional `perf_purge_deleted` module ([install.md](install.md#optional-purge-deleted-aliases-and-files)).
+With it, stale = FAIL. Without it, stale = FINDING, like `sync_delete`, so a suite on a site
+without the module stays green. Each one first checks that the URLs were cached at the edge
+(`TCP_HIT`, 200) before the delete, so "never cached" cannot pass as "purged".
+
+| Test | What it does | PASS means | Lab result |
+|---|---|---|---|
+| `sync_alias_delete` | Deletes only the `path_alias` entity of a SYNTHETIC node (the node stays), works the queue | `alias` and `alias/` go `TCP_HIT` → `TCP_MISS`. The status stays 200: Drupal's page cache still serves the alias ([cache-sync.md](cache-sync.md#open-decisions-for-bo)) | Module on: PASS. Module off: FINDING [V: tmp/lando-deleted-on.log, tmp/lando-deleted-off.log] |
+| `sync_file_delete` | Creates a SYNTHETIC public PNG file entity, caches the file and one image-style URL at the edge, deletes the entity, works the queue | Both URLs answer 404 and none is `TCP_HIT` | Module on: PASS. Module off: FINDING |
+| `sync_file_swap` | Creates a node with a SYNTHETIC image, caches the old file and its image-style URL, swaps the image for a second file, then deletes the old file entity (what cron does with an unused file) | Old URLs answer 404, none `TCP_HIT`; the new file answers 200 with the right bytes (md5) | Module on: PASS. Module off: FINDING |
+
+`sync_delete` itself is unchanged: PASS with the module, FINDING without it. Fail-proof with the
+module on but `SYNC_NEGATIVE=1`: all four FAIL [V: tmp/lando-deleted-failproof.log].
 
 ## Unit tests (fail-open module)
 
@@ -86,3 +101,4 @@ DrupalPractice clean [V: tmp/ddev/phpcs-phpunit-failopen-v2.log]. The lab ran th
   are not in this suite.
 - Valkey 9.1.2: DDEV and Lando 49 PASS / 0 FAIL / 2 FINDING on 2026-10-05 [V: tmp/ddev/run18-valkey.log, tmp/lando-run16-valkey.log; server: tmp/valkey-server-evidence-20261005.txt].
 - The no-Redis path (REDIS_HOST unset) was not run.
+- `perf_purge_deleted`: not run on Drupal 11 (both labs are 10.6.17); the guard for a missing `perf_purge_paths.queuer` service was not run (the labs always include the settings file). The old-alias-on-rename hook has no suite test, only a probe [V: tmp/lando-probe-alias-rename.log]: `sync_alias_change` passes without the module.
