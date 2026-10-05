@@ -63,6 +63,9 @@ objects, while one purge clears the matching path on all of them.
 | `EDGE_DEFAULT_TTL` | `1d` | TTL when the origin sends no caching headers. Front Door picks a random 1–3 days. |
 | `EDGE_CACHE_MAX_SIZE` | `1g` | Cache size limit |
 | `EDGE_WAF_MODE` | `Prevention` | `Prevention` or `Detection` |
+| `EDGE_CHALLENGE` | `on` | `off` disables the header-consistency challenge |
+| `EDGE_CHALLENGE_MISSING` | `both` | `both`: challenge when both `Sec-Fetch-Mode` and `Accept-Language` are missing. `either`: when one is missing. Any other value means `both` |
+| `EDGE_SEC_HEADERS` | `on` | `off` stops the edge adding the security response headers |
 | `EDGE_RL_LOGIN` / `_SEARCH` / `_GENERAL` | 10 / 60 / 300 | Requests per minute per client IP |
 | `EDGE_SEARCH_PATHS` | `^/search` | Case-insensitive regex on the path for the search limit, e.g. `^/(search|find)` |
 | `BLOCKING_PARANOIA`, `ANOMALY_INBOUND` | 1, 5 | CRS paranoia level and anomaly threshold (DRS: PL1, threshold 5) |
@@ -77,7 +80,7 @@ Drupal side (lab only, honoured only in DDEV/Lando):
 ### Bot header-consistency challenge and security headers (2026-09-29)
 
 **Challenge:**
-- **Trigger:** a GET/HEAD request with a browser user agent (`Chrome/`, `Firefox/`, `Safari/`, `Edg/`) that has **neither** `Sec-Fetch-Mode` **nor** `Accept-Language`, on an HTML route. `EDGE_CHALLENGE_MISSING=either` challenges when just one is missing; tested in the Lando lab on 2026-10-05 (set it on the edge service and export it to the test run: `EDGE_CHALLENGE_MISSING=either bash scripts/lando-test.sh`).
+- **Trigger:** a GET/HEAD request with a browser user agent (`Chrome/`, `Firefox/`, `Safari/`, `Edg/`) that has **neither** `Sec-Fetch-Mode` **nor** `Accept-Language`, on an HTML route. `EDGE_CHALLENGE_MISSING=either` challenges when just one is missing; tested in the Lando lab on 2026-10-05 (49 PASS / 0 FAIL / 2 FINDING; see README). To test it, set `EDGE_CHALLENGE_MISSING: either` under the edge service's `environment:` in `.lando.local.yml`, run `lando rebuild -y`, then run `EDGE_CHALLENGE_MISSING=either bash recipes/drupal-performance-recipe/scripts/lando-test.sh`. Strict-mode testing is Lando only: `ddev-test.sh` and `lando perf-test-in` do not pass the variable, so `bot_challenge` FAILS against a strict edge there.
 - **Why both is the default:** real browsers can lack `Sec-Fetch-Mode`. Per MDN browser-compat-data `http/headers/Sec-Fetch-Mode.json` (https://raw.githubusercontent.com/mdn/browser-compat-data/main/http/headers/Sec-Fetch-Mode.json, read 2026-09-29): version_added Chrome 76, Edge mirrors Chrome, Firefox 90, Safari 16.4, Safari iOS mirrors Safari, older Safari (before 16.4), Firefox before 90 and Chrome before 76 do not send it. Privacy tools may strip it too.
 - **Session cookie:** requests with a Drupal session cookie (the same `S?SESS` match as the cache bypass) are never challenged, so logged-in editors are not affected. Test: `bot_challenge`; fail-proof `BOT_COOKIE_NEGATIVE=1` [V: tmp/ddev/bot-cookie-failproof.log].
 - **Rollout:** run it in Detection for at least a week and review who would have been challenged. At Front Door use a JS challenge, **never Block**.

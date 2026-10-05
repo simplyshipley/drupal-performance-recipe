@@ -116,3 +116,5 @@ ddev drush p:queue-work --finish
 ddev drush p:diagnostics
 ddev exec curl -sI http://localhost/ | grep -i -E 'x-drupal|cache-control'
 ```
+
+**Strict bot challenge:** `ddev-test.sh` does not pass `EDGE_CHALLENGE_MISSING` to the tests, so the suite only supports the default `both` on DDEV. With an edge set to `either`, `bot_challenge` fails. Test the strict setting on Lando ([edge-waf.md](edge-waf.md)).
