@@ -4,25 +4,31 @@ declare(strict_types=1);
 
 namespace Drupal\perf_purge_paths;
 
+use Drupal\Core\Cache\CacheTagsInvalidatorInterface;
 use Drupal\Core\Site\Settings;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\DependencyInjection\Attribute\AutowireServiceClosure;
 
 /**
- * Queues Front Door purge paths for cache tags and for hooks.
+ * Turns cache tag invalidations and deleted paths into Front Door purges.
  *
- * Collects the paths from the mapper, drops content-derived paths that carry a
- * wildcard, adds the trailing-slash twins, removes what this process already
- * queued, and hands the rest to the purge queue. It is the only class that
- * decides what is queued; the purge services are reached through a closure, so
- * nothing about the purge queue is created for a tag that maps to no path.
+ * Core calls invalidateTags() for every cache tag invalidation (the class is a
+ * cache_tags_invalidator, like purge_queuer_coretags). The tags are mapped to
+ * paths, content-derived paths that carry a wildcard are dropped, trailing
+ * slash twins are added, and what this process has not queued yet goes to the
+ * purge queue. The delete hooks hand over paths directly with queuePaths().
  *
- * Each path is queued once per PHP process (so a long drush run that saves the
+ * Core creates every cache_tags_invalidator while it creates the cache tags
+ * service, before the entity type manager or the purge services can exist. So
+ * the mapper and the enqueuer are reached through closures and created on the
+ * first invalidation, and not at all while path purging is off.
+ *
+ * Each path is queued once per PHP process (a long drush run that saves the
  * same node twice queues it once). Everything is skipped when PERF_PURGE_PATHS
  * is 0 (the setting perf_purge_paths_enabled).
  */
-final class PathsQueuer implements PathsQueuerInterface {
+final class PathsQueuer implements CacheTagsInvalidatorInterface {
 
   /**
    * Tags already handled in this process.
@@ -41,17 +47,18 @@ final class PathsQueuer implements PathsQueuerInterface {
   /**
    * Constructs a PathsQueuer.
    *
-   * @param \Drupal\perf_purge_paths\PathMapperInterface $mapper
-   *   Maps tags to paths.
+   * @param \Closure $mapper
+   *   Returns the PathMapper service.
    * @param \Closure $enqueuer
-   *   Returns the PurgeEnqueuerInterface service when called.
+   *   Returns the PurgeEnqueuer service.
    * @param \Drupal\Core\Site\Settings $settings
    *   The site settings (perf_purge_paths_enabled, perf_purge_trailing_slash).
    * @param \Psr\Log\LoggerInterface $logger
    *   The perf_purge_paths logger channel.
    */
   public function __construct(
-    private readonly PathMapperInterface $mapper,
+    #[AutowireServiceClosure('perf_purge_paths.mapper')]
+    private readonly \Closure $mapper,
     #[AutowireServiceClosure('perf_purge_paths.enqueuer')]
     private readonly \Closure $enqueuer,
     private readonly Settings $settings,
@@ -61,6 +68,18 @@ final class PathsQueuer implements PathsQueuerInterface {
 
   /**
    * {@inheritdoc}
+   */
+  public function invalidateTags(array $tags): void {
+    $this->queueTags($tags);
+  }
+
+  /**
+   * Queues the paths that the given cache tags map to.
+   *
+   * A mapping error for one tag is logged and does not stop the others.
+   *
+   * @param string[] $tags
+   *   Cache tags such as "node:5" or "node_list".
    */
   public function queueTags(array $tags): void {
     if (!$this->isEnabled()) {
@@ -75,13 +94,21 @@ final class PathsQueuer implements PathsQueuerInterface {
   }
 
   /**
-   * {@inheritdoc}
+   * Queues paths that content decides: an alias, a file URL.
+   *
+   * A path that contains "*" is NEVER queued: an editor chooses aliases, and
+   * an alias such as "/*" would otherwise purge the whole endpoint. Such a
+   * path is logged and skipped. Wildcards come only from the operator's
+   * settings, through queueTags().
+   *
+   * @param string[] $paths
+   *   Paths such as "/about-us".
    */
-  public function queuePaths(iterable $paths): void {
+  public function queuePaths(array $paths): void {
     if (!$this->isEnabled()) {
       return;
     }
-    $this->queueSafely(is_array($paths) ? $paths : iterator_to_array($paths, FALSE), []);
+    $this->queueSafely($paths, []);
   }
 
   /**
@@ -110,8 +137,10 @@ final class PathsQueuer implements PathsQueuerInterface {
     }
     $this->seen[$tag] = TRUE;
     try {
-      $content = array_merge($content, $this->mapper->contentPathsForTag($tag));
-      $configured = array_merge($configured, $this->mapper->configuredPathsForTag($tag));
+      /** @var \Drupal\perf_purge_paths\PathMapper $mapper */
+      $mapper = ($this->mapper)();
+      $content = array_merge($content, $mapper->contentPathsForTag($tag));
+      $configured = array_merge($configured, $mapper->configuredPathsForTag($tag));
     }
     catch (\Throwable $e) {
       $this->logger->warning('Could not map tag @tag: @msg', ['@tag' => $tag, '@msg' => $e->getMessage()]);
@@ -159,7 +188,9 @@ final class PathsQueuer implements PathsQueuerInterface {
       return;
     }
     $this->queued += $new;
-    ($this->enqueuer)()->enqueue(array_keys($new));
+    /** @var \Drupal\perf_purge_paths\PurgeEnqueuer $enqueuer */
+    $enqueuer = ($this->enqueuer)();
+    $enqueuer->enqueue(array_keys($new));
   }
 
   /**
@@ -201,13 +232,12 @@ final class PathsQueuer implements PathsQueuerInterface {
   /**
    * Whether a path also gets a "path/" twin.
    *
-   * Not for the front page, wildcards or files (a last segment with an
-   * extension, such as /rss.xml or an image), and not when the setting
-   * perf_purge_trailing_slash is off.
+   * Not for wildcards or files (a last segment with an extension, such as
+   * /rss.xml or an image), and not when the setting perf_purge_trailing_slash
+   * is off. The front page needs no rule: its twin is "/" itself.
    */
   private function wantsTwin(string $path): bool {
-    return $path !== '/'
-      && !str_ends_with($path, '*')
+    return !str_ends_with($path, '*')
       && !preg_match('/\.[A-Za-z0-9]{1,8}$/', $path)
       && $this->settings->get('perf_purge_trailing_slash', TRUE);
   }

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Drupal\Tests\perf_purge_paths\Kernel;
 
-use Drupal\perf_purge_paths\PathMapperInterface;
+use Drupal\perf_purge_paths\PathMapper;
 use Drupal\user\Entity\User;
 use PHPUnit\Framework\Attributes\Group;
 
@@ -19,8 +19,8 @@ final class PathMapperTest extends PurgePathsKernelTestBase {
   /**
    * Returns the mapper under test.
    */
-  private function mapper(): PathMapperInterface {
-    return \Drupal::service(PathMapperInterface::class);
+  private function mapper(): PathMapper {
+    return \Drupal::service(PathMapper::class);
   }
 
   /**

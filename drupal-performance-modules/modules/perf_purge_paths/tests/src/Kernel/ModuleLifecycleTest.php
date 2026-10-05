@@ -7,8 +7,9 @@ namespace Drupal\Tests\perf_purge_paths\Kernel;
 use Drupal\Core\Cache\CacheTagsInvalidatorInterface;
 use Drupal\KernelTests\KernelTestBase;
 use Drupal\perf_purge_paths\Hook\PerfPurgePathsHooks;
-use Drupal\perf_purge_paths\PathMapperInterface;
-use Drupal\perf_purge_paths\PathsQueuerInterface;
+use Drupal\perf_purge_paths\PathMapper;
+use Drupal\perf_purge_paths\PathsQueuer;
+use Drupal\perf_purge_paths\PurgeEnqueuer;
 use PHPUnit\Framework\Attributes\Group;
 
 /**
@@ -50,7 +51,6 @@ final class ModuleLifecycleTest extends KernelTestBase {
       'perf_purge_paths.queuer',
       'perf_purge_paths.mapper',
       'perf_purge_paths.enqueuer',
-      'perf_purge_paths.tag_invalidator',
     ];
     foreach ($services as $service) {
       $this->assertTrue(\Drupal::hasService($service), $service);
@@ -61,14 +61,15 @@ final class ModuleLifecycleTest extends KernelTestBase {
    * The services and the hook class can be created, not just registered.
    *
    * A service definition that points at a class that does not exist compiles
-   * without complaint and only fails when something asks for the service. The
-   * real purge enqueuer is left out: it needs the purge queue to be set up.
+   * without complaint and only fails when something asks for the service. No
+   * other test builds the real enqueuer: the Kernel tests replace it.
    */
   public function testTheServicesAndTheHookClassCanBeCreated(): void {
     \Drupal::service('module_installer')->install(['perf_purge_paths']);
-    $this->assertInstanceOf(PathMapperInterface::class, \Drupal::service('perf_purge_paths.mapper'));
-    $this->assertInstanceOf(PathsQueuerInterface::class, \Drupal::service('perf_purge_paths.queuer'));
-    $this->assertInstanceOf(CacheTagsInvalidatorInterface::class, \Drupal::service('perf_purge_paths.tag_invalidator'));
+    $this->assertInstanceOf(PathMapper::class, \Drupal::service('perf_purge_paths.mapper'));
+    $this->assertInstanceOf(PurgeEnqueuer::class, \Drupal::service('perf_purge_paths.enqueuer'));
+    $this->assertInstanceOf(PathsQueuer::class, \Drupal::service('perf_purge_paths.queuer'));
+    $this->assertInstanceOf(CacheTagsInvalidatorInterface::class, \Drupal::service('perf_purge_paths.queuer'));
     $this->assertInstanceOf(PerfPurgePathsHooks::class, \Drupal::service(PerfPurgePathsHooks::class));
   }
 

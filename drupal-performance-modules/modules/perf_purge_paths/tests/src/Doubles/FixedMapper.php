@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace Drupal\Tests\perf_purge_paths\Doubles;
 
 use Drupal\file\FileInterface;
-use Drupal\perf_purge_paths\PathMapperInterface;
+use Drupal\perf_purge_paths\PathMapper;
 
 /**
  * A mapper that returns fixed answers, and counts how often it is asked.
  */
-final class FixedMapper implements PathMapperInterface {
+final class FixedMapper extends PathMapper {
 
   /**
    * How often contentPathsForTag() was called, by tag.

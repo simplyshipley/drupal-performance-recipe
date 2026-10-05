@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace Drupal\Tests\perf_purge_paths\Traits;
 
 use Drupal\Core\Site\Settings;
-use Drupal\perf_purge_paths\PathMapperInterface;
+use Drupal\perf_purge_paths\PathMapper;
 use Drupal\perf_purge_paths\PathsQueuer;
-use Drupal\perf_purge_paths\PurgeEnqueuerInterface;
+use Drupal\perf_purge_paths\PurgeEnqueuer;
 use Drupal\Tests\perf_purge_paths\Doubles\FixedMapper;
 use Drupal\Tests\perf_purge_paths\Doubles\RecordingEnqueuer;
 use Drupal\Tests\perf_purge_paths\Doubles\RecordingLogger;
@@ -49,17 +49,17 @@ trait QueuerDoublesTrait {
   /**
    * Creates the queuer around the doubles.
    *
-   * @param \Drupal\perf_purge_paths\PathMapperInterface $mapper
+   * @param \Drupal\perf_purge_paths\PathMapper $mapper
    *   The mapper double.
-   * @param \Drupal\perf_purge_paths\PurgeEnqueuerInterface $enqueuer
+   * @param \Drupal\perf_purge_paths\PurgeEnqueuer $enqueuer
    *   The enqueuer double.
    * @param \Psr\Log\LoggerInterface $logger
    *   The logger.
    * @param array<string, mixed> $settings
    *   Settings that replace the defaults (enabled, with trailing slashes).
    */
-  protected function createQueuer(PathMapperInterface $mapper, PurgeEnqueuerInterface $enqueuer, LoggerInterface $logger, array $settings = []): PathsQueuer {
-    return new PathsQueuer($mapper, static fn () => $enqueuer, new Settings($settings + [
+  protected function createQueuer(PathMapper $mapper, PurgeEnqueuer $enqueuer, LoggerInterface $logger, array $settings = []): PathsQueuer {
+    return new PathsQueuer(static fn () => $mapper, static fn () => $enqueuer, new Settings($settings + [
       'perf_purge_paths_enabled' => TRUE,
       'perf_purge_trailing_slash' => TRUE,
     ]), $logger);

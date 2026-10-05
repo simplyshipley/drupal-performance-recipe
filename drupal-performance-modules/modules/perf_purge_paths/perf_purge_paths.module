@@ -16,7 +16,6 @@ use Drupal\Core\Hook\Attribute\LegacyModuleImplementsAlter;
 use Drupal\file\FileInterface;
 use Drupal\path_alias\PathAliasInterface;
 use Drupal\perf_purge_paths\Hook\PerfPurgePathsHooks;
-use Drupal\perf_purge_paths\ImplementationFilter;
 
 /**
  * Implements hook_path_alias_delete().
@@ -45,12 +44,15 @@ function perf_purge_paths_file_delete(FileInterface $file): void {
 /**
  * Implements hook_module_implements_alter().
  *
- * Drupal 10.6 to 11.1: drops azure_cdn_purge's hook_node_update(). Drupal
- * 11.2 and later use #[RemoveHook] on the hook class and skip this function.
- * It calls plain static code, not a service: implementations are looked up
- * while services are still being created.
+ * Drupal 10.6 to 11.1: drops azure_cdn_purge's hook_node_update(), which only
+ * queues the node alias a second time (the tag mapping already queues it).
+ * Drupal 11.2 and later use #[RemoveHook] on the hook class and skip this
+ * function. The two lines stay here, not in a service: implementations are
+ * looked up while services are still being created.
  */
 #[LegacyModuleImplementsAlter]
 function perf_purge_paths_module_implements_alter(array &$implementations, string $hook): void {
-  ImplementationFilter::apply($implementations, $hook);
+  if ($hook === 'node_update') {
+    unset($implementations['azure_cdn_purge']);
+  }
 }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Drupal\Tests\perf_redis_failopen\Unit;
 
 use Drupal\Core\Cache\CacheBackendInterface;
+use Drupal\Core\Cache\NullBackend;
 use Drupal\perf_redis_failopen\Cache\FailOpenCacheBackend;
 use Drupal\Tests\perf_redis_failopen\Traits\RecordingDoublesTrait;
 use Drupal\Tests\UnitTestCase;
@@ -204,7 +205,7 @@ final class FailOpenCacheBackendTest extends UnitTestCase {
    * back, or the missing ids would be treated as "found" and never rebuilt.
    */
   public function testGetMultipleKeepsAllIdsWhenTheBackendFailsPartway(): void {
-    $partial = new class() extends NullCacheBackendDouble {
+    $partial = new class('render') extends NullBackend {
 
       /**
        * {@inheritdoc}

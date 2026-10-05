@@ -5,15 +5,17 @@ declare(strict_types=1);
 namespace Drupal\Tests\perf_purge_paths\Kernel;
 
 use Drupal\Core\DependencyInjection\ContainerBuilder;
+use Drupal\file\Entity\File;
 use Drupal\Tests\perf_purge_paths\Doubles\ThrowingTagMapper;
 use PHPUnit\Framework\Attributes\Group;
 
 /**
- * Tests that an alias rename survives a failing cache invalidation step.
+ * Tests that alias changes and file deletes survive a failing mapping step.
  *
- * The mapper that turns a system path into entity cache tags throws here, as a
- * broken entity definition would. The editor's rename must still be saved and
- * the old alias must still be queued for the CDN.
+ * The mapper throws here for system paths and files, as a broken entity
+ * definition or stream wrapper would. The editor's rename must still be saved,
+ * the old alias must still be queued for the CDN, and a file delete (which
+ * cron runs) must still complete.
  *
  * @group perf_purge_paths
  */
@@ -45,6 +47,15 @@ final class AliasUpdateFailureTest extends PurgePathsKernelTestBase {
     $this->createNode('/synthetic-gone');
     $this->loadAlias('/synthetic-gone')->delete();
     $this->assertContains('/synthetic-gone', $this->recorder()->all());
+  }
+
+  /**
+   * A file whose URLs cannot be built is still deleted (cron deletes files).
+   */
+  public function testFileDeleteIsNotStoppedWhenItsPathsCannotBeBuilt(): void {
+    $file = $this->createFile('public://synthetic-broken.png');
+    $file->delete();
+    $this->assertNull(File::load($file->id()));
   }
 
 }

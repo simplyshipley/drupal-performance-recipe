@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Drupal\Tests\perf_redis_failopen\Doubles;
 
-use Drupal\perf_redis_failopen\Cache\PendingFlushStoreInterface;
+use Drupal\perf_redis_failopen\Cache\DatabasePendingFlushStore;
 
 /**
  * Keeps the lost-write records in memory.
@@ -13,7 +13,7 @@ use Drupal\perf_redis_failopen\Cache\PendingFlushStoreInterface;
  * the token that was read), so the unit tests exercise the same contract
  * without a database. The Kernel test of the database store runs the real SQL.
  */
-final class InMemoryPendingFlushStore implements PendingFlushStoreInterface {
+final class InMemoryPendingFlushStore extends DatabasePendingFlushStore {
 
   /**
    * Records by bin.
@@ -26,6 +26,11 @@ final class InMemoryPendingFlushStore implements PendingFlushStoreInterface {
    * How often all() was called.
    */
   public int $reads = 0;
+
+  /**
+   * Constructs the double; it needs no database.
+   */
+  public function __construct() {}
 
   /**
    * {@inheritdoc}

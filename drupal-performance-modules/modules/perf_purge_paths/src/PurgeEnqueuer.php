@@ -17,8 +17,10 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
  * Queues through azure_cdn_purge's "path_queuer", so the queue, the processors
  * (cron, drush) and the chunking are the ones Purge already provides, and the
  * paths are sent after the transaction that changed the content has committed.
+ *
+ * Not final: the Kernel tests replace it with a recorder.
  */
-final class PurgeEnqueuer implements PurgeEnqueuerInterface {
+class PurgeEnqueuer {
 
   /**
    * Constructs a PurgeEnqueuer.
@@ -44,7 +46,14 @@ final class PurgeEnqueuer implements PurgeEnqueuerInterface {
   ) {}
 
   /**
-   * {@inheritdoc}
+   * Adds the paths to the purge queue.
+   *
+   * A path that contains "*" becomes a wildcardpath invalidation, every other
+   * path a path invalidation. A path the invalidation factory rejects is
+   * logged and skipped; the others are still queued.
+   *
+   * @param string[] $paths
+   *   Paths with a leading slash, such as "/about-us" or "/news/*".
    */
   public function enqueue(array $paths): void {
     $queuer = $this->queuers->get('path_queuer');

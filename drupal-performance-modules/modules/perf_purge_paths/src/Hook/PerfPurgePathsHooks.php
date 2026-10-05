@@ -10,8 +10,8 @@ use Drupal\Core\Hook\Attribute\Hook;
 use Drupal\Core\Hook\Attribute\RemoveHook;
 use Drupal\file\FileInterface;
 use Drupal\path_alias\PathAliasInterface;
-use Drupal\perf_purge_paths\PathMapperInterface;
-use Drupal\perf_purge_paths\PathsQueuerInterface;
+use Drupal\perf_purge_paths\PathMapper;
+use Drupal\perf_purge_paths\PathsQueuer;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
@@ -53,9 +53,9 @@ final class PerfPurgePathsHooks {
   /**
    * Constructs a PerfPurgePathsHooks.
    *
-   * @param \Drupal\perf_purge_paths\PathsQueuerInterface $queuer
+   * @param \Drupal\perf_purge_paths\PathsQueuer $queuer
    *   The paths queuer.
-   * @param \Drupal\perf_purge_paths\PathMapperInterface $mapper
+   * @param \Drupal\perf_purge_paths\PathMapper $mapper
    *   The tag, file and path mapper.
    * @param \Drupal\Core\Cache\CacheTagsInvalidatorInterface $invalidator
    *   The cache tags invalidator.
@@ -63,8 +63,8 @@ final class PerfPurgePathsHooks {
    *   The perf_purge_paths logger channel.
    */
   public function __construct(
-    private readonly PathsQueuerInterface $queuer,
-    private readonly PathMapperInterface $mapper,
+    private readonly PathsQueuer $queuer,
+    private readonly PathMapper $mapper,
     private readonly CacheTagsInvalidatorInterface $invalidator,
     #[Autowire(service: 'logger.channel.perf_purge_paths')]
     private readonly LoggerInterface $logger,

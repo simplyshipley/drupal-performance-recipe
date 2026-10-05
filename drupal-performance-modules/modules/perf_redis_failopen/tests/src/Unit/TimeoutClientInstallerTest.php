@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Drupal\Tests\perf_redis_failopen\Unit;
 
 use Drupal\Core\Site\Settings;
-use Drupal\perf_redis_failopen\Client\ClientOptions;
 use Drupal\perf_redis_failopen\Client\TimeoutClientInstaller;
 use Drupal\perf_redis_failopen\Client\TimeoutPhpRedis;
 use Drupal\redis\Client\PhpRedis;
@@ -48,8 +47,7 @@ final class TimeoutClientInstallerTest extends UnitTestCase {
    */
   private function install(array $settings): void {
     $settings += ['redis.connection' => ['interface' => 'PhpRedis']];
-    $options = new ClientOptions(new Settings($settings));
-    (new TimeoutClientInstaller($options))->install(new ClientFactory());
+    (new TimeoutClientInstaller(new Settings($settings)))->install(new ClientFactory());
   }
 
   /**
@@ -67,6 +65,36 @@ final class TimeoutClientInstallerTest extends UnitTestCase {
     $this->assertSame(1.5, $this->property($client, 'connectTimeout'));
     $this->assertSame(2.5, $this->property($client, 'readTimeout'));
     $this->assertSame(['cafile' => '/etc/ssl/synthetic-ca.pem'], $this->property($client, 'tlsOptions'));
+  }
+
+  /**
+   * Without settings the client gets 1 s to connect, 2 s to answer, no TLS.
+   */
+  public function testDefaultsAreOneAndTwoSecondsWithoutTls(): void {
+    $this->install([]);
+    $client = ClientFactory::getClientInterface();
+    $this->assertInstanceOf(TimeoutPhpRedis::class, $client);
+    $this->assertSame(1.0, $this->property($client, 'connectTimeout'));
+    $this->assertSame(2.0, $this->property($client, 'readTimeout'));
+    $this->assertSame([], $this->property($client, 'tlsOptions'));
+  }
+
+  /**
+   * An empty TLS setting is no option at all.
+   */
+  public function testEmptyTlsSettingsAreDropped(): void {
+    $this->install(['perf_redis_tls_cafile' => '', 'perf_redis_tls_peer_name' => 'valkey.example.invalid']);
+    $this->assertSame(['peer_name' => 'valkey.example.invalid'], $this->property(ClientFactory::getClientInterface(), 'tlsOptions'));
+  }
+
+  /**
+   * Timeouts are seconds with fractions, whatever type the setting has.
+   */
+  public function testTimeoutsAreFractionalSeconds(): void {
+    $this->install(['perf_redis_connect_timeout' => '0.25', 'perf_redis_read_timeout' => 3]);
+    $client = ClientFactory::getClientInterface();
+    $this->assertSame(0.25, $this->property($client, 'connectTimeout'));
+    $this->assertSame(3.0, $this->property($client, 'readTimeout'));
   }
 
   /**

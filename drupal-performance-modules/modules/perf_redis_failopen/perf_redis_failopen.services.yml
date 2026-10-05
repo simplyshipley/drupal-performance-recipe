@@ -12,7 +12,6 @@ services:
     arguments: ['perf_redis_failopen']
 
   Drupal\perf_redis_failopen\Cache\DatabasePendingFlushStore: ~
-  Drupal\perf_redis_failopen\Cache\PendingFlushStoreInterface: '@Drupal\perf_redis_failopen\Cache\DatabasePendingFlushStore'
 
   Drupal\perf_redis_failopen\Cache\RedisHealth: ~
 
@@ -20,10 +19,7 @@ services:
     class: Drupal\perf_redis_failopen\Cache\FailOpenCacheBackendFactory
     decorates: cache.backend.redis
 
-  Drupal\perf_redis_failopen\Client\ClientOptions: ~
-
   # Applied to redis.factory by PerfRedisFailopenServiceProvider.
   Drupal\perf_redis_failopen\Client\TimeoutClientInstaller: ~
 
-  Drupal\perf_redis_failopen\Requirements\FailOpenRequirements: ~
   Drupal\perf_redis_failopen\Hook\PerfRedisFailopenHooks: ~

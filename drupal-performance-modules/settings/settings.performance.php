@@ -26,9 +26,7 @@
  *   REDIS_PORT              Default 6379. TLS: 6380 (Azure managed Redis: 6380
  *                           or 10000).
  *   REDIS_SCHEME            tcp (default) or tls. The server must speak the
- *                           same one: a mismatch costs one connect timeout,
- *                           then the site runs without Redis (docs/azure.md,
- *                           "Encryption: DevOps decides").
+ *                           same one.
  *   REDIS_TLS_CAFILE        With tls: PEM file of the CA that signed the server
  *                           certificate (a private CA). Default: PHP's own CA
  *                           bundle.
@@ -477,4 +475,4 @@ if ($perf_mode !== '') {
 
 unset($perf_env, $perf_patterns, $perf_host, $perf_pattern, $perf_redis_dir, $perf_scheme,
   $perf_bins, $perf_bin, $perf_azure_map, $perf_cloud, $perf_clouds, $perf_var, $perf_key, $perf_public, $perf_404_pages, $perf_file, $perf_lang,
-  $perf_fast404_inc, $perf_mode_file, $perf_mode, $perf_local);
+  $perf_fast404_inc, $perf_mode_file, $perf_mode, $perf_local, $perf_edge_ips, $perf_seen, $perf_headers, $perf_k, $perf_h);

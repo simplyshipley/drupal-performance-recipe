@@ -5,15 +5,20 @@ declare(strict_types=1);
 namespace Drupal\Tests\perf_purge_paths\Doubles;
 
 use Drupal\file\FileInterface;
-use Drupal\perf_purge_paths\PathMapperInterface;
+use Drupal\perf_purge_paths\PathMapper;
 
 /**
- * A mapper that finds nothing, and throws when asked for an entity's tags.
+ * A mapper that finds nothing for tags, and throws for files and system paths.
  *
- * Swapped in for perf_purge_paths.mapper in Kernel tests that check an alias
- * change still queues the CDN paths when the cache invalidation step fails.
+ * Swapped in for perf_purge_paths.mapper in Kernel tests that check a delete
+ * or an alias change is not stopped when a mapping step fails.
  */
-final class ThrowingTagMapper implements PathMapperInterface {
+final class ThrowingTagMapper extends PathMapper {
+
+  /**
+   * Constructs the double; it needs none of the mapper's services.
+   */
+  public function __construct() {}
 
   /**
    * {@inheritdoc}
@@ -33,7 +38,7 @@ final class ThrowingTagMapper implements PathMapperInterface {
    * {@inheritdoc}
    */
   public function pathsForFile(FileInterface $file): array {
-    return [];
+    throw new \RuntimeException('file URLs are down');
   }
 
   /**

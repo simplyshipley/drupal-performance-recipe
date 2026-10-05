@@ -20,9 +20,9 @@ use Drupal\redis\Client\PhpRedis;
  * This subclass only changes the connection; getName() stays "PhpRedis" so the
  * module's own PhpRedis cache backend is used unchanged:
  * - connect and read timeouts;
- * - optional "cafile" and "peer_name" TLS options (ClientOptions), used only
- *   when the host is a tls:// address. Certificate verification is never
- *   switched off;
+ * - optional "cafile" and "peer_name" TLS options (TimeoutClientInstaller),
+ *   used only when the host is a tls:// address. Certificate verification is
+ *   never switched off;
  * - the PHP warnings that a failed connect prints (for example "certificate
  *   verify failed") are folded into the exception message, so the log says why
  *   and nothing leaks into a page.

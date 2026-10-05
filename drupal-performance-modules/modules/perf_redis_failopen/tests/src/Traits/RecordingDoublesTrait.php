@@ -7,7 +7,7 @@ namespace Drupal\Tests\perf_redis_failopen\Traits;
 use Drupal\Core\Cache\CacheBackendInterface;
 use Drupal\Core\Cache\CacheFactoryInterface;
 use Drupal\Core\Site\Settings;
-use Drupal\perf_redis_failopen\Cache\PendingFlushStoreInterface;
+use Drupal\perf_redis_failopen\Cache\DatabasePendingFlushStore;
 use Drupal\perf_redis_failopen\Cache\RedisHealth;
 use Drupal\Tests\perf_redis_failopen\Doubles\InMemoryPendingFlushStore;
 use Drupal\Tests\perf_redis_failopen\Doubles\RecordingLogger;
@@ -43,7 +43,7 @@ trait RecordingDoublesTrait {
   /**
    * Creates the health tracker with the two intervals set.
    *
-   * @param \Drupal\perf_redis_failopen\Cache\PendingFlushStoreInterface $store
+   * @param \Drupal\perf_redis_failopen\Cache\DatabasePendingFlushStore $store
    *   The lost-write store.
    * @param \Psr\Log\LoggerInterface $logger
    *   The logger.
@@ -52,7 +52,7 @@ trait RecordingDoublesTrait {
    * @param array<string, mixed> $settings
    *   More settings (for example redis.connection).
    */
-  protected function createHealth(PendingFlushStoreInterface $store, LoggerInterface $logger, int $retry = 30, array $settings = []): RedisHealth {
+  protected function createHealth(DatabasePendingFlushStore $store, LoggerInterface $logger, int $retry = 30, array $settings = []): RedisHealth {
     return new RedisHealth($store, $logger, new Settings([
       'perf_redis_failopen_retry_interval' => $retry,
       'perf_redis_failopen_log_interval' => 60,

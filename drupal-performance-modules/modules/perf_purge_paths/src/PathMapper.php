@@ -29,10 +29,18 @@ use Drupal\path_alias\PathAliasInterface;
  * - block_content and menus: the configured site-wide paths (for example
  *   "/*").
  *
+ * Paths come in two kinds, and the difference matters for safety:
+ * - content paths are derived from content (an alias an editor typed, a file
+ *   name an uploader chose). The queuer never lets them be wildcards.
+ * - configured paths are set by the operator (PERF_PURGE_LIST_PATHS and
+ *   PERF_PURGE_SITEWIDE_PATHS). Only these may contain "*".
+ *
  * Settings (settings.performance.php, env PERF_PURGE_*): perf_purge_list_paths
  * and perf_purge_sitewide_paths, each a comma-separated string or an array.
+ *
+ * Not final: test doubles extend it to inject failures.
  */
-final class PathMapper implements PathMapperInterface {
+class PathMapper {
 
   /**
    * Entity type => system path prefix.
@@ -43,11 +51,6 @@ final class PathMapper implements PathMapperInterface {
     'media' => 'media/',
     'user' => 'user/',
   ];
-
-  /**
-   * Tags of entity lists, which map to the configured list paths.
-   */
-  private const LIST_TAG = '/^(node|taxonomy_term|media|user)_list(:.*)?$/';
 
   /**
    * Tags of blocks and menus, which map to the configured site-wide paths.
@@ -74,10 +77,20 @@ final class PathMapper implements PathMapperInterface {
   ) {}
 
   /**
-   * {@inheritdoc}
+   * Returns the content paths a cache tag maps to.
+   *
+   * Handles node, taxonomy_term, media and user tags (system path and current
+   * alias), path_alias tags (the alias and its previous revision) and file
+   * tags (the file URL and its image derivatives).
+   *
+   * @param string $tag
+   *   A cache tag such as "node:5".
+   *
+   * @return string[]
+   *   Paths, possibly with duplicates, without a trailing-slash twin.
    */
   public function contentPathsForTag(string $tag): array {
-    if (preg_match('/^(node|taxonomy_term|media|user):(\d+)$/', $tag, $m)) {
+    if (preg_match('/^(' . self::types() . '):(\d+)$/', $tag, $m)) {
       return $this->entityPaths($m[1], $m[2]);
     }
     if (preg_match('/^path_alias:(\d+)$/', $tag, $m)) {
@@ -90,10 +103,19 @@ final class PathMapper implements PathMapperInterface {
   }
 
   /**
-   * {@inheritdoc}
+   * Returns the operator-configured paths a cache tag maps to.
+   *
+   * Entity list tags map to the list paths, and menu and block tags map to
+   * the site-wide paths.
+   *
+   * @param string $tag
+   *   A cache tag such as "node_list".
+   *
+   * @return string[]
+   *   Paths that may contain "*".
    */
   public function configuredPathsForTag(string $tag): array {
-    if (preg_match(self::LIST_TAG, $tag)) {
+    if (preg_match('/^(' . self::types() . ')_list(:.*)?$/', $tag)) {
       return $this->setting('perf_purge_list_paths');
     }
     if (preg_match(self::SITEWIDE_TAG, $tag)) {
@@ -103,7 +125,19 @@ final class PathMapper implements PathMapperInterface {
   }
 
   /**
-   * {@inheritdoc}
+   * Returns the paths a CDN may hold for a file: its URL and its derivatives.
+   *
+   * Only public:// files are purged: private and temporary files are never
+   * cached at the edge, and their names must not be sent to the CDN API.
+   * Derivatives are the URL of the file in every image style that supports
+   * the file's extension. The paths have no host and no query string. Reads
+   * only the URI, so it also works while the file is being deleted.
+   *
+   * @param \Drupal\file\FileInterface $file
+   *   The file entity.
+   *
+   * @return string[]
+   *   The paths, empty for a file that is not in the public file system.
    */
   public function pathsForFile(FileInterface $file): array {
     $uri = (string) $file->getFileUri();
@@ -115,7 +149,14 @@ final class PathMapper implements PathMapperInterface {
   }
 
   /**
-   * {@inheritdoc}
+   * Returns the cache tags of the entity a system path shows.
+   *
+   * @param string $path
+   *   A system path such as "/node/5" or "/taxonomy/term/3".
+   *
+   * @return string[]
+   *   Tags such as "node:5", or an empty array when the path is not an entity
+   *   path.
    */
   public function tagsForSystemPath(string $path): array {
     foreach (self::ENTITY_PATHS as $type => $prefix) {
@@ -190,6 +231,7 @@ final class PathMapper implements PathMapperInterface {
     }
     $paths = [];
     foreach ($this->entityTypeManager->getStorage('image_style')->loadMultiple() as $style) {
+      /** @var \Drupal\image\ImageStyleInterface $style */
       if ($style->supportsUri($uri)) {
         $paths[] = $this->pathOf($style->buildUrl($uri));
       }
@@ -202,6 +244,13 @@ final class PathMapper implements PathMapperInterface {
    */
   private function pathOf(string $url): string {
     return (string) parse_url($url, PHP_URL_PATH);
+  }
+
+  /**
+   * Returns the entity types of ENTITY_PATHS as a regex alternation.
+   */
+  private static function types(): string {
+    return implode('|', array_keys(self::ENTITY_PATHS));
   }
 
   /**

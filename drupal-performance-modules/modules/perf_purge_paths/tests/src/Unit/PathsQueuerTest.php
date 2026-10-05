@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Drupal\Tests\perf_purge_paths\Unit;
 
+use Drupal\Core\Site\Settings;
+use Drupal\perf_purge_paths\PathsQueuer;
 use Drupal\Tests\perf_purge_paths\Traits\QueuerDoublesTrait;
 use Drupal\Tests\UnitTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -146,16 +148,18 @@ final class PathsQueuerTest extends UnitTestCase {
   }
 
   /**
-   * Paths come back as a generator too.
+   * Purging is off unless the settings include turns it on.
+   *
+   * Nothing is mapped and nothing is queued when the setting is missing.
    */
-  public function testQueuePathsAcceptsGenerator(): void {
+  public function testPurgingIsOffWhenTheSettingIsMissing(): void {
+    $mapper = $this->createMapper(['node:5' => ['/node/5']]);
     $enqueuer = $this->createEnqueuer();
-    $queuer = $this->createQueuer($this->createMapper(), $enqueuer, $this->createRecordingLogger());
-    $queuer->queuePaths((static function (): \Generator {
-      yield '/a';
-      yield '/b';
-    })());
-    $this->assertSame(['/a', '/a/', '/b', '/b/'], $enqueuer->all());
+    $queuer = new PathsQueuer(static fn () => $mapper, static fn () => $enqueuer, new Settings([]), $this->createRecordingLogger());
+    $queuer->invalidateTags(['node:5']);
+    $queuer->queuePaths(['/about-us']);
+    $this->assertSame([], $mapper->contentCalls);
+    $this->assertSame([], $enqueuer->batches);
   }
 
   /**

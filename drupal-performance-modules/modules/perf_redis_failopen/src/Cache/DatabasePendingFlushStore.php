@@ -19,8 +19,11 @@ use Drupal\Core\Database\DatabaseExceptionWrapper;
  *   this store is live for a moment before the table exists (module install)
  *   and after it is dropped (module uninstall), and a request in that moment
  *   must not fail.
+ *
+ * Not final: the unit tests use an in-memory subclass with the same token
+ * rules.
  */
-final class DatabasePendingFlushStore implements PendingFlushStoreInterface {
+class DatabasePendingFlushStore {
 
   /**
    * The table created by perf_redis_failopen_schema().
@@ -38,7 +41,7 @@ final class DatabasePendingFlushStore implements PendingFlushStoreInterface {
   ) {}
 
   /**
-   * {@inheritdoc}
+   * Records (or refreshes) a pending flush for a bin with a new token.
    */
   public function record(string $bin): void {
     $this->connection->merge(self::TABLE)
@@ -48,7 +51,10 @@ final class DatabasePendingFlushStore implements PendingFlushStoreInterface {
   }
 
   /**
-   * {@inheritdoc}
+   * Returns all pending records as bin => token.
+   *
+   * @return array<string, string>
+   *   Pending bins and their tokens.
    */
   public function all(): array {
     try {
@@ -66,7 +72,10 @@ final class DatabasePendingFlushStore implements PendingFlushStoreInterface {
   }
 
   /**
-   * {@inheritdoc}
+   * Deletes the record for a bin only if it still carries $token.
+   *
+   * @return bool
+   *   TRUE if the record was deleted, FALSE if it changed meanwhile.
    */
   public function clear(string $bin, string $token): bool {
     return (bool) $this->connection->delete(self::TABLE)

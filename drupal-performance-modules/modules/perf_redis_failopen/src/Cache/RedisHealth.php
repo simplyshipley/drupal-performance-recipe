@@ -17,7 +17,7 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
  * - Warnings are throttled: at most one per log interval (APCu-wide when
  *   available, per process otherwise).
  * - Deletes and invalidations that could not reach Redis are recorded per bin
- *   (one row per bin with a unique token, PendingFlushStoreInterface). When
+ *   (one row per bin with a unique token, DatabasePendingFlushStore). When
  *   Redis answers again, the first worker that sees the record empties that
  *   bin and clears the record only if its token is unchanged, so no stale
  *   entry survives the outage and no newer record is lost. Tag
@@ -68,7 +68,7 @@ final class RedisHealth {
   /**
    * Constructs a RedisHealth.
    *
-   * @param \Drupal\perf_redis_failopen\Cache\PendingFlushStoreInterface $store
+   * @param \Drupal\perf_redis_failopen\Cache\DatabasePendingFlushStore $store
    *   Where lost deletes and invalidations are recorded.
    * @param \Psr\Log\LoggerInterface $logger
    *   The perf_redis_failopen logger channel.
@@ -76,7 +76,7 @@ final class RedisHealth {
    *   The site settings (the two intervals above).
    */
   public function __construct(
-    private readonly PendingFlushStoreInterface $store,
+    private readonly DatabasePendingFlushStore $store,
     #[Autowire(service: 'logger.channel.perf_redis_failopen')]
     private readonly LoggerInterface $logger,
     private readonly Settings $settings,

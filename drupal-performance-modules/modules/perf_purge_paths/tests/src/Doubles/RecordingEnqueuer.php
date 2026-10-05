@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Drupal\Tests\perf_purge_paths\Doubles;
 
-use Drupal\perf_purge_paths\PurgeEnqueuerInterface;
+use Drupal\perf_purge_paths\PurgeEnqueuer;
 
 /**
  * Stands in for the purge enqueuer and records the paths it is given.
@@ -14,7 +14,7 @@ use Drupal\perf_purge_paths\PurgeEnqueuerInterface;
  * queued. Used by the unit tests directly and by the Kernel tests, which swap
  * it in for the perf_purge_paths.enqueuer service.
  */
-final class RecordingEnqueuer implements PurgeEnqueuerInterface {
+final class RecordingEnqueuer extends PurgeEnqueuer {
 
   /**
    * The paths of each call.
@@ -27,6 +27,11 @@ final class RecordingEnqueuer implements PurgeEnqueuerInterface {
    * An exception to throw from enqueue(), if any.
    */
   public ?\Throwable $fail = NULL;
+
+  /**
+   * Constructs the double; it needs none of the purge services.
+   */
+  public function __construct() {}
 
   /**
    * {@inheritdoc}

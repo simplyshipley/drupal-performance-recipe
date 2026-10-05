@@ -1,9 +1,9 @@
-# Cache tags and hooks become Front Door purge paths.
+# Cache tags and delete hooks become Front Door purge paths.
 #
-# The tag invalidator is created very early (every cache_tags_invalidator is
-# collected with the cache tags service), so it holds only the settings and a
-# closure; the real work is resolved on first use. Injecting the entity type
-# manager or the purge services here would create a circular reference.
+# The queuer is a cache_tags_invalidator, so core creates it together with the
+# cache tags service, very early. It therefore reaches the mapper and the
+# enqueuer through service closures (see PathsQueuer); injecting them directly
+# would create a circular reference.
 services:
   _defaults:
     autowire: true
@@ -12,21 +12,17 @@ services:
     parent: logger.channel_base
     arguments: ['perf_purge_paths']
 
-  Drupal\perf_purge_paths\PathMapperInterface: '@perf_purge_paths.mapper'
   perf_purge_paths.mapper:
     class: Drupal\perf_purge_paths\PathMapper
+  Drupal\perf_purge_paths\PathMapper: '@perf_purge_paths.mapper'
 
-  Drupal\perf_purge_paths\PurgeEnqueuerInterface: '@perf_purge_paths.enqueuer'
   perf_purge_paths.enqueuer:
     class: Drupal\perf_purge_paths\PurgeEnqueuer
 
-  Drupal\perf_purge_paths\PathsQueuerInterface: '@perf_purge_paths.queuer'
   perf_purge_paths.queuer:
     class: Drupal\perf_purge_paths\PathsQueuer
-
-  perf_purge_paths.tag_invalidator:
-    class: Drupal\perf_purge_paths\TagInvalidator
     tags:
       - { name: cache_tags_invalidator }
+  Drupal\perf_purge_paths\PathsQueuer: '@perf_purge_paths.queuer'
 
   Drupal\perf_purge_paths\Hook\PerfPurgePathsHooks: ~

@@ -8,7 +8,7 @@
 declare(strict_types=1);
 
 use Drupal\Core\Hook\Attribute\LegacyRequirementsHook;
-use Drupal\perf_redis_failopen\Requirements\FailOpenRequirements;
+use Drupal\perf_redis_failopen\Hook\PerfRedisFailopenHooks;
 
 /**
  * Implements hook_schema().
@@ -52,5 +52,5 @@ function perf_redis_failopen_requirements(string $phase): array {
   if ($phase !== 'runtime') {
     return [];
   }
-  return \Drupal::service(FailOpenRequirements::class)->runtime();
+  return \Drupal::service(PerfRedisFailopenHooks::class)->runtimeRequirements();
 }
