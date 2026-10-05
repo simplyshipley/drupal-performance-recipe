@@ -77,7 +77,7 @@ Drupal side (lab only, honoured only in DDEV/Lando):
 ### Bot header-consistency challenge and security headers (2026-09-29)
 
 **Challenge:**
-- **Trigger:** a GET/HEAD request with a browser user agent (`Chrome/`, `Firefox/`, `Safari/`, `Edg/`) that has **neither** `Sec-Fetch-Mode` **nor** `Accept-Language`, on an HTML route. `EDGE_CHALLENGE_MISSING=either` challenges when just one is missing; that setting is untested in the lab.
+- **Trigger:** a GET/HEAD request with a browser user agent (`Chrome/`, `Firefox/`, `Safari/`, `Edg/`) that has **neither** `Sec-Fetch-Mode` **nor** `Accept-Language`, on an HTML route. `EDGE_CHALLENGE_MISSING=either` challenges when just one is missing; tested in the Lando lab on 2026-10-05 (set it on the edge service and export it to the test run: `EDGE_CHALLENGE_MISSING=either bash scripts/lando-test.sh`).
 - **Why both is the default:** real browsers can lack `Sec-Fetch-Mode`. Per MDN browser-compat-data `http/headers/Sec-Fetch-Mode.json` (https://raw.githubusercontent.com/mdn/browser-compat-data/main/http/headers/Sec-Fetch-Mode.json, read 2026-09-29): version_added Chrome 76, Edge mirrors Chrome, Firefox 90, Safari 16.4, Safari iOS mirrors Safari, older Safari (before 16.4), Firefox before 90 and Chrome before 76 do not send it. Privacy tools may strip it too.
 - **Session cookie:** requests with a Drupal session cookie (the same `S?SESS` match as the cache bypass) are never challenged, so logged-in editors are not affected. Test: `bot_challenge`; fail-proof `BOT_COOKIE_NEGATIVE=1` [V: tmp/ddev/bot-cookie-failproof.log].
 - **Rollout:** run it in Detection for at least a week and review who would have been challenged. At Front Door use a JS challenge, **never Block**.

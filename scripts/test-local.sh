@@ -732,11 +732,18 @@ t_bot_challenge() {
   k8=$(hdr "$EDGE$u" -A "$CHROME_UA" -H "Cookie: $ck")
   [[ "$(hget "$b1" status)" == 200 && -z "$(hget "$b1" x-edge-action)" ]] || bad="$bad browser-like"
   [[ "$(hget "$b2" status)" == 403 && "$(hget "$b2" x-edge-action)" == challenge ]] || bad="$bad bare-chrome"
-  [[ "$(hget "$s6" status)" == 200 && -z "$(hget "$s6" x-edge-action)" ]] || bad="$bad one-header-present(default both)"
+  # EDGE_CHALLENGE_MISSING must match the edge's own setting: "both" (default)
+  # lets one missing header through; "either" challenges it.
+  local mode="${EDGE_CHALLENGE_MISSING:-both}"
+  if [[ "$mode" == either ]]; then
+    [[ "$(hget "$s6" status)" == 403 && "$(hget "$s6" x-edge-action)" == challenge ]] || bad="$bad one-header-missing(either)"
+  else
+    [[ "$(hget "$s6" status)" == 200 && -z "$(hget "$s6" x-edge-action)" ]] || bad="$bad one-header-present(default both)"
+  fi
   [[ "$s4" == 200 && "$s5" == 200 ]] || bad="$bad static-or-feed"
   [[ "$(hget "$d7" status)" == 200 && "$(hget "$d7" x-edge-would-challenge)" == header-consistency ]] || bad="$bad detection"
   [[ "$(hget "$k8" status)" != 403 && -z "$(hget "$k8" x-edge-action)" ]] || bad="$bad session-cookie"
-  out="browser-like $(hget "$b1" status); Chrome UA with neither header $(hget "$b2" status) X-Edge-Action=$(hget "$b2" x-edge-action); Chrome UA with Accept-Language only $(hget "$s6" status) (default EDGE_CHALLENGE_MISSING=both); Chrome UA + session cookie, no headers $(hget "$k8" status) X-Edge-Action='$(hget "$k8" x-edge-action)'; plain curl UA $c3 (not a browser UA: rule does not apply); static image $s4, /rss.xml $s5; Detection route $(hget "$d7" status) X-Edge-Would-Challenge=$(hget "$d7" x-edge-would-challenge)"
+  out="browser-like $(hget "$b1" status); Chrome UA with neither header $(hget "$b2" status) X-Edge-Action=$(hget "$b2" x-edge-action); Chrome UA with Accept-Language only $(hget "$s6" status) (EDGE_CHALLENGE_MISSING=$mode); Chrome UA + session cookie, no headers $(hget "$k8" status) X-Edge-Action='$(hget "$k8" x-edge-action)'; plain curl UA $c3 (not a browser UA: rule does not apply); static image $s4, /rss.xml $s5; Detection route $(hget "$d7" status) X-Edge-Would-Challenge=$(hget "$d7" x-edge-would-challenge)"
   if [[ -z "$bad" ]]; then say PASS bot_challenge "$out"; else say FAIL bot_challenge "wrong:$bad | $out"; fi
 }
 

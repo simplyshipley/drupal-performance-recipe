@@ -11,7 +11,7 @@ PROJECT=$(printf '%s' "$APP" | tr -d '_.-' | tr '[:upper:]' '[:lower:]')
 CACHE=$(docker ps -a --filter "label=com.docker.compose.project=$PROJECT" --filter "label=com.docker.compose.service=cache" --format '{{.Names}}' | head -1)
 SCRIPT=recipes/drupal-performance-recipe/scripts/test-local.sh
 MODE=recipes/drupal-performance-recipe/scripts/perf-cache.sh
-run_in() { lando ssh -s appserver -c "cd /app && PERF_CACHE_AUTO=0 BASE_URL=http://appserver_nginx bash $SCRIPT $*"; }
+run_in() { lando ssh -s appserver -c "cd /app && PERF_CACHE_AUTO=0 EDGE_CHALLENGE_MISSING=${EDGE_CHALLENGE_MISSING:-both} BASE_URL=http://appserver_nginx bash $SCRIPT $*"; }
 mode_in() { lando ssh -s appserver -c "cd /app && BASE_URL=http://appserver_nginx bash $MODE $*"; }
 {
   # Tests need production behaviour: prod-like once for the whole run, then
