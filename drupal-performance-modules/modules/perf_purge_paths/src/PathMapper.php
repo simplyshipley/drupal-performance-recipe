@@ -37,10 +37,8 @@ use Drupal\path_alias\PathAliasInterface;
  *
  * Settings (settings.performance.php, env PERF_PURGE_*): perf_purge_list_paths
  * and perf_purge_sitewide_paths, each a comma-separated string or an array.
- *
- * Not final: test doubles extend it to inject failures.
  */
-class PathMapper {
+final class PathMapper {
 
   /**
    * Entity type => system path prefix.

@@ -19,11 +19,8 @@ use Drupal\Core\Database\DatabaseExceptionWrapper;
  *   this store is live for a moment before the table exists (module install)
  *   and after it is dropped (module uninstall), and a request in that moment
  *   must not fail.
- *
- * Not final: the unit tests use an in-memory subclass with the same token
- * rules.
  */
-class DatabasePendingFlushStore {
+final class DatabasePendingFlushStore {
 
   /**
    * The table created by perf_redis_failopen_schema().

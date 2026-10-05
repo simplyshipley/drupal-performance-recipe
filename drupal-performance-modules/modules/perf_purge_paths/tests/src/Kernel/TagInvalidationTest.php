@@ -25,7 +25,7 @@ final class TagInvalidationTest extends PurgePathsKernelTestBase {
   public function testSavingNodeQueuesItsPathsAndTheListings(): void {
     $node = $this->createNode('/synthetic-saved');
     $node->setTitle('SYNTHETIC node, edited')->save();
-    $queued = $this->recorder()->all();
+    $queued = $this->queuedPaths();
     foreach (['/node/' . $node->id(), '/synthetic-saved', '/synthetic-saved/', '/', '/node'] as $path) {
       $this->assertContains($path, $queued, $path);
     }
@@ -37,7 +37,7 @@ final class TagInvalidationTest extends PurgePathsKernelTestBase {
   public function testEachPathIsQueuedOnce(): void {
     $node = $this->createNode('/synthetic-saved');
     $node->setTitle('SYNTHETIC node, edited')->save();
-    $queued = $this->recorder()->all();
+    $queued = $this->queuedPaths();
     $this->assertSame(array_values(array_unique($queued)), $queued);
   }
 
@@ -50,8 +50,8 @@ final class TagInvalidationTest extends PurgePathsKernelTestBase {
   public function testTagInvalidatedThroughCoreIsQueued(): void {
     $node = $this->createNode('/synthetic-direct');
     Cache::invalidateTags(['node:' . $node->id()]);
-    $this->assertContains('/synthetic-direct', $this->recorder()->all());
-    $this->assertContains('/node/' . $node->id(), $this->recorder()->all());
+    $this->assertContains('/synthetic-direct', $this->queuedPaths());
+    $this->assertContains('/node/' . $node->id(), $this->queuedPaths());
   }
 
   /**
@@ -62,7 +62,7 @@ final class TagInvalidationTest extends PurgePathsKernelTestBase {
     $this->setSetting('perf_purge_paths_enabled', FALSE);
     $node->setTitle('SYNTHETIC node, edited')->save();
     Cache::invalidateTags(['node:' . $node->id(), 'node_list']);
-    $this->assertSame([], $this->recorder()->all());
+    $this->assertSame([], $this->queuedPaths());
   }
 
   /**
@@ -70,7 +70,7 @@ final class TagInvalidationTest extends PurgePathsKernelTestBase {
    */
   public function testTagsThatNameNoContentQueueNothing(): void {
     Cache::invalidateTags(['config:system.site', 'route_match', 'rendered']);
-    $this->assertSame([], $this->recorder()->all());
+    $this->assertSame([], $this->queuedPaths());
   }
 
   /**
@@ -82,7 +82,7 @@ final class TagInvalidationTest extends PurgePathsKernelTestBase {
   public function testAnAliasWithWildcardIsDroppedWhenTheNodeIsSaved(): void {
     $node = $this->createNode('/synthetic-*');
     $node->setTitle('SYNTHETIC node, edited')->save();
-    $queued = $this->recorder()->all();
+    $queued = $this->queuedPaths();
     foreach ($queued as $path) {
       $this->assertStringNotContainsString('*', $path);
     }

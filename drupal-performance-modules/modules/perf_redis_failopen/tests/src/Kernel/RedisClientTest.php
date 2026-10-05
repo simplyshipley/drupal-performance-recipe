@@ -2,26 +2,36 @@
 
 declare(strict_types=1);
 
-namespace Drupal\Tests\perf_redis_failopen\Unit;
+namespace Drupal\Tests\perf_redis_failopen\Kernel;
 
-use Drupal\Core\Site\Settings;
-use Drupal\perf_redis_failopen\Client\TimeoutClientInstaller;
+use Drupal\KernelTests\KernelTestBase;
+use Drupal\perf_redis_failopen\Cache\RedisHealth;
 use Drupal\perf_redis_failopen\Client\TimeoutPhpRedis;
+use Drupal\perf_redis_failopen\Hook\PerfRedisFailopenHooks;
 use Drupal\redis\Client\PhpRedis;
 use Drupal\redis\ClientFactory;
-use Drupal\Tests\perf_redis_failopen\Traits\ClientFactoryStateTrait;
-use Drupal\Tests\UnitTestCase;
 use PHPUnit\Framework\Attributes\Group;
 
 /**
- * Unit tests for the configurator that installs the bounded Redis client.
+ * Proves client configuration and status through the installed module services.
  *
  * @group perf_redis_failopen
  */
 #[Group('perf_redis_failopen')]
-final class TimeoutClientInstallerTest extends UnitTestCase {
+final class RedisClientTest extends KernelTestBase {
 
-  use ClientFactoryStateTrait;
+  /**
+   * {@inheritdoc}
+   */
+  protected static $modules = ['system', 'redis', 'perf_redis_failopen'];
+
+  /**
+   * A synthetic site configured to use PhpRedis for one cache bin.
+   */
+  private const REDIS_SITE = [
+    'cache' => ['bins' => ['render' => 'cache.backend.redis']],
+    'redis.connection' => ['interface' => 'PhpRedis'],
+  ];
 
   /**
    * {@inheritdoc}
@@ -29,6 +39,9 @@ final class TimeoutClientInstallerTest extends UnitTestCase {
   protected function setUp(): void {
     parent::setUp();
     $this->resetClientFactory();
+    if (function_exists('apcu_clear_cache')) {
+      apcu_clear_cache();
+    }
   }
 
   /**
@@ -40,14 +53,51 @@ final class TimeoutClientInstallerTest extends UnitTestCase {
   }
 
   /**
-   * Runs the configurator with the given settings.
-   *
-   * @param array<string, mixed> $settings
-   *   Site settings.
+   * Prevents the contrib singleton from leaking into another Kernel test.
+   */
+  private function resetClientFactory(): void {
+    foreach (['_clientInterface', '_client'] as $name) {
+      (new \ReflectionProperty(ClientFactory::class, $name))->setValue(NULL, NULL);
+    }
+  }
+
+  /**
+   * Simulates an earlier connection without relying on a server for status.
+   */
+  private function pretendClientIsConnected(): void {
+    (new \ReflectionProperty(ClientFactory::class, '_client'))->setValue(NULL, new \stdClass());
+  }
+
+  /**
+   * Creates redis.factory to run the configurator with the site settings.
    */
   private function install(array $settings): void {
-    $settings += ['redis.connection' => ['interface' => 'PhpRedis']];
-    (new TimeoutClientInstaller(new Settings($settings)))->install(new ClientFactory());
+    foreach ($settings + ['redis.connection' => ['interface' => 'PhpRedis']] as $name => $value) {
+      $this->setSetting($name, $value);
+    }
+    $this->container->set('redis.factory', NULL);
+    $this->container->get('redis.factory');
+  }
+
+  /**
+   * Invokes the runtime requirement through Drupal's module handler.
+   *
+   * @return array{int, string, string}
+   *   Severity, value and description.
+   */
+  private function entry(array $settings, ?RedisHealth $health = NULL): array {
+    foreach ($settings as $name => $value) {
+      $this->setSetting($name, $value);
+    }
+    $this->container->set(PerfRedisFailopenHooks::class, NULL);
+    if ($health) {
+      $this->container->set(RedisHealth::class, $health);
+    }
+    $handler = $this->container->get('module_handler');
+    $handler->loadInclude('perf_redis_failopen', 'install');
+    $entry = $handler->invoke('perf_redis_failopen', 'requirements', ['runtime'])['perf_redis_failopen'];
+    $severity = $entry['severity'] instanceof \BackedEnum ? (int) $entry['severity']->value : (int) $entry['severity'];
+    return [$severity, (string) $entry['value'], (string) $entry['description']];
   }
 
   /**
@@ -152,6 +202,60 @@ final class TimeoutClientInstallerTest extends UnitTestCase {
    */
   private function property(object $object, string $name): mixed {
     return (new \ReflectionProperty($object, $name))->getValue($object);
+  }
+
+  /**
+   * Without Redis bins the entry is information only.
+   */
+  public function testNoRedisBinsIsJustInformation(): void {
+    $this->assertSame([-1, 'No cache bin uses Redis', ''], $this->entry([]));
+  }
+
+  /**
+   * While Redis is skipped after an error, the entry is an error.
+   */
+  public function testRedisThatIsSkippedAfterAnErrorIsAnError(): void {
+    $health = $this->container->get(RedisHealth::class);
+    $health->markDown(new \RedisException('Connection refused'), 'render', 'get');
+    [$severity, $value, $description] = $this->entry(self::REDIS_SITE, $health);
+    $this->assertSame(2, $severity);
+    $this->assertSame('Degraded: Redis does not answer', $value);
+    $this->assertStringContainsString('used again as soon as it answers', $description);
+  }
+
+  /**
+   * A healthy Redis with the bounded client in use is OK and lists the bins.
+   */
+  public function testRedisInUseWithTheBoundedClientIsOk(): void {
+    $this->install(self::REDIS_SITE);
+    $this->pretendClientIsConnected();
+    $this->assertSame([0, 'Redis bins: render', ''], $this->entry(self::REDIS_SITE));
+  }
+
+  /**
+   * Switching the wrapper off is a warning.
+   */
+  public function testSwitchingTheWrapperOffIsReported(): void {
+    [$severity, , $description] = $this->entry(self::REDIS_SITE + ['perf_redis_failopen_enabled' => FALSE]);
+    $this->assertSame(1, $severity);
+    $this->assertStringContainsString('switched off', $description);
+  }
+
+  /**
+   * A connected stock client, without the timeouts, is a warning.
+   */
+  public function testTimeoutsThatAreNotInEffectAreReported(): void {
+    $this->pretendClientIsConnected();
+    [$severity, , $description] = $this->entry(self::REDIS_SITE);
+    $this->assertSame(1, $severity);
+    $this->assertStringContainsString('timeouts or TLS options are not applied', $description);
+  }
+
+  /**
+   * A Redis default backend counts even when no bin overrides are configured.
+   */
+  public function testDefaultRedisBackendIsListed(): void {
+    $this->assertSame([0, 'Redis bins: default', ''], $this->entry(['cache' => ['default' => 'cache.backend.redis']]));
   }
 
 }

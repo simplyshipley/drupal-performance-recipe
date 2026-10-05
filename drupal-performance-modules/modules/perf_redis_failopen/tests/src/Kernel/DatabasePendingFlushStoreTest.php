@@ -11,8 +11,7 @@ use PHPUnit\Framework\Attributes\Group;
 /**
  * Tests the pending-flush store against a real database table.
  *
- * The unit tests use an in-memory double with the same token rules; this one
- * runs the actual SQL (the merge and the compare-and-delete).
+ * Covers the actual SQL merge and compare-and-delete through its service.
  *
  * @group perf_redis_failopen
  */
@@ -35,7 +34,7 @@ final class DatabasePendingFlushStoreTest extends KernelTestBase {
   protected function setUp(): void {
     parent::setUp();
     $this->installSchema('perf_redis_failopen', [DatabasePendingFlushStore::TABLE]);
-    $this->store = new DatabasePendingFlushStore($this->container->get('database'));
+    $this->store = $this->container->get(DatabasePendingFlushStore::class);
   }
 
   /**

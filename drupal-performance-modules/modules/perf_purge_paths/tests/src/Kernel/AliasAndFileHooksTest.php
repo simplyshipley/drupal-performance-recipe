@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Drupal\Tests\perf_purge_paths\Kernel;
 
 use Drupal\Core\Cache\Cache;
+use Drupal\Core\Cache\CacheTagsInvalidatorInterface;
+use Drupal\Core\File\FileUrlGeneratorInterface;
+use Drupal\file\Entity\File;
 use PHPUnit\Framework\Attributes\Group;
 
 /**
@@ -35,8 +38,8 @@ final class AliasAndFileHooksTest extends PurgePathsKernelTestBase {
   public function testDeletingAnAliasQueuesTheAlias(): void {
     $this->createNode('/synthetic-gone');
     $this->loadAlias('/synthetic-gone')->delete();
-    $this->assertContains('/synthetic-gone', $this->recorder()->all());
-    $this->assertContains('/synthetic-gone/', $this->recorder()->all());
+    $this->assertContains('/synthetic-gone', $this->queuedPaths());
+    $this->assertContains('/synthetic-gone/', $this->queuedPaths());
   }
 
   /**
@@ -60,8 +63,8 @@ final class AliasAndFileHooksTest extends PurgePathsKernelTestBase {
     $this->createNode('/synthetic-old');
     $alias = $this->loadAlias('/synthetic-old');
     $alias->setAlias('/synthetic-new')->save();
-    $this->assertContains('/synthetic-old', $this->recorder()->all());
-    $this->assertContains('/synthetic-old/', $this->recorder()->all());
+    $this->assertContains('/synthetic-old', $this->queuedPaths());
+    $this->assertContains('/synthetic-old/', $this->queuedPaths());
   }
 
   /**
@@ -81,7 +84,7 @@ final class AliasAndFileHooksTest extends PurgePathsKernelTestBase {
     $node = $this->createNode('/synthetic-same');
     $cid = $this->cacheEntryTaggedWithNode($node->id());
     $this->loadAlias('/synthetic-same')->save();
-    $this->assertSame([], $this->recorder()->all());
+    $this->assertSame([], $this->queuedPaths());
     $this->assertNotFalse(\Drupal::cache()->get($cid), 'Nothing was invalidated either.');
   }
 
@@ -91,8 +94,8 @@ final class AliasAndFileHooksTest extends PurgePathsKernelTestBase {
   public function testDeletingNodeQueuesItsAlias(): void {
     $node = $this->createNode('/synthetic-deleted-node');
     $node->delete();
-    $this->assertContains('/synthetic-deleted-node', $this->recorder()->all());
-    $this->assertContains('/node/' . $node->id(), $this->recorder()->all());
+    $this->assertContains('/synthetic-deleted-node', $this->queuedPaths());
+    $this->assertContains('/node/' . $node->id(), $this->queuedPaths());
   }
 
   /**
@@ -102,7 +105,7 @@ final class AliasAndFileHooksTest extends PurgePathsKernelTestBase {
     $this->createImageStyles('large', 'thumbnail');
     $file = $this->createFile('public://synthetic-gone.png');
     $file->delete();
-    $queued = implode(' ', $this->recorder()->all());
+    $queued = implode(' ', $this->queuedPaths());
     $this->assertStringContainsString('/files/synthetic-gone.png', $queued);
     $this->assertStringContainsString('/files/styles/large/public/synthetic-gone.png', $queued);
     $this->assertStringContainsString('/files/styles/thumbnail/public/synthetic-gone.png', $queued);
@@ -118,7 +121,7 @@ final class AliasAndFileHooksTest extends PurgePathsKernelTestBase {
     $this->createImageStyles('large');
     foreach (['private://synthetic-hotline.png', 'temporary://synthetic-upload.png'] as $uri) {
       $this->createFile($uri)->delete();
-      $this->assertSame([], $this->recorder()->all(), $uri);
+      $this->assertSame([], $this->queuedPaths(), $uri);
     }
   }
 
@@ -134,10 +137,10 @@ final class AliasAndFileHooksTest extends PurgePathsKernelTestBase {
     $this->loadAlias('/synthetic-*')->setAlias('/synthetic-*-renamed')->save();
     $this->loadAlias('/synthetic-*-renamed')->delete();
     $node->delete();
-    foreach ($this->recorder()->all() as $path) {
+    foreach ($this->queuedPaths() as $path) {
       $this->assertStringNotContainsString('*', $path, 'A content-derived wildcard was queued.');
     }
-    $this->assertNotEmpty($this->recorder()->all(), 'The ordinary paths of the node were still queued.');
+    $this->assertNotEmpty($this->queuedPaths(), 'The ordinary paths of the node were still queued.');
   }
 
   /**
@@ -148,7 +151,7 @@ final class AliasAndFileHooksTest extends PurgePathsKernelTestBase {
     $this->setSetting('perf_purge_paths_enabled', FALSE);
     $this->loadAlias('/synthetic-off')->delete();
     $this->createFile('public://synthetic-off.png')->delete();
-    $this->assertSame([], $this->recorder()->all());
+    $this->assertSame([], $this->queuedPaths());
   }
 
   /**
@@ -157,7 +160,7 @@ final class AliasAndFileHooksTest extends PurgePathsKernelTestBase {
   public function testFailingQueueDoesNotStopTheRename(): void {
     $node = $this->createNode('/synthetic-old');
     $cid = $this->cacheEntryTaggedWithNode($node->id());
-    $this->recorder()->fail = new \RuntimeException('queue table is gone');
+    $this->failQueue();
     $this->loadAlias('/synthetic-old')->setAlias('/synthetic-new')->save();
     $this->loadAlias('/synthetic-new');
     $this->assertFalse(\Drupal::cache()->get($cid), 'The page cache is still invalidated.');
@@ -173,10 +176,58 @@ final class AliasAndFileHooksTest extends PurgePathsKernelTestBase {
   public function testFailingQueueDoesNotStopTheDelete(): void {
     $node = $this->createNode('/synthetic-failing');
     $cid = $this->cacheEntryTaggedWithNode($node->id());
-    $this->recorder()->fail = new \RuntimeException('queue table is gone');
+    $this->failQueue();
     $this->loadAlias('/synthetic-failing')->delete();
     $this->assertSame([], \Drupal::entityTypeManager()->getStorage('path_alias')->loadByProperties(['alias' => '/synthetic-failing']));
     $this->assertFalse(\Drupal::cache()->get($cid), 'The page cache is still invalidated.');
+  }
+
+  /**
+   * A failed cache-tag invalidation cannot prevent queuing the old alias.
+   */
+  public function testRenameStillQueuesTheOldAliasWhenTheInvalidationFails(): void {
+    $this->createNode('/synthetic-old');
+    $this->failInvalidation();
+    $this->loadAlias('/synthetic-old')->setAlias('/synthetic-new')->save();
+    $this->loadAlias('/synthetic-new');
+    $this->assertContains('/synthetic-old', $this->queuedPaths());
+  }
+
+  /**
+   * Alias deletion survives the same independent invalidation failure.
+   */
+  public function testDeleteStillQueuesTheAliasWhenTheInvalidationFails(): void {
+    $this->createNode('/synthetic-gone');
+    $this->failInvalidation();
+    $this->loadAlias('/synthetic-gone')->delete();
+    $this->assertContains('/synthetic-gone', $this->queuedPaths());
+  }
+
+  /**
+   * A failed URL generator cannot prevent the real file entity deletion.
+   */
+  public function testFileDeleteIsNotStoppedWhenItsPathsCannotBeBuilt(): void {
+    $file = $this->createFile('public://synthetic-broken.png');
+    $generator = $this->createMock(FileUrlGeneratorInterface::class);
+    $generator->expects($this->once())->method('generateString')->willThrowException(new \RuntimeException('SYNTHETIC URL failure'));
+    $this->container->set('file_url_generator', $generator);
+    $this->expectWarnings([['@msg' => 'SYNTHETIC URL failure']]);
+    $file->delete();
+    $this->assertNull(File::load($file->id()));
+  }
+
+  /**
+   * Adds a failing external invalidator without replacing any module service.
+   */
+  private function failInvalidation(): void {
+    $invalidator = $this->createMock(CacheTagsInvalidatorInterface::class);
+    $invalidator->method('invalidateTags')->willReturnCallback(static function (array $tags): void {
+      if (array_filter($tags, static fn (string $tag): bool => str_starts_with($tag, 'node:'))) {
+        throw new \RuntimeException('SYNTHETIC invalidation failure');
+      }
+    });
+    $this->container->get('cache_tags.invalidator')->addInvalidator($invalidator);
+    $this->expectWarnings([['@msg' => 'SYNTHETIC invalidation failure']]);
   }
 
 }

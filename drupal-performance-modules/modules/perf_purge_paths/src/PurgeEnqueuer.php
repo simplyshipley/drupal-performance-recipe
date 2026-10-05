@@ -17,10 +17,8 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
  * Queues through azure_cdn_purge's "path_queuer", so the queue, the processors
  * (cron, drush) and the chunking are the ones Purge already provides, and the
  * paths are sent after the transaction that changed the content has committed.
- *
- * Not final: the Kernel tests replace it with a recorder.
  */
-class PurgeEnqueuer {
+final class PurgeEnqueuer {
 
   /**
    * Constructs a PurgeEnqueuer.

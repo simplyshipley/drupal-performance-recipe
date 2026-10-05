@@ -61,8 +61,8 @@ final class ModuleLifecycleTest extends KernelTestBase {
    * The services and the hook class can be created, not just registered.
    *
    * A service definition that points at a class that does not exist compiles
-   * without complaint and only fails when something asks for the service. No
-   * other test builds the real enqueuer: the Kernel tests replace it.
+   * without complaint and only fails when something asks for the service. This
+   * also checks the hook class, which must be callable by the module system.
    */
   public function testTheServicesAndTheHookClassCanBeCreated(): void {
     \Drupal::service('module_installer')->install(['perf_purge_paths']);

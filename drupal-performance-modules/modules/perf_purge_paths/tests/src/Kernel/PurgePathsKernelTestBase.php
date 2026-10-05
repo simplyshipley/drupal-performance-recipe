@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Drupal\Tests\perf_purge_paths\Kernel;
 
-use Drupal\Core\DependencyInjection\ContainerBuilder;
 use Drupal\Core\Site\Settings;
 use Drupal\file\Entity\File;
 use Drupal\image\Entity\ImageStyle;
@@ -12,14 +11,17 @@ use Drupal\KernelTests\KernelTestBase;
 use Drupal\node\Entity\Node;
 use Drupal\node\Entity\NodeType;
 use Drupal\path_alias\Entity\PathAlias;
-use Drupal\Tests\perf_purge_paths\Doubles\RecordingEnqueuer;
+use Drupal\Core\Logger\RfcLogLevel;
+use Drupal\purge\Plugin\Purge\Invalidation\ImmutableInvalidationInterface;
+use Drupal\purge\Plugin\Purge\Queue\QueueServiceInterface;
+use Psr\Log\LoggerInterface;
 
 /**
  * Base class of the perf_purge_paths Kernel tests.
  *
  * Installs the entity types the module maps (nodes, aliases, files, image
- * styles, users), swaps the purge enqueuer for a recorder, and turns path
- * purging on. Fixtures are created with purging switched off: the queuer
+ * styles, users), enables the real Purge queue and turns path purging on.
+ * Fixtures are created with purging switched off: the queuer
  * remembers what it queued for the rest of the PHP process (here, the whole
  * test), so a fixture that queued its paths would hide the same paths when the
  * test then asks for them. All content is SYNTHETIC.
@@ -51,14 +53,6 @@ abstract class PurgePathsKernelTestBase extends KernelTestBase {
 
   /**
    * {@inheritdoc}
-   */
-  public function register(ContainerBuilder $container): void {
-    parent::register($container);
-    $container->register('perf_purge_paths.enqueuer', RecordingEnqueuer::class)->setPublic(TRUE);
-  }
-
-  /**
-   * {@inheritdoc}
    *
    * Core registers the private:// stream wrapper only when a private path is
    * set before the container is built, so the tests of private files need it
@@ -84,22 +78,55 @@ abstract class PurgePathsKernelTestBase extends KernelTestBase {
     $this->installSchema('node', ['node_access']);
     $this->installConfig(['system', 'node', 'filter']);
     NodeType::create(['type' => 'page', 'name' => 'Page'])->save();
+    $this->config('purge.plugins')
+      ->set('queue', 'database')
+      ->set('queuers', [['plugin_id' => 'path_queuer', 'status' => TRUE]])
+      ->set('purgers', [['instance_id' => 'synthetic', 'plugin_id' => 'azurecdn', 'order_index' => 1]])
+      ->save();
     $this->setSetting('perf_purge_paths_enabled', TRUE);
     $this->setSetting('perf_purge_trailing_slash', TRUE);
     $this->setSetting('perf_purge_list_paths', '/,/node');
     $this->setSetting('perf_purge_sitewide_paths', '');
-    $this->recorder()->reset();
   }
 
   /**
-   * Returns the recording enqueuer.
+   * Reads paths from Purge's database queue, committing its transaction buffer.
+   *
+   * @return string[]
+   *   Paths with their leading slash, as accepted by the module.
    */
-  protected function recorder(): RecordingEnqueuer {
-    // register() replaces the service, which the static service map of the
-    // analyser does not know.
-    /** @var \Drupal\Tests\perf_purge_paths\Doubles\RecordingEnqueuer $recorder */
-    $recorder = \Drupal::service('perf_purge_paths.enqueuer');
-    return $recorder;
+  protected function queuedPaths(): array {
+    $queue = $this->container->get('purge.queue');
+    $queue->selectPageLimit(1000);
+    return array_map(static fn (ImmutableInvalidationInterface $item): string => '/' . $item->getExpression(), $queue->selectPage());
+  }
+
+  /**
+   * Makes the external queue fail while keeping the module services real.
+   */
+  protected function failQueue(): void {
+    $queue = $this->createMock(QueueServiceInterface::class);
+    $queue->expects($this->atLeastOnce())->method('add')->willThrowException(new \RuntimeException('SYNTHETIC queue failure'));
+    $this->container->set('purge.queue', $queue);
+  }
+
+  /**
+   * Expects warnings from the real logger channel, including their context.
+   *
+   * @param array<int, array<string, string>> $contexts
+   *   Required context entries for each warning in order.
+   */
+  protected function expectWarnings(array $contexts): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger->expects($this->exactly(count($contexts)))->method('log')->with(
+      RfcLogLevel::WARNING,
+      $this->anything(),
+      $this->callback(static function (array $actual) use (&$contexts): bool {
+        $expected = array_shift($contexts);
+        return array_intersect_assoc($expected, $actual) === $expected;
+      }),
+    );
+    $this->container->get('logger.channel.perf_purge_paths')->addLogger($logger);
   }
 
   /**
