@@ -79,7 +79,7 @@ environments].
    ```bash
    az webapp config appsettings set -g $RG -n <webapp> --settings \
      REDIS_HOST=<redisHost output> REDIS_PORT=6379 REDIS_SCHEME=tcp \
-     REDIS_PASSWORD=@Microsoft.KeyVault(SecretUri=https://<kv>.vault.usgovcloudapi.net/secrets/redis-password/) \
+     REDIS_PASSWORD='@Microsoft.KeyVault(SecretUri=https://<kv>.vault.usgovcloudapi.net/secrets/redis-password/)' \
      REDIS_PREFIX=<site> PERF_FAST404=1 AZURE_CLOUD=usgovernment
    ```
 

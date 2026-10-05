@@ -27,6 +27,7 @@ a source was read, or [ASSUMED] when it was not checked.
 - **Rules engine cache behaviours:** Honor origin, Override always, and Override if origin missing. The rules engine overrides the route. [V: S1]
 - **Query-string modes:** Ignore Query String, Use Query String, Ignore Specified, and Include Specified. [V: S1]
   - Parameter order does not matter: `q=1&r=2` is the same as `r=2&q=1`. [V: S1]
+  - Microsoft Learn "Caching - Azure Front Door" (S1, page dated 2025-09-25, read 2026-10-05) says "If there's more than one key-value pair in a query string of a request then their order doesn't matter" and, for Use Query String, "The order of the query string parameters doesn't matter." [V: S1] Duplicate parameters (the same name twice) are not mentioned, so their handling is unknown. These are the commercial docs; parity in Azure Government is [ASSUMED].
 - **Validators:** Front Door uses Last-Modified only. ETag is not supported. `REVALIDATED_HIT` exists. [V: S1]
 - **Request headers not forwarded when caching is on:** Content-Length, Transfer-Encoding, Accept, Accept-Charset, Accept-Language and Vary. [V: S1]
 - **Authorization requests:** These are not cached unless the response has must-revalidate, public or s-maxage. [V: S1]

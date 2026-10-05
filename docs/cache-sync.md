@@ -82,7 +82,7 @@ These counts were measured with the skip-node-hook patch applied [V: tmp/ddev/ru
 | Node with alias: alias, `/node/N`, trailing slash, `?query` | `sync_alias` | FAIL: only the alias (and its query variants) purged; `/node/N`, `/node/N/`, `alias/` stale | **PASS** |
 | New node shows in listings (`/`, `/node`, `/rss.xml`, `?page=0`) | `sync_listing` | FAIL: all stale, new title missing | **PASS** |
 | Alias changed (UI-style update of the same alias) | `sync_alias_change` | FAIL: old alias served 200 from the edge | **PASS**: the old alias was purged and is now 404. The old alias was in the purge request (mock log) because the alias lookup still returned it when `node:N` was mapped. The `path_alias` update made no new revision. That this timing holds on every save path is [ASSUMED]. See open decision 1. |
-| Node deleted | `sync_delete` | FAIL: alias and `/node/N` stale | **FINDING**: `/node/N` was purged (now 404), but the **alias stays cached** until its TTL. Likely cause [ASSUMED]: the alias is already deleted when the tags are mapped. See open decision 1. |
+| Node deleted | `sync_delete` | FAIL: alias and `/node/N` stale | **FINDING**: `/node/N` was purged (now 404), but the **alias stays cached** until its TTL. Cause [V: Drupal 10.6.17 core read in the Lando lab, 2026-10-05]: the alias is already deleted when the tags are mapped (ordering below). See open decision 1. |
 | Unpublish (403) then publish | `sync_publish_cycle` | PASS (the node update queues the alias) | PASS |
 | 404 at a path that later gets content | `sync_new_path_404` | PASS | PASS: Drupal sends 404s as `must-revalidate, no-cache, private`, so the edge and Front Door never store them (`PRIVATE_NOSTORE`). The cached 403 of an unpublished node is purged on publish, as above. |
 | Revision revert | `sync_revert` | PASS (a node update) | PASS |
@@ -102,6 +102,9 @@ These counts were measured with the skip-node-hook patch applied [V: tmp/ddev/ru
 ## Open decisions (for Bo)
 
 1. **Old aliases (delete, and alias changes without timing luck).**
+   - **Verified ordering on delete** [V: Drupal 10.6.17 core, read in the Lando lab on 2026-10-05]:
+     `core/lib/Drupal/Core/Entity/EntityStorageBase.php:450-462` runs the predelete hook, then `doDelete()`, then `postDelete()`, then the delete hook. `core/modules/path/src/Plugin/Field/FieldType/PathFieldItemList.php:57-65` removes the node's aliases during `doDelete()`. `core/lib/Drupal/Core/Entity/EntityBase.php:557-568` invalidates the entity's cache tags in `postDelete()`, after the alias is gone. `core/modules/path_alias/src/Entity/PathAlias.php:119-125` clears the alias cache.
+   - **Consequence:** the tag-to-path mapping (`perf_purge_paths`, and any `hook_entity_delete` that builds a URL, such as index_now) runs too late: the alias is already deleted. The alias can still be read in `hook_entity_predelete` / `hook_node_predelete` on the node, and [INFERRED from core code, not run] in `hook_path_alias_predelete` / `hook_path_alias_delete`: `PathFieldItemList.php:65` calls the `path_alias` storage `delete()`, which runs the predelete and delete hooks with the alias entity (`EntityStorageBase.php:452` and `:462`; hook names built at `:213-218`) inside the node's `doDelete()` (`:456`), before the node's `postDelete()` tag invalidation (`:460`). Which fix to build is open decision 1 below; option A is recommended on sites that delete or rename public pages often, otherwise B (short HTML TTL).
    - A. A tiny real module with `hook_path_alias_update()` / `hook_path_alias_delete()` that queues the original alias. It needs a module install; the recipe installs no custom module today.
    - B. Short HTML TTL and accept the window.
    - C. The redirect module.
