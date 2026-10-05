@@ -63,6 +63,10 @@ docs/                            all documentation
 14. Source guides: [Caching on Azure](docs/caching-guide.md), [Hardening](docs/hardening.md)
    (exported from the Claude Doc, 2026-09-25)
 
+## Lab results (2026-10-05, Valkey 9.1.2)
+
+Redis server switched to Valkey 9.1.2 in both labs and the Azure image. DDEV 49 PASS / 0 FAIL / 2 FINDING [V: tmp/ddev/run18-valkey.log]; Lando 49 / 0 / 2 [V: tmp/lando-run16-valkey.log]; both servers Valkey 9.1.2 [V: tmp/valkey-server-evidence-20261005.txt]; image tests 5/5 and Trivy 0 HIGH/CRITICAL ([redis-image.md](docs/redis-image.md#version-and-licence)).
+
 ## Lab results (2026-10-05, Lando on the final edge code)
 
 Lando, default `EDGE_CHALLENGE_MISSING=both`: 49 PASS / 0 FAIL / 2 FINDING [V: tmp/lando-run15-default.log]. Lando, strict `EDGE_CHALLENGE_MISSING=either` (edge and test both set): 49 / 0 / 2 [V: tmp/lando-run14-strict.log]; fail-proof: test expecting `both` against an `either` edge FAILS bot_challenge [V: tmp/lando-strict-failproof.log]. The 2 findings are open decisions 1 and 2 in docs/cache-sync.md.

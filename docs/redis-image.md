@@ -1,7 +1,7 @@
 # Redis image for Azure (infra/redis-image)
 
-This is a cache-only Redis image for the self-hosted Redis on Container Apps. That setup was
-Bo's decision of 2026-09-25. The image is built from the pinned official `redis:7.4.11-alpine`.
+Cache-only image for the self-hosted Redis on Container Apps (Bo, 2026-09-25). Built from the
+pinned official `valkey/valkey:9.1.2-alpine3.24` (Bo, 2026-10-05; see [Version and licence](#version-and-licence)).
 
 ## What it does
 
@@ -23,15 +23,15 @@ Bo's decision of 2026-09-25. The image is built from the pinned official `redis:
 
 ```
 cd infra/redis-image
-docker build -t perf-redis:7.4.11-1 .
+docker build -t perf-redis:valkey-9.1.2-1 .
 bash test-image.sh      # 5 checks: no-auth refusal, single site, shared ACL, TLS (self-signed CA), ACL-file healthcheck
 ```
 
-Lab results (2026-09-28): 5 PASS [V: tmp/redis-image/test-image.log]. ACL detail is in
-[V: tmp/redis-image/acl-checks.log].
+Lab results: 5 PASS on Valkey 9.1.2 (2026-10-05) [V: tmp/redis-image/test-image-valkey-9.1.2.log];
+earlier on Redis 7.4.11 (2026-09-28) [V: tmp/redis-image/test-image.log, acl-checks.log].
 
-**Trivy scan:** `docker run -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.74.0 image --severity HIGH,CRITICAL perf-redis:7.4.11-1`
-found 0 HIGH/CRITICAL in alpine 3.21.8 on 2026-09-28 [V: tmp/redis-image/trivy.txt]. Rescan on
+**Trivy scan:** `docker run -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.74.0 image --severity HIGH,CRITICAL perf-redis:valkey-9.1.2-1`
+found 0 HIGH/CRITICAL in alpine 3.24.2 on 2026-10-05 [V: tmp/redis-image/trivy-valkey-9.1.2.txt]. Rescan on
 every rebuild, and rebuild when the base tag gets fixes.
 
 ## Push to Azure Government ACR
@@ -42,13 +42,13 @@ every rebuild, and rebuild when the base tag gets fixes.
 az cloud set --name AzureUSGovernment
 az login
 az acr login --name <registry-name>                       # login server <registry-name>.azurecr.us
-docker tag perf-redis:7.4.11-1 <registry-name>.azurecr.us/perf-redis:7.4.11-1
-docker push <registry-name>.azurecr.us/perf-redis:7.4.11-1
+docker tag perf-redis:valkey-9.1.2-1 <registry-name>.azurecr.us/perf-redis:valkey-9.1.2-1
+docker push <registry-name>.azurecr.us/perf-redis:valkey-9.1.2-1
 # or build in Azure (no local Docker needed):
-az acr build --registry <registry-name> --image perf-redis:7.4.11-1 infra/redis-image
+az acr build --registry <registry-name> --image perf-redis:valkey-9.1.2-1 infra/redis-image
 ```
 
-**Tags:** tag by Redis version plus the image revision (`7.4.11-1`, `7.4.11-2`, …). Never deploy `latest`.
+**Tags:** server and version plus the image revision (`valkey-9.1.2-1`, `valkey-9.1.2-2`, …). Never deploy `latest`.
 
 ## Deploy with the Bicep template
 
@@ -60,7 +60,7 @@ user-assigned identity that has **AcrPull**:
 ```
 az deployment group create -g <rg> -f infra/azure/redis-containerapp.bicep \
   -p namePrefix=<site>-prod infrastructureSubnetId=<subnet-id> logAnalyticsWorkspaceId=<law-id> \
-     redisPassword=<from Key Vault> redisImage=<registry-name>.azurecr.us/perf-redis:7.4.11-1 \
+     redisPassword=<from Key Vault> redisImage=<registry-name>.azurecr.us/perf-redis:valkey-9.1.2-1 \
      acrServer=<registry-name>.azurecr.us acrPullIdentityId=<uami-resource-id> maxmemory=768mb
 ```
 
@@ -80,37 +80,18 @@ until run in a non-production subscription]. The TCP probes are unchanged.
 `REDIS_USERNAME` is new in `settings.performance.php`. With it set, phpredis authenticates with
 `[user, password]`.
 
-## Version and licence (open decision)
+## Version and licence
 
-**The decision is Bo's. The build still pins `redis:7.4.11-alpine`; nothing below has been
-changed.** Summary of the session note `redis-vs-valkey.md` (2026-10-05, outside this repo):
+Valkey 9.1.2 (Bo, 2026-10-05). Replaces `redis:7.4.11-alpine`.
 
-| | Licence | Notes |
-|---|---|---|
-| Redis 7.4.x (our pin, 7.4.11) | RSALv2 or SSPLv1 (source-available, not OSI open source) | No newer 7.4 patch as of 2026-10-05. Redis 7.2 and earlier were BSD-3 |
-| Redis 8.x | RSALv2, SSPLv1 or AGPLv3 | AGPLv3 is OSI-approved but network copyleft. Alpine image 118 MB against 39 MB, because it bundles modules the recipe does not use |
-| Valkey (Linux Foundation) | BSD 3-Clause | Dated support table: 9.1 gets maintenance to 2029 and security to 2031 |
-
-Licence and support facts are from redis.io, the Redis `SECURITY.md` and valkey.io, read
-2026-10-05 [REPORTED: relayed from the session note, not re-checked for this page].
-
-**Recommendation (a recommendation, not a ruling):** `valkey/valkey:9.1.2-alpine3.24`
-(conservative alternative `valkey/valkey:8.1.10-alpine3.24`). Tag the built image `9.1.2-1`, not
-`latest`. If genuine Redis is required, use `redis:8.10.2-alpine`; the note advises against
-staying on 7.4.11 for new work.
-
-**What changes:** in `infra/redis-image/Dockerfile`, `FROM`, and the user and `chown` lines
-(`redis` becomes `valkey`). `entrypoint.sh`, `healthcheck.sh` and `redis.conf` do not change,
-because the Valkey images also ship `redis-server` and `redis-cli` names [REPORTED].
-
-**Image-test results [REPORTED: scratch copies, repo untouched, not re-run for this page]:**
-`test-image.sh` on a scratch copy with only those lines edited gave 5 of 5 PASS on
-`valkey/valkey:9.1.2-alpine` and on `redis:8.10.2-alpine`. On `valkey/valkey:8.1.10-alpine` five
-PASS lines were seen but the summary line was not captured.
-
-**Not done yet:**
-- The Drupal-level suites (cache, fail-open, shared-prefix) on Valkey or Redis 8.
-- A Trivy scan of any Valkey or Redis 8 image (the 0 HIGH/CRITICAL result above is for 7.4.11 only).
-- The Lando compose service for Valkey (Lando has no Valkey service type) and the DDEV switch
-  (`ddev redis-backend valkey-alpine` is documented by the add-on and was not run here).
-- Re-validating the Bicep default `redisImage` tag, and any non-production deployment.
+- **Why:** BSD-3 licence (Redis 7.4 is RSALv2/SSPLv1; Redis 8 adds AGPLv3). Linux Foundation project. 9.1 gets fixes to 2029 and security fixes to 2031. Patched 2026-09-01. Sources: redis.io, Redis `SECURITY.md`, valkey.io, read 2026-10-05 [REPORTED: session research note `redis-vs-valkey.md`].
+- **What changed:** `FROM valkey/valkey:9.1.2-alpine3.24`; `USER` and `chown` use `valkey` (uid 999). `entrypoint.sh`, `healthcheck.sh` and `redis.conf` are unchanged: the image ships `redis-server` and `redis-cli`.
+- **Old data:** Valkey 9.1.2 cannot read Redis 7.4 dump files (`Can't handle RDB format version 12`) and exits. This image persists nothing, so nothing migrates. In a lab with a data volume, move the old `dump.rdb` aside first [V: DDEV lab, 2026-10-05].
+- **Tested 2026-10-05:**
+  - Image tests 5/5 [V: tmp/redis-image/test-image-valkey-9.1.2.log]
+  - Trivy 0 HIGH/CRITICAL [V: tmp/redis-image/trivy-valkey-9.1.2.txt]
+  - DDEV 49 PASS / 0 FAIL / 2 FINDING [V: tmp/ddev/run18-valkey.log]
+  - Lando 49 / 0 / 2 [V: tmp/lando-run16-valkey.log]
+  - Both lab servers were Valkey 9.1.2 during the runs [V: tmp/valkey-server-evidence-20261005.txt]
+- **Not tested:** any Azure deployment. Trivy had no end-of-life entry for Alpine 3.24 yet.
+- **Fallback:** if real Redis is required, `redis:8.10.2-alpine` under AGPLv3 passed the image tests on a scratch copy [REPORTED]. Rollback to 7.4.11: revert the `FROM`, `USER` and `chown` lines and the Bicep `redisImage` default.

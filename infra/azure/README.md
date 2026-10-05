@@ -6,8 +6,8 @@ when it is down (see `../../docs/azure.md`).
 
 **Nothing here has been deployed.** Everything is [ASSUMED] until run in a non-production
 subscription. Verified only: `redis-containerapp.bicep` compiles with `az bicep build`
-(Bicep CLI 0.47.16, no warnings) [V: tmp/bicep-build.log]; the image tag `redis:7.4.11` exists
-on Docker Hub [V: Docker Hub tags API].
+(Bicep CLI 0.47.16, no warnings) [V: tmp/bicep-build.log]; the base image `valkey/valkey:9.1.2-alpine3.24`
+exists on Docker Hub [V: pulled 2026-10-05].
 
 Before use:
 
@@ -52,7 +52,7 @@ az containerapp env create -g $RG -n $P-cae -l $LOC \
   --infrastructure-subnet-resource-id <subnet id> --internal-only true \
   --logs-workspace-id <workspace customer id> --logs-workspace-key <key>
 az containerapp create -g $RG -n $P-redis --environment $P-cae \
-  --image docker.io/library/redis:7.4.11 --cpu 0.5 --memory 1Gi \
+  --image docker.io/valkey/valkey:9.1.2-alpine3.24 --cpu 0.5 --memory 1Gi \
   --min-replicas 1 --max-replicas 1 \
   --ingress internal --transport tcp --target-port 6379 --exposed-port 6379 \
   --secrets redis-password=<from Key Vault> --env-vars REDIS_PASSWORD=secretref:redis-password \

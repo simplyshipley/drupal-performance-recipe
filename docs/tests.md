@@ -84,5 +84,5 @@ DrupalPractice clean [V: tmp/ddev/phpcs-phpunit-failopen-v2.log]. The lab ran th
   web containers). The caching guide's "under 1 MB per 404" remains [ASSUMED].
 - Playwright header checks and a simulated `X-Azure-ClientIP` (caching guide test plan item 5)
   are not in this suite.
-- Valkey was not run.
+- Valkey 9.1.2: DDEV and Lando 49 PASS / 0 FAIL / 2 FINDING on 2026-10-05 [V: tmp/ddev/run18-valkey.log, tmp/lando-run16-valkey.log; server: tmp/valkey-server-evidence-20261005.txt].
 - The no-Redis path (REDIS_HOST unset) was not run.

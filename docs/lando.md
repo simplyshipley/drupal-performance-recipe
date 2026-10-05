@@ -40,8 +40,9 @@ LANDO_PROXY=OFF lando rebuild -y
 
 `lando.perf.yml` adds:
 
-- `cache`: `redis:7`, `portforward: false`, `config.server` = `lando/redis.conf`
-  (256 MB, allkeys-lru, no persistence) [V: `CONFIG GET maxmemory-policy` = allkeys-lru].
+- `cache`: Valkey 9.1.2 as a `type: compose` service (Lando has no Valkey type), loading
+  `lando/redis.conf` (256 MB, allkeys-lru, no persistence). Lab only: no password, protected
+  mode off ([lando.perf.yml](../lando/lando.perf.yml), the `cache` service).
 - `mockafd`: `type: compose`, built from `mock-afd/`, command
   `python3 -u /opt/mock/mock_afd.py`, log in `.lando-mock-afd-data/`.
 - appserver environment: `REDIS_HOST=cache`, `PERF_FAST404=1`, `PERF_REDIS_RETRY_INTERVAL=5`, `PERF_MOCK_AFD_PROXY=http://mockafd:8080`,

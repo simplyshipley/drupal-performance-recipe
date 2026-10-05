@@ -88,7 +88,7 @@ Nothing here has run on Azure. Confirm each service is in FedRAMP scope first ([
 ### 3.1 Build, test, scan and push the Redis image
 
 Follow [redis-image.md](redis-image.md#build-and-test-locally): `docker build`, `bash test-image.sh` (expect 5 PASS), Trivy (expect 0 HIGH/CRITICAL), then push to the Azure Government registry.
-- Tag `perf-redis:7.4.11-1`, version plus revision, never `latest`. The version pin is an open decision.
+- Tag `perf-redis:valkey-9.1.2-1`, server and version plus revision, never `latest`.
 - Check the push: `az acr repository show-tags --name <registry-name> --repository perf-redis -o tsv` (assumed)
 
 ### 3.2 Deploy the Container App
@@ -171,7 +171,7 @@ Proposed, not yet run on Azure. Use a non-production subscription. Each check mi
 
 1. Disable `automated_cron`. Run cron from a scheduler; work the purge queue every 1 to 5 minutes with `drush p:queue-work --finish` ([cache-sync.md](cache-sync.md#recommended-settings)).
 2. Leave `PERF_CACHE_MODE` unset in production ([cache-modes.md](cache-modes.md#guard-and-gitignore)).
-3. Rebuild the Redis image when the base tag gets fixes: rescan, tag `7.4.11-2` and up, push, redeploy the Bicep with the new `redisImage`.
+3. Rebuild the Redis image when the base tag gets fixes: rescan, tag `valkey-9.1.2-2` and up, push, redeploy the Bicep with the new `redisImage`.
 4. Monitor restarts, memory, evictions and connection errors ([infra/azure/README.md](../infra/azure/README.md#monitoring-and-alerts)).
 5. Roll back:
    - Redis image: redeploy the Bicep with the previous `redisImage`. The cache holds no persistent data (`save ""`, `appendonly no`).
@@ -185,7 +185,6 @@ Bo decides:
 - Deleted node, alias stays cached at Front Door. Recommended: option A on sites that delete or rename public pages often, otherwise B (short HTML TTL). Only a hook that captures the alias before the node's `postDelete()` closes it ([cache-sync.md](cache-sync.md#open-decisions-for-bo)).
 - Menu and block changes do not purge other pages; `PERF_PURGE_SITEWIDE_PATHS=/*` is the alternative ([cache-sync.md](cache-sync.md#open-decisions-for-bo)).
 - Stale window, processor interval plus Azure propagation ([cache-sync.md](cache-sync.md#open-decisions-for-bo)).
-- Redis vs Valkey; the build pins Redis 7.4.11 ([redis-image.md](redis-image.md#version-and-licence-open-decision)).
 - 404 vs 410 for unpublished content; documented, not built ([install.md](install.md#optional-unpublished-content-as-404410)).
 
 Gaps:

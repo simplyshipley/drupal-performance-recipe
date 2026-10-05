@@ -73,7 +73,7 @@ or `LANDO=ON`; elsewhere it is ignored and a warning goes to the PHP error log.
 
 Unpatched `azure_cdn_purge` 1.0.4 hard-codes the commercial hosts [V: AzurePurger.php lines
 145 and 165]. The package ships a two-patch series (apply it from the **root**
-`composer.json`, see [install.md](install.md#azure-government-patch)):
+`composer.json`, see [install.md](install.md#5b-azure-government-patch)):
 
 1. `patches/azure_cdn_purge-3427718-mr6-9859fc45.patch`: upstream
    [#3427718](https://www.drupal.org/project/azure_cdn_purge/issues/3427718) MR !6 verbatim,

@@ -20,7 +20,8 @@ After editing the recipe source, refresh the copy with
 ## 2. Redis add-on
 
 ```bash
-ddev add-on get ddev/ddev-redis          # installed redis:v2.2.0, image redis:7 [V]
+ddev add-on get ddev/ddev-redis          # installed redis:v2.2.0 [V]
+ddev dotenv set .ddev/.env.redis --redis-docker-image=valkey/valkey:9.1.2-alpine3.24
 mv web/sites/default/settings.ddev.redis.php web/sites/default/__ARCHIVED_settings.ddev.redis.php
 cp recipes/drupal-performance-recipe/ddev/redis.conf .ddev/redis/redis.conf
 ```
@@ -31,10 +32,11 @@ cp recipes/drupal-performance-recipe/ddev/redis.conf .ddev/redis/redis.conf
 - The add-on's `redis.conf` sets `maxmemory 2048mb` and `allkeys-lfu` and is marked
   `#ddev-generated` [V]. The recipe's copy (no marker, so DDEV keeps it) sets 256 MB,
   `allkeys-lru`, persistence off.
-- **Valkey (optional):** the add-on reads `REDIS_DOCKER_IMAGE`
-  (`image: ${REDIS_DOCKER_IMAGE:-redis:7}` in `.ddev/docker-compose.redis.yaml`) [V: file
-  read], so `ddev dotenv set .ddev/.env.redis --redis-docker-image=valkey/valkey:8` then
-  `ddev restart` should swap in Valkey [ASSUMED: not run].
+- **Valkey:** the `dotenv` line sets the add-on's image to Valkey 9.1.2, the version the Azure
+  image uses. Run `ddev restart` after changing it [V: tmp/ddev/run18-valkey.log; tmp/valkey-server-evidence-20261005.txt].
+- **Switching an existing lab from Redis 7.4:** Valkey exits on the old dump
+  (`Can't handle RDB format version 12`). Move `dump.rdb` aside with a helper container (Valkey won't stay up), then start again [V: 2026-10-05]:
+  `docker run --name rdb-move -v ddev-<name>_redis:/data alpine:3.21 mv /data/dump.rdb /data/__ARCHIVED_dump.rdb` (then remove the stopped `rdb-move` container)
 
 ## 3. Mock Front Door endpoint, environment and command
 

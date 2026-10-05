@@ -36,11 +36,16 @@ services:
         PERF_EDGE_PROXY_HOST: edge
         PERF_EDGE_URL: http://edge:8080
         PERF_EDGE_CONTROL: http://edge:8099
+  # Valkey (Redis-compatible), same version as the Azure image. Lando has no
+  # valkey service type, so this is a compose service. Lab only: no password,
+  # protected mode off; the Azure image requires authentication.
   cache:
-    type: redis:7
-    portforward: false
-    config:
-      server: recipes/drupal-performance-recipe/lando/redis.conf
+    type: compose
+    services:
+      image: valkey/valkey:9.1.2-alpine3.24
+      command: valkey-server /usr/local/etc/valkey/valkey.conf --protected-mode no
+      volumes:
+        - ./recipes/drupal-performance-recipe/lando/redis.conf:/usr/local/etc/valkey/valkey.conf:ro
   mockafd:
     type: compose
     services:
