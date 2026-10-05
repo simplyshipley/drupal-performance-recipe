@@ -27,7 +27,7 @@ composer config repositories.perf-recipe '{"type":"vcs","url":"git@github.com:si
 composer require simplyshipley/drupal-performance-recipe:dev-main
 ```
 
-[ASSUMED: the repo is not pushed yet.] The labs used a path repository instead (see
+The repo is private on GitHub, so Composer needs GitHub access (SSH key or token). Installing from it is untested: the labs used a path repository instead (see
 [ddev.md](ddev.md)). Composer installs the recipe at `recipes/drupal-performance-recipe` and
 the five contrib projects into `web/modules/contrib` [V].
 
