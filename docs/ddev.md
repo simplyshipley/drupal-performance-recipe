@@ -5,17 +5,50 @@ MySQL 8.0) on 2026-09-25 [V: tmp/ddev/*.log]. Run from the project root.
 
 ## 1. Install the recipe
 
-Do steps 1 to 4 of [install.md](install.md) (Drush, recipes installer path, require the
-package, settings include). Lab variant of step 3 (recipe working copy mounted into the web
-container, `.ddev/docker-compose.recipe-src.yaml` with `../../repo:/opt/perf-recipe-src:ro`):
+Run from the site root. Same steps as [install.md](install.md) 1 to 4, with `ddev`.
+
+**a. Mount the recipe checkout** into the web container. Create
+`.ddev/docker-compose.recipe-src.yaml`:
+
+```yaml
+services:
+  web:
+    volumes:
+      - "../../repo:/opt/perf-recipe-src:ro"   # path to your checkout, relative to .ddev/
+```
+
+```bash
+ddev restart
+```
+
+**b. Drush and a Composer path for recipes:**
+
+```bash
+ddev composer require drush/drush
+ddev composer config --json extra.installer-paths.recipes/{\$name} '["type:drupal-recipe"]'
+```
+
+**c. Require both packages** from the mounted checkout:
 
 ```bash
 ddev composer config repositories.perf-recipe '{"type":"path","url":"/opt/perf-recipe-src","options":{"symlink":false,"versions":{"simplyshipley/drupal-performance-recipe":"1.0.x-dev"}}}'
-ddev composer require simplyshipley/drupal-performance-recipe:1.0.x-dev
+ddev composer config repositories.perf-modules '{"type":"path","url":"/opt/perf-recipe-src/drupal-performance-modules","options":{"symlink":false,"versions":{"simplyshipley/drupal-performance-modules":"1.0.x-dev"}}}'
+ddev composer require simplyshipley/drupal-performance-recipe:1.0.x-dev simplyshipley/drupal-performance-modules:1.0.x-dev
 ```
 
-After editing the recipe source, refresh the copy with
-`ddev composer reinstall simplyshipley/drupal-performance-recipe` [V].
+**d. Include the settings** in `web/sites/default/settings.php`, after `$databases`:
+
+```php
+require $app_root . '/modules/custom/drupal-performance-modules/settings/settings.performance.php';
+```
+
+**After editing the recipe source**, refresh the copies:
+
+```bash
+ddev composer reinstall simplyshipley/drupal-performance-recipe simplyshipley/drupal-performance-modules
+```
+
+[V: lab-ddev `.ddev/docker-compose.recipe-src.yaml`, `composer.json`, `settings.php:920`]
 
 ## 2. Redis add-on
 

@@ -25,10 +25,45 @@ PHP 8.3, MySQL 8.0, Drupal 10.6.17) on 2026-09-25 [V: tmp/lando-*.log].
 
 ## 1. Install the recipe
 
-Steps 1 to 4 of [install.md](install.md) with `lando composer` / `lando drush`. Lab variant
-of step 3: `.lando.yml` mounts the working copy
-(`services.appserver.overrides.volumes: - ../repo:/opt/perf-recipe-src:ro`) and uses the
-same path repository as the DDEV walkthrough.
+Run from the site root. Same steps as [install.md](install.md) 1 to 4, with `lando`.
+
+**a. Mount the recipe checkout** into the app container. Add to `.lando.yml`:
+
+```yaml
+services:
+  appserver:
+    overrides:
+      volumes:
+        - ../repo:/opt/perf-recipe-src:ro   # path to your drupal-performance-recipe checkout
+```
+
+```bash
+export LANDO_PROXY=OFF   # once per terminal (see Footguns)
+lando rebuild -y
+```
+
+**b. Drush and a Composer path for recipes:**
+
+```bash
+lando composer require drush/drush
+lando composer config --json extra.installer-paths.recipes/{\$name} '["type:drupal-recipe"]'
+```
+
+**c. Require both packages** from the mounted checkout:
+
+```bash
+lando composer config repositories.perf-recipe '{"type":"path","url":"/opt/perf-recipe-src","options":{"symlink":false,"versions":{"simplyshipley/drupal-performance-recipe":"1.0.x-dev"}}}'
+lando composer config repositories.perf-modules '{"type":"path","url":"/opt/perf-recipe-src/drupal-performance-modules","options":{"symlink":false,"versions":{"simplyshipley/drupal-performance-modules":"1.0.x-dev"}}}'
+lando composer require simplyshipley/drupal-performance-recipe:1.0.x-dev simplyshipley/drupal-performance-modules:1.0.x-dev
+```
+
+**d. Include the settings** in `web/sites/default/settings.php`, after `$databases`:
+
+```php
+require $app_root . '/modules/custom/drupal-performance-modules/settings/settings.performance.php';
+```
+
+[V: lab-lando `.lando.yml`, `composer.json`, `settings.php`]
 
 ## 2. Add the services
 
