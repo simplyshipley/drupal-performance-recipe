@@ -1,7 +1,11 @@
 # Drupal performance recipe (Redis, Purge for Azure Front Door, Fast 404)
 
 A Drupal recipe plus a settings include for Drupal 10.6+ / 11 sites on Azure App Service behind Azure Front Door, with local DDEV and Lando test harnesses (including a mock Front Door purge endpoint) and a scripted test suite.
-For Drupal developers installing it. Start with the [setup guide](docs/setup-guide.md).
+For Drupal developers installing it.
+
+> [!TIP]
+> **Start here:** [Quick start on an OIG Lando site](docs/quickstart-lando.md) (8 steps).
+> Full reference: [setup guide](docs/setup-guide.md).
 
 Evidence labels used in every doc:
 - **[V: evidence]**: verified in the SYNTHETIC lab sites (DDEV `perflab106`, Lando `perflab106lando`, Drupal 10.6.17, PHP 8.3) on 2026-09-25, with the evidence named.

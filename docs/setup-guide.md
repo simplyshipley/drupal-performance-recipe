@@ -1,6 +1,9 @@
 # Setup guide
 
-Start here: the order of operations from nothing to a working, verified setup. Detail lives in the linked docs.
+> [!TIP]
+> New here? Use the [Lando quick start](quickstart-lando.md) first. This guide is the full reference.
+
+The full order of operations, from nothing to a working, verified setup. Detail lives in the linked docs.
 Nothing here has run on Azure (phases 3 and 4). Lab sites and all lab content are SYNTHETIC.
 "(assumed)" = not verified. "(untested)" = never run.
 
