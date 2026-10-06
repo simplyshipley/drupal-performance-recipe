@@ -57,9 +57,9 @@ The fixes (small and in scope):
    | `*_list` | `PERF_PURGE_LIST_PATHS` (default `/,/node,/rss.xml`; `/news/*` allowed) |
    | Block content, menu links, menus, blocks | `PERF_PURGE_SITEWIDE_PATHS` (default empty) |
 
-   `PERF_PURGE_PATHS=0` turns it off. It queues through azure's `path_queuer`, so the queue, processors and chunking are unchanged.
+   `$config['perf_purge_paths.settings']['enabled'] = FALSE;` in settings.php turns it off. It queues through azure's `path_queuer`, so the queue, processors and chunking are unchanged.
 2. **`patches/azure_cdn_purge-wildcardpath-purged.patch`.** Wildcard invalidations are now sent to Azure. Add it to the root composer.json patches ([install.md](install.md)).
-3. **`modules/perf_purge_deleted` (optional).** Three hooks that run while the alias or file still exists, because tags arrive too late for a deleted one (open decision 1). It only calls the `perf_purge_paths` queuer, so `PERF_PURGE_PATHS=0` turns it off too. Install: [install.md](install.md#optional-purge-deleted-aliases-and-files).
+3. **`modules/perf_purge_deleted` (optional).** Three hooks that run while the alias or file still exists, because tags arrive too late for a deleted one (open decision 1). It only calls the `perf_purge_paths` queuer, so switching path purging off turns it off too. Install: [install.md](install.md#optional-purge-deleted-aliases-and-files).
 
    | Hook | Queues |
    |---|---|
@@ -163,7 +163,7 @@ The test now waits up to 180 s for the lock before running cron, and reports the
 - **Static assets:** long TTL. Aggregates are content-hashed, and same-URL replacements are purged via `file:N`.
 - **Processors:** cron processor on and cron every 5 minutes, plus `drush p:queue-work` in deploys.
 - **perf_purge_paths:**
-  - Keep `PERF_PURGE_PATHS` on (the default).
+  - Keep path purging on (the default).
   - Set `PERF_PURGE_LIST_PATHS` to the site's listings, for example `/,/node,/rss.xml,/news/*`.
   - Wildcards need the patch.
 - **perf_purge_deleted:** install it on sites that delete or rename public pages, or delete files, often ([install.md](install.md#optional-purge-deleted-aliases-and-files)).

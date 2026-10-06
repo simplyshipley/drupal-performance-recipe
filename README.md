@@ -10,7 +10,7 @@ evidence named; **[ASSUMED]** = not tested here.
 
 ## Front Door path purging is on by default
 
-`PERF_PURGE_PATHS` is on unless set to `0`: every cache tag invalidation (node, term, file, listing...) queues the
+Path purging is on unless an environment switches it off ([install.md](docs/install.md#8-turn-caching-off-per-environment)): every cache tag invalidation (node, term, file, listing...) queues the
 matching Front Door paths. It needs the recipe's azure_cdn_purge patches applied from the root composer.json
 ([install.md](docs/install.md), [cache-sync.md](docs/cache-sync.md)).
 

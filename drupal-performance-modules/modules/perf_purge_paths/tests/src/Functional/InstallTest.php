@@ -54,6 +54,10 @@ final class InstallTest extends BrowserTestBase {
     $this->drupalLogin($admin);
     $this->drupalGet('admin/reports/status');
     $this->assertSession()->statusCodeEquals(200);
+    $this->assertSession()->pageTextContains('Front Door path purge');
+    $this->drupalGet('admin/config/development/performance');
+    $this->assertSession()->statusCodeEquals(200);
+    $this->assertSession()->checkboxChecked('perf_purge_paths_settings_enabled');
 
     $this->container->get('module_installer')->uninstall(['perf_purge_paths']);
     $this->rebuildContainer();

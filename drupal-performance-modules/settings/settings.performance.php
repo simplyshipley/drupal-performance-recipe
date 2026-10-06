@@ -60,17 +60,17 @@
  *                           off; they stay in the database.
  *
  * Front Door path purging (the perf_purge_paths module, docs/cache-sync.md)
- *   PERF_PURGE_PATHS        1 (default) = map cache tag invalidations to paths
- *                           (alias, old alias, /node/N, listings, files).
- *                           0 = the module queues nothing. While the module is
- *                           installed azure_cdn_purge's own node hook is
- *                           removed too; to get that hook back, uninstall the
- *                           module.
  *   PERF_PURGE_LIST_PATHS   Paths purged when a *_list tag is invalidated
  *                           (default "/,/node,/rss.xml"; "/news/*" allowed).
  *   PERF_PURGE_SITEWIDE_PATHS  Paths purged on menu / block changes (default
  *                           empty; "/*" purges everything).
  *   PERF_PURGE_TRAILING_SLASH  1 (default) = also purge "path/".
+ *
+ * Per-environment off switches are module config, not environment variables
+ * (shown on admin/config/development/performance). Set them in settings.php:
+ *   $config['perf_purge_paths.settings']['enabled'] = FALSE;    queue no purges
+ *   $config['perf_redis_failopen.settings']['enabled'] = FALSE; Redis bins use
+ *                                                               the database
  *
  * Cache mode (local testing; see docs/cache-modes.md)
  *   PERF_CACHE_MODE         dev | dev-twig | prod-like. Default: unset = this
@@ -405,11 +405,10 @@ if ($perf_env('PERF_FAST404') === '1') {
 }
 
 // ---------------------------------------------------------------------------
-// Front Door path purging: the settings of the perf_purge_paths module (an
-// installed module; the recipe installs it). It acts only when the purge queue
-// exists and PERF_PURGE_PATHS is not 0.
+// Front Door path purging: the path settings of the perf_purge_paths module
+// (an installed module; the recipe installs it). Its on/off switch is the
+// config perf_purge_paths.settings:enabled (see the top of this file).
 // ---------------------------------------------------------------------------
-$settings['perf_purge_paths_enabled'] = $perf_env('PERF_PURGE_PATHS', '1') !== '0';
 $settings['perf_purge_list_paths'] = (string) $perf_env('PERF_PURGE_LIST_PATHS', '/,/node,/rss.xml');
 $settings['perf_purge_sitewide_paths'] = (string) $perf_env('PERF_PURGE_SITEWIDE_PATHS', '');
 $settings['perf_purge_trailing_slash'] = $perf_env('PERF_PURGE_TRAILING_SLASH', '1') !== '0';

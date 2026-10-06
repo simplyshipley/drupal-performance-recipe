@@ -42,6 +42,14 @@ function perf_purge_paths_file_delete(FileInterface $file): void {
 }
 
 /**
+ * Implements hook_form_FORM_ID_alter() for system_performance_settings.
+ */
+#[LegacyHook]
+function perf_purge_paths_form_system_performance_settings_alter(array &$form): void {
+  \Drupal::service(PerfPurgePathsHooks::class)->formSystemPerformanceSettingsAlter($form);
+}
+
+/**
  * Implements hook_module_implements_alter().
  *
  * Drupal 10.6 to 11.1: drops azure_cdn_purge's hook_node_update(), which only

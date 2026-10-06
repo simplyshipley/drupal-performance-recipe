@@ -1,0 +1,23 @@
+<?php
+
+/**
+ * @file
+ * Procedural hook shim for Drupal 10.6 (Drupal 11.1 and later use the class).
+ *
+ * The logic is in \Drupal\perf_redis_failopen\Hook\PerfRedisFailopenHooks.
+ * The function only passes its argument on, and carries #[LegacyHook] so that
+ * Drupal 11 does not run it a second time next to the #[Hook] method.
+ */
+
+declare(strict_types=1);
+
+use Drupal\Core\Hook\Attribute\LegacyHook;
+use Drupal\perf_redis_failopen\Hook\PerfRedisFailopenHooks;
+
+/**
+ * Implements hook_form_FORM_ID_alter() for system_performance_settings.
+ */
+#[LegacyHook]
+function perf_redis_failopen_form_system_performance_settings_alter(array &$form): void {
+  \Drupal::service(PerfRedisFailopenHooks::class)->formSystemPerformanceSettingsAlter($form);
+}

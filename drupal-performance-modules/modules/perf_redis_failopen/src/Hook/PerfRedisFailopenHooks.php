@@ -9,14 +9,17 @@ use Drupal\Core\Hook\Attribute\Hook;
 use Drupal\Core\Site\Settings;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\Core\StringTranslation\TranslationInterface;
+use Drupal\perf_redis_failopen\Cache\FailOpenCacheBackendFactory;
 use Drupal\perf_redis_failopen\Cache\RedisHealth;
 use Drupal\perf_redis_failopen\Client\TimeoutClientInstaller;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 /**
- * Hook implementations of the Redis fail-open module (Drupal 11.3 and later).
+ * Hook implementations of the Redis fail-open module (Drupal 11.1 and later).
  *
- * Drupal 10.6 to 11.2 reach the same code through the procedural
- * hook_requirements() in perf_redis_failopen.install.
+ * Drupal 10.6 to 11.2 reach the status entry through the procedural
+ * hook_requirements() in perf_redis_failopen.install, and Drupal 10.6 the
+ * Performance page section through perf_redis_failopen.module.
  */
 final class PerfRedisFailopenHooks {
 
@@ -33,14 +36,42 @@ final class PerfRedisFailopenHooks {
    *   The site settings.
    * @param \Drupal\Core\StringTranslation\TranslationInterface $translation
    *   The string translation service.
+   * @param \Drupal\perf_redis_failopen\Cache\FailOpenCacheBackendFactory $factory
+   *   The decorating cache factory, which knows the config switch.
    */
   public function __construct(
     private readonly RedisHealth $health,
     private readonly TimeoutClientInstaller $installer,
     private readonly Settings $settings,
     TranslationInterface $translation,
+    #[Autowire(service: 'perf_redis_failopen.cache_factory')]
+    private readonly FailOpenCacheBackendFactory $factory,
   ) {
     $this->stringTranslation = $translation;
+  }
+
+  /**
+   * Implements hook_form_FORM_ID_alter() for system_performance_settings.
+   *
+   * Adds the Redis on/off switch. Core's ConfigFormBase loads, validates and
+   * saves the #config_target element, and says when settings.php overrides
+   * it.
+   */
+  #[Hook('form_system_performance_settings_alter')]
+  public function formSystemPerformanceSettingsAlter(array &$form): void {
+    $form['perf_redis_failopen'] = [
+      '#type' => 'details',
+      '#title' => $this->t('Redis cache'),
+      '#open' => TRUE,
+      'perf_redis_failopen_settings_enabled' => [
+        '#type' => 'checkbox',
+        '#title' => $this->t('Use Redis for the cache bins set in settings.php'),
+        '#config_target' => 'perf_redis_failopen.settings:enabled',
+        '#description' => $this->t('Off: those bins use the database, and each is emptied once when Redis is switched on again. To switch it off for one environment, add this line to its settings.php: <code>@line</code>', [
+          '@line' => "\$config['perf_redis_failopen.settings']['enabled'] = FALSE;",
+        ]),
+      ],
+    ];
   }
 
   /**
@@ -48,8 +79,8 @@ final class PerfRedisFailopenHooks {
    *
    * One status report entry. Error while Redis is skipped after an error (the
    * site still works on cache misses; drupal/redis's own entry shows the
-   * connection). Warning when fail-open is switched off or the bounded client
-   * is not in use. Information when no bin uses Redis.
+   * connection). Warning when Redis or fail-open is switched off or the
+   * bounded client is not in use. Information when no bin uses Redis.
    *
    * @return array<string, array<string, mixed>>
    *   The requirements for the status report.
@@ -59,6 +90,9 @@ final class PerfRedisFailopenHooks {
     $bins = $this->redisBins();
     if (!$bins) {
       return $this->requirement(-1, $this->t('No cache bin uses Redis'), '');
+    }
+    if (!$this->factory->isRedisOn()) {
+      return $this->requirement(1, $this->t('Off (perf_redis_failopen.settings:enabled is FALSE)'), $this->t('The bins @bins use the database.', ['@bins' => implode(', ', $bins)]));
     }
     if ($this->health->isDown()) {
       return $this->requirement(2, $this->t('Degraded: Redis does not answer'), $this->t('Every read from the Redis bins is a miss and writes are dropped, so pages are slower and the database does more work. Redis is used again as soon as it answers. The perf_redis_failopen log names the address and the error.'));

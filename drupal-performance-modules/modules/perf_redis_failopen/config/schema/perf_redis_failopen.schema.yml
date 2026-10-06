@@ -1,0 +1,7 @@
+perf_redis_failopen.settings:
+  type: config_object
+  label: 'Redis cache settings'
+  mapping:
+    enabled:
+      type: boolean
+      label: 'Use Redis for the cache bins set in settings.php'

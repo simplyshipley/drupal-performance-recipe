@@ -242,6 +242,19 @@ final class RedisClientTest extends KernelTestBase {
   }
 
   /**
+   * Switching Redis off in settings.php is a warning that names the bins.
+   */
+  public function testSwitchingRedisOffIsReported(): void {
+    $GLOBALS['config']['perf_redis_failopen.settings']['enabled'] = FALSE;
+    $this->container->get('config.factory')->reset('perf_redis_failopen.settings');
+    $this->container->set('perf_redis_failopen.cache_factory', NULL);
+    [$severity, $value, $description] = $this->entry(self::REDIS_SITE);
+    $this->assertSame(1, $severity);
+    $this->assertSame('Off (perf_redis_failopen.settings:enabled is FALSE)', $value);
+    $this->assertSame('The bins render use the database.', $description);
+  }
+
+  /**
    * A connected stock client, without the timeouts, is a warning.
    */
   public function testTimeoutsThatAreNotInEffectAreReported(): void {

@@ -65,8 +65,10 @@ The suite switches to `prod-like` for its run and restores the previous cache mo
 revert, 404-then-create, term/user, menu, same-URL file, file delete, file swap, bulk/chunking,
 cron processor, wildcard) plus `sync_redis_down` (wrappers, Redis stopped). Results and before/after
 table: [cache-sync.md](cache-sync.md). A third status, `FINDING`, marks known gaps left as open
-decisions; it does not count as FAIL. Fail-proof: `SYNC_NEGATIVE=1` (`PERF_PURGE_PATHS=0`) makes
-the fix-dependent tests FAIL [V: tmp/ddev/sync-failproof.log].
+decisions; it does not count as FAIL. Fail-proof: `SYNC_NEGATIVE=1` switches path purging off
+through the settings.php line `$config['perf_purge_paths.settings']['enabled'] = FALSE;` (the lab
+settings.php sets it when `PERF_LAB_PURGE_OFF=1`). Every test that depends on the module then
+FAILS: 17; `sync_new_path_404` and `sync_wildcard` do not use it [V: tmp/jrock-build2/ddev-sync-negative.log].
 
 Three tests need the optional `perf_purge_deleted` module ([install.md](install.md#optional-purge-deleted-aliases-and-files)).
 With it, stale = FAIL. Without it, stale = FINDING, like `sync_delete`, so a suite on a site

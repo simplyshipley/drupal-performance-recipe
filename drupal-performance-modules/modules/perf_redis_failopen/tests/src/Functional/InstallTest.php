@@ -51,6 +51,9 @@ final class InstallTest extends BrowserTestBase {
     $this->assertSession()->statusCodeEquals(200);
     $this->assertSession()->pageTextContains('Redis fail-open');
     $this->assertSession()->pageTextContains('No cache bin uses Redis');
+    $this->drupalGet('admin/config/development/performance');
+    $this->assertSession()->statusCodeEquals(200);
+    $this->assertSession()->checkboxChecked('perf_redis_failopen_settings_enabled');
 
     $this->container->get('module_installer')->uninstall(['perf_redis_failopen']);
     $this->rebuildContainer();

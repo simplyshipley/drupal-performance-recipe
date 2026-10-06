@@ -1,9 +1,9 @@
 # Cache tags and delete hooks become Front Door purge paths.
 #
 # The queuer is a cache_tags_invalidator, so core creates it together with the
-# cache tags service, very early. It therefore reaches the mapper and the
-# enqueuer through service closures (see PathsQueuer); injecting them directly
-# would create a circular reference.
+# cache tags service, very early. It therefore reaches config, the mapper and
+# the purge services through service closures (see PathsQueuer); injecting
+# them directly would create a circular reference.
 services:
   _defaults:
     autowire: true
@@ -15,9 +15,6 @@ services:
   perf_purge_paths.mapper:
     class: Drupal\perf_purge_paths\PathMapper
   Drupal\perf_purge_paths\PathMapper: '@perf_purge_paths.mapper'
-
-  perf_purge_paths.enqueuer:
-    class: Drupal\perf_purge_paths\PurgeEnqueuer
 
   perf_purge_paths.queuer:
     class: Drupal\perf_purge_paths\PathsQueuer

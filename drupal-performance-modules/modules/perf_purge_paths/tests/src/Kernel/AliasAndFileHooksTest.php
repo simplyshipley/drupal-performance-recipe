@@ -148,7 +148,7 @@ final class AliasAndFileHooksTest extends PurgePathsKernelTestBase {
    */
   public function testNothingIsQueuedWhenPurgingIsOff(): void {
     $this->createNode('/synthetic-off');
-    $this->setSetting('perf_purge_paths_enabled', FALSE);
+    $this->overridePurging(FALSE);
     $this->loadAlias('/synthetic-off')->delete();
     $this->createFile('public://synthetic-off.png')->delete();
     $this->assertSame([], $this->queuedPaths());

@@ -64,6 +64,7 @@ The tests use `node/1` and `node/2` on SYNTHETIC content.
 ## Phase 2: Install into an existing site
 
 Patches (step 3) go before the settings include and the recipe apply, so the order differs from [install.md](install.md).
+There is no upgrade path. Apply this recipe to a site that has not run an older version.
 
 1. Let Composer place recipes: `composer config --json extra.installer-paths.recipes/{\$name} '["type:drupal-recipe"]'`
 2. Add the private GitHub repo and require the recipe (needs GitHub access; untested, the labs used a path repository):
@@ -73,9 +74,10 @@ Patches (step 3) go before the settings include and the recipe apply, so the ord
    ```
 3. Add the patches to the root `composer.json`: run the whole block in [install.md](install.md#5b-azure-government-patch) top to bottom, then commit `patches/` and `patches.lock.json`.
    - Required for Azure Government.
-   - With `PERF_PURGE_PATHS` (on by default) the wildcard patch is needed for `*` list or site-wide paths. The skip-node-hook patch avoids queueing the alias twice (harmless, wasted work).
+   - With path purging on (the default) the wildcard patch is needed for `*` list or site-wide paths. The skip-node-hook patch avoids queueing the alias twice (harmless, wasted work).
    - Do not run `composer update <recipe> -W`: it pulled Twig 3.30.0 and broke every page.
 4. Include the settings file after `$databases` in `settings.php`, as the last include: [install.md](install.md#4-include-the-settings-file).
+   - To switch purging or Redis off for one environment (local, QA, Prod), add the `$config[...]` lines in [install.md](install.md#8-turn-caching-off-per-environment) to its `settings.php`.
 5. Apply the recipe: `drush recipe ../recipes/drupal-performance-recipe`, then `drush cr` and `drush cron` (writes the Themed Fast 404 static page).
    Check: `drush cget azure_cdn_purge.settings` shows `endpoint_type: afdEndpoints`.
 6. Optional: purge deleted and renamed aliases and deleted files. Copy the module, then enable it: `cp -R recipes/drupal-performance-recipe/modules/perf_purge_deleted web/modules/custom/` and `drush en perf_purge_deleted -y` ([install.md](install.md#optional-purge-deleted-aliases-and-files)).
@@ -147,7 +149,7 @@ az webapp config appsettings set -g $RG -n <webapp> --settings \
 | Group | Variables | Default and rule |
 |---|---|---|
 | Redis | `REDIS_HOST`, `REDIS_PORT`, `REDIS_SCHEME`, `REDIS_PASSWORD`, `REDIS_PREFIX`, shared mode adds `REDIS_USERNAME` | Unset `REDIS_HOST` = no Redis. Prefix required on a shared Redis |
-| Perf tuning | `PERF_REDIS_CONNECT_TIMEOUT` (1), `PERF_REDIS_READ_TIMEOUT` (2), `PERF_REDIS_RETRY_INTERVAL` (30), `PERF_PURGE_PATHS` (on), `PERF_FAST404` | Keep the defaults. Never set `PERF_REDIS_FAILOPEN=0` or `REDIS_LOCK_FLOOD_TAGS` |
+| Perf tuning | `PERF_REDIS_CONNECT_TIMEOUT` (1), `PERF_REDIS_READ_TIMEOUT` (2), `PERF_REDIS_RETRY_INTERVAL` (30), `PERF_FAST404` | Keep the defaults. Never set `PERF_REDIS_FAILOPEN=0` or `REDIS_LOCK_FLOOD_TAGS` |
 | Purge credentials | `AZURE_CDN_TENANT_ID`, `AZURE_CDN_CLIENT_ID`, `AZURE_CDN_CLIENT_SECRET` (Key Vault), `AZURE_CDN_SUBSCRIPTION_ID`, `AZURE_CDN_RESOURCE_GROUP`, `AZURE_CDN_PROFILE`, `AZURE_CDN_ENDPOINT`, `AZURE_CDN_ENDPOINT_TYPE` (`afdEndpoints`), `AZURE_CLOUD` (`usgovernment`) | Leave `AZURE_CDN_SCOPE` unset and clear any stored scope ([azure.md](azure.md#azure-government-patched-azure_cdn_purge)) |
 | Proxy | `DRUPAL_TRUSTED_HOSTS`, `DRUPAL_REVERSE_PROXY`, `DRUPAL_REVERSE_PROXY_ADDRESSES` | [azure.md](azure.md#client-ip) |
 
@@ -176,8 +178,8 @@ Proposed, not yet run on Azure. Use a non-production subscription. Each check mi
 4. Monitor restarts, memory, evictions and connection errors ([infra/azure/README.md](../infra/azure/README.md#monitoring-and-alerts)).
 5. Roll back:
    - Redis image: redeploy the Bicep with the previous `redisImage`. The cache holds no persistent data (`save ""`, `appendonly no`).
-   - Purge: `PERF_PURGE_PATHS=0`.
-   - Redis off: unset `REDIS_HOST`, then `drush cr` (untested: the no-Redis path was not run in the lab).
+   - Purge: `$config['perf_purge_paths.settings']['enabled'] = FALSE;` in `settings.php` ([install.md](install.md#8-turn-caching-off-per-environment)).
+   - Redis off: `$config['perf_redis_failopen.settings']['enabled'] = FALSE;` (the bins use the database), or unset `REDIS_HOST`, then `drush cr` (untested: the no-Redis path was not run in the lab).
    - Patches and recipe: revert the Composer change and redeploy.
 
 ## Phase 6: Open decisions and gaps

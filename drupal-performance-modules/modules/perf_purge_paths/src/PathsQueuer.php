@@ -6,6 +6,8 @@ namespace Drupal\perf_purge_paths;
 
 use Drupal\Core\Cache\CacheTagsInvalidatorInterface;
 use Drupal\Core\Site\Settings;
+use Drupal\purge\Plugin\Purge\Invalidation\InvalidationInterface;
+use Drupal\purge\Plugin\Purge\Invalidation\InvalidationsServiceInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\DependencyInjection\Attribute\AutowireServiceClosure;
@@ -17,16 +19,21 @@ use Symfony\Component\DependencyInjection\Attribute\AutowireServiceClosure;
  * cache_tags_invalidator, like purge_queuer_coretags). The tags are mapped to
  * paths, content-derived paths that carry a wildcard are dropped, trailing
  * slash twins are added, and what this process has not queued yet goes to the
- * purge queue. The delete hooks hand over paths directly with queuePaths().
+ * purge queue as path or wildcardpath invalidations. They go through
+ * azure_cdn_purge's "path_queuer", so the queue, the processors (cron, drush)
+ * and the chunking are the ones Purge already provides, and the paths are sent
+ * after the transaction that changed the content has committed. The delete
+ * hooks hand over paths directly with queuePaths().
  *
  * Core creates every cache_tags_invalidator while it creates the cache tags
- * service, before the entity type manager or the purge services can exist. So
- * the mapper and the enqueuer are reached through closures and created on the
- * first invalidation, and not at all while path purging is off.
+ * service, before config, the entity type manager or the purge services can
+ * exist. So they are reached through closures and created on the first
+ * invalidation; the mapper and the purge services not at all while path
+ * purging is off.
  *
  * Each path is queued once per PHP process (a long drush run that saves the
- * same node twice queues it once). Everything is skipped when PERF_PURGE_PATHS
- * is 0 (the setting perf_purge_paths_enabled).
+ * same node twice queues it once). Nothing is queued while
+ * perf_purge_paths.settings:enabled is FALSE (see isEnabled()).
  */
 final class PathsQueuer implements CacheTagsInvalidatorInterface {
 
@@ -49,18 +56,30 @@ final class PathsQueuer implements CacheTagsInvalidatorInterface {
    *
    * @param \Closure $mapper
    *   Returns the PathMapper service.
-   * @param \Closure $enqueuer
-   *   Returns the PurgeEnqueuer service.
+   * @param \Closure $configFactory
+   *   Returns the config factory.
+   * @param \Closure $queuers
+   *   Returns the purge queuers service.
+   * @param \Closure $invalidations
+   *   Returns the purge invalidation factory.
+   * @param \Closure $queue
+   *   Returns the purge queue.
    * @param \Drupal\Core\Site\Settings $settings
-   *   The site settings (perf_purge_paths_enabled, perf_purge_trailing_slash).
+   *   The site settings (perf_purge_trailing_slash).
    * @param \Psr\Log\LoggerInterface $logger
    *   The perf_purge_paths logger channel.
    */
   public function __construct(
     #[AutowireServiceClosure('perf_purge_paths.mapper')]
     private readonly \Closure $mapper,
-    #[AutowireServiceClosure('perf_purge_paths.enqueuer')]
-    private readonly \Closure $enqueuer,
+    #[AutowireServiceClosure('config.factory')]
+    private readonly \Closure $configFactory,
+    #[AutowireServiceClosure('purge.queuers')]
+    private readonly \Closure $queuers,
+    #[AutowireServiceClosure('purge.invalidation.factory')]
+    private readonly \Closure $invalidations,
+    #[AutowireServiceClosure('purge.queue')]
+    private readonly \Closure $queue,
     private readonly Settings $settings,
     #[Autowire(service: 'logger.channel.perf_purge_paths')]
     private readonly LoggerInterface $logger,
@@ -113,9 +132,17 @@ final class PathsQueuer implements CacheTagsInvalidatorInterface {
 
   /**
    * Whether path purging is switched on.
+   *
+   * The config perf_purge_paths.settings:enabled, TRUE when the module is
+   * installed. An environment switches it off in settings.php:
+   * $config['perf_purge_paths.settings']['enabled'] = FALSE;
+   * Without the config object (before the module's config is installed)
+   * nothing is queued.
    */
-  private function isEnabled(): bool {
-    return (bool) $this->settings->get('perf_purge_paths_enabled', FALSE);
+  public function isEnabled(): bool {
+    /** @var \Drupal\Core\Config\ConfigFactoryInterface $configFactory */
+    $configFactory = ($this->configFactory)();
+    return (bool) $configFactory->get('perf_purge_paths.settings')->get('enabled');
   }
 
   /**
@@ -188,9 +215,54 @@ final class PathsQueuer implements CacheTagsInvalidatorInterface {
       return;
     }
     $this->queued += $new;
-    /** @var \Drupal\perf_purge_paths\PurgeEnqueuer $enqueuer */
-    $enqueuer = ($this->enqueuer)();
-    $enqueuer->enqueue(array_keys($new));
+    $this->enqueue(array_keys($new));
+  }
+
+  /**
+   * Adds the paths to the purge queue through the path_queuer plugin.
+   *
+   * A path that contains "*" becomes a wildcardpath invalidation, every other
+   * path a path invalidation. A path the invalidation factory rejects is
+   * logged and skipped; the others are still queued. Nothing is queued while
+   * the path_queuer plugin is disabled.
+   *
+   * @param string[] $paths
+   *   Paths with a leading slash, such as "/about-us" or "/news/*".
+   */
+  private function enqueue(array $paths): void {
+    /** @var \Drupal\purge\Plugin\Purge\Queuer\QueuersServiceInterface $queuers */
+    $queuers = ($this->queuers)();
+    $queuer = $queuers->get('path_queuer');
+    if ($queuer === FALSE) {
+      return;
+    }
+    /** @var \Drupal\purge\Plugin\Purge\Invalidation\InvalidationsServiceInterface $factory */
+    $factory = ($this->invalidations)();
+    $invalidations = array_filter(array_map(fn (string $path) => $this->invalidation($factory, $path), $paths));
+    if ($invalidations) {
+      /** @var \Drupal\purge\Plugin\Purge\Queue\QueueServiceInterface $queue */
+      $queue = ($this->queue)();
+      $queue->add($queuer, array_values($invalidations));
+    }
+  }
+
+  /**
+   * Creates the invalidation for one path, or NULL when it is rejected.
+   *
+   * @param \Drupal\purge\Plugin\Purge\Invalidation\InvalidationsServiceInterface $factory
+   *   The purge invalidation factory.
+   * @param string $path
+   *   A path with a leading slash.
+   */
+  private function invalidation(InvalidationsServiceInterface $factory, string $path): ?InvalidationInterface {
+    $expression = ltrim($path, '/');
+    try {
+      return $factory->get(str_contains($expression, '*') ? 'wildcardpath' : 'path', $expression);
+    }
+    catch (\Throwable $e) {
+      $this->logger->warning('Not queued @path: @msg', ['@path' => $path, '@msg' => $e->getMessage()]);
+      return NULL;
+    }
   }
 
   /**

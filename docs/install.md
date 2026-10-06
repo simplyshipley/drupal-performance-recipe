@@ -75,8 +75,8 @@ afdEndpoints`, `chunk_size: 50`, empty credentials [V: tmp/ddev/recipe-apply.log
 Notes:
 - The recipe ships `purge.plugins` and `azure_cdn_purge.settings` as config files because
   neither module installs default config and core's `simpleConfigUpdate` refuses config that
-  does not exist [V: core SimpleConfigUpdate.php line 50]. If the site already has these
-  config objects, the recipe will not overwrite them [ASSUMED: core recipe behaviour].
+  does not exist [V: core SimpleConfigUpdate.php line 50].
+- There is no upgrade path. Apply this recipe to a site that has not run an older version.
 - `azure_cdn_purge.settings` **must** have `chunk_size`: the purger calls
   `array_chunk($invalidations, chunk_size)` (AzurePurger.php line 89), which fails with an
   empty value [V: code read].
@@ -132,6 +132,25 @@ displays into stored config [ASSUMED].
 
 See [azure.md](azure.md) for production and [ddev.md](ddev.md) / [lando.md](lando.md) for local.
 
+## 8. Turn caching off per environment
+
+Both custom modules have an on/off switch on the Performance page
+(`admin/config/development/performance`). To switch one off for one environment, add its line
+to that environment's `settings.php`. The Performance page then shows the value as overridden.
+
+```php
+// Local (example): no Front Door purges, no Redis.
+$config['perf_purge_paths.settings']['enabled'] = FALSE;
+$config['perf_redis_failopen.settings']['enabled'] = FALSE;
+// QA (example): Redis on, no Front Door purges.
+$config['perf_purge_paths.settings']['enabled'] = FALSE;
+// Prod: add nothing. Both stay on.
+```
+
+- Purge off: no paths are queued. azure_cdn_purge's own node hook stays removed while the module is installed.
+- Redis off: the Redis bins use the database. Each bin is emptied once when Redis is switched on again.
+  `bootstrap`, `config` and `discovery` stay on Redis if `REDIS_BINS` lists them (Drupal reads them to load this setting).
+
 ## Optional: remove dblog
 
 The recipe enables `syslog` but leaves `dblog` enabled, because uninstalling it deletes the
@@ -148,17 +167,17 @@ drush pm:uninstall dblog -y
 
 Not built (MANIFEST open item). See the caching guide, "Reducing 403 load".
 
-## Front Door path purging is ON by default (PERF_PURGE_PATHS)
+## Front Door path purging is ON by default
 
 `settings.performance.php` registers `modules/perf_purge_paths` on every site that includes it.
 The module turns cache tag invalidations into Front Door purge paths. **It is on by default**
-(`PERF_PURGE_PATHS` unset = on) and acts only when the purge queue exists. Without it,
+(`perf_purge_paths.settings:enabled`, TRUE on install) and acts only when the purge queue exists. Without it,
 azure_cdn_purge purges only the alias of an updated node. Listings, `/node/N`, deletes,
 terms, files and old aliases would stay stale at Front Door ([cache-sync.md](cache-sync.md)).
 
 - **Patches:** apply both extra patches above. The wildcard patch makes `news/*`-style list paths work. The skip-node-hook patch stops the module from queueing the alias a second time. Without it, each node save queues the alias twice. That is harmless, but it is wasted work.
 - **Queue volume:** about 6–10 items per node save, and more with `PERF_PURGE_LIST_PATHS`/`PERF_PURGE_SITEWIDE_PATHS`. See the numbers in cache-sync.md.
-- **Turn it off:** set `PERF_PURGE_PATHS=0`. You then get azure_cdn_purge's original behaviour, because the patched node hook runs again (it skips only while the setting is on).
+- **Turn it off:** see [section 8](#8-turn-caching-off-per-environment). azure_cdn_purge's own node hook stays removed while the module is installed; uninstall the module to get it back.
 
 ## Optional: purge deleted aliases and files
 
@@ -172,7 +191,7 @@ cp -R recipes/drupal-performance-recipe/modules/perf_purge_deleted web/modules/c
 drush en perf_purge_deleted -y
 ```
 
-- **Needs** `settings.performance.php` included and `PERF_PURGE_PATHS` not `0`. Otherwise it does nothing.
+- **Needs** `settings.performance.php` included and path purging on ([section 8](#8-turn-caching-off-per-environment)). Otherwise it does nothing.
 - **Not in `recipe.yml`:** the recipe must still apply on a site without it.
 - **Update it with the recipe:** copy it again, because it calls methods added to `perf_purge_paths`. An old queuer fails safe: a warning in dblog, and the delete still goes through [V: tmp/lando-probe-old-queuer-failsafe.log].
 - **Remove it:** `drush pmu perf_purge_deleted -y`.

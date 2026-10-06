@@ -808,9 +808,12 @@ t_generator_removed() {
 # Each test warms URLs at the local edge (TCP_HIT), changes content with
 # drush, works the purge queue, and checks the first edge response after it:
 # TCP_MISS = purged, TCP_HIT = still cached (stale).
-# SYNC_NEGATIVE=1 fail-proof: the content change runs with PERF_PURGE_PATHS=0,
-# so perf_purge_paths queues nothing (while it is installed it also removes
-# azure_cdn_purge's own node hook), and the tests that depend on it FAIL.
+# SYNC_NEGATIVE=1 fail-proof: the content change runs with path purging
+# switched off the way an environment does it, the settings.php line
+# $config['perf_purge_paths.settings']['enabled'] = FALSE (the lab settings.php
+# sets it when PERF_LAB_PURGE_OFF=1), so perf_purge_paths queues nothing (while
+# it is installed it also removes azure_cdn_purge's own node hook), and the
+# tests that depend on it FAIL.
 # FINDING lines = known gaps left as open decisions (docs/cache-sync.md).
 # sync_delete, sync_alias_delete, sync_file_delete and sync_file_swap need the
 # delete hooks of the perf_purge_paths module (the former perf_purge_deleted
@@ -818,7 +821,7 @@ t_generator_removed() {
 # FINDING. Each checks that the URL was cached at the edge BEFORE the delete,
 # so a purge that never happened and a page that was never cached cannot look
 # the same.
-sync_env() { if [[ "${SYNC_NEGATIVE:-0}" == 1 ]]; then echo "PERF_PURGE_PATHS=0"; else echo "PERF_PURGE_PATHS=1"; fi; }
+sync_env() { if [[ "${SYNC_NEGATIVE:-0}" == 1 ]]; then echo "PERF_LAB_PURGE_OFF=1"; else echo "PERF_LAB_PURGE_OFF=0"; fi; }
 sphp() { env $(sync_env) ${SYNC_EXTRA_ENV:-} $DRUSH php:eval "$1" 2>&1; }
 SYNC_PREV_MAXAGE=""
 sync_begin() {

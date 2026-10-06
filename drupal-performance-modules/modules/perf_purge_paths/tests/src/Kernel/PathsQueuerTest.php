@@ -4,14 +4,20 @@ declare(strict_types=1);
 
 namespace Drupal\Tests\perf_purge_paths\Kernel;
 
-use Drupal\Core\Site\Settings;
+use Drupal\Core\Logger\RfcLogLevel;
 use Drupal\path_alias\AliasManagerInterface;
 use Drupal\perf_purge_paths\PathsQueuer;
+use Drupal\purge\Plugin\Purge\Invalidation\ImmutableInvalidationInterface;
+use Drupal\purge\Plugin\Purge\Invalidation\InvalidationsServiceInterface;
+use Drupal\purge\Plugin\Purge\Queue\QueueServiceInterface;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
+use Psr\Log\LoggerInterface;
 
 /**
- * Tests path safety and deduplication through the real mapper and Purge queue.
+ * Tests path safety, deduplication and the invalidations Purge's queue gets.
+ *
+ * Through the real mapper, invalidation factory and database queue.
  *
  * @group perf_purge_paths
  */
@@ -125,29 +131,127 @@ final class PathsQueuerTest extends PurgePathsKernelTestBase {
   }
 
   /**
-   * Both entry points are inert while path purging is switched off.
+   * Both entry points are inert while settings.php switches purging off.
+   *
+   * Removing the override switches it on again.
    */
   public function testNothingIsQueuedWhenPurgingIsOff(): void {
-    $this->setSetting('perf_purge_paths_enabled', FALSE);
+    $this->overridePurging(FALSE);
     $this->queuer()->queueTags(['node:5']);
     $this->queuer()->queuePaths(['/synthetic-about']);
     $this->assertSame([], $this->queuedPaths());
+    $this->overridePurging(NULL);
+    $this->queuer()->queuePaths(['/synthetic-about']);
+    $this->assertSame(['/synthetic-about', '/synthetic-about/'], $this->queuedPaths());
   }
 
   /**
-   * The absent setting must not even create the mapper or enqueuer.
+   * Without the config object nothing is created and nothing is queued.
    */
-  public function testPurgingIsOffWhenTheSettingIsMissing(): void {
-    $settings = Settings::getAll();
-    unset($settings['perf_purge_paths_enabled']);
-    new Settings($settings);
+  public function testPurgingIsOffWithoutTheConfig(): void {
+    // Removed from storage directly: a config delete would itself invalidate
+    // a tag while the switch still reads TRUE.
+    $this->container->get('config.storage')->delete('perf_purge_paths.settings');
+    $this->container->get('config.factory')->reset('perf_purge_paths.settings');
     $aliases = $this->createMock(AliasManagerInterface::class);
     $aliases->expects($this->never())->method('getAliasByPath');
     $this->container->set('path_alias.manager', $aliases);
     $this->queuer()->invalidateTags(['node:5']);
     $this->queuer()->queuePaths(['/synthetic-about']);
-    $this->assertFalse($this->container->initialized('perf_purge_paths.enqueuer'));
+    $this->assertFalse($this->container->initialized('perf_purge_paths.mapper'));
+    $this->assertFalse($this->container->initialized('purge.invalidation.factory'));
     $this->assertSame([], $this->queuedPaths());
+  }
+
+  /**
+   * Paths become path or wildcardpath invalidations without a leading slash.
+   */
+  public function testPathsBecomePathAndWildcardPathInvalidations(): void {
+    $this->setSetting('perf_purge_trailing_slash', FALSE);
+    $this->setSetting('perf_purge_list_paths', '/synthetic-about,/synthetic-news/*,/');
+    $adds = [];
+    $this->observeQueueAdds($adds);
+    $this->queuer()->queueTags(['node_list']);
+    $this->assertSame([['path_queuer', 3]], $adds);
+    $items = $this->container->get('purge.queue')->selectPage();
+    $actual = array_map(
+      static fn (ImmutableInvalidationInterface $item): array => [$item->getType(), $item->getExpression()],
+      $items,
+    );
+    $this->assertSame([
+      ['path', 'synthetic-about'],
+      ['wildcardpath', 'synthetic-news/*'],
+      ['path', ''],
+    ], $actual);
+  }
+
+  /**
+   * Disabling the queuer avoids both queue writes and invalidation creation.
+   */
+  public function testNothingIsQueuedWithoutThePathQueuer(): void {
+    $this->container->get('purge.queuers')->setPluginsEnabled([]);
+    $factory = $this->createMock(InvalidationsServiceInterface::class);
+    $factory->expects($this->never())->method('get');
+    $this->container->set('purge.invalidation.factory', $factory);
+    $queue = $this->createMock(QueueServiceInterface::class);
+    $queue->expects($this->never())->method('add');
+    $this->container->set('purge.queue', $queue);
+    $this->queuer()->queuePaths(['/synthetic-about']);
+  }
+
+  /**
+   * Real invalidation validation rejects spaces; valid paths still queue.
+   */
+  public function testRefusedPathIsLoggedAndTheOthersAreQueued(): void {
+    $this->setSetting('perf_purge_trailing_slash', FALSE);
+    $adds = [];
+    $this->observeQueueAdds($adds);
+    $this->expectWarnings([['@path' => '/synthetic bad path']]);
+    $this->queuer()->queuePaths(['/synthetic bad path', '/synthetic-about']);
+    $this->assertSame([['path_queuer', 1]], $adds);
+    $this->assertSame(['/synthetic-about'], $this->queuedPaths());
+  }
+
+  /**
+   * When every path is refused, the external queue is not called at all.
+   */
+  public function testAllPathsRefusedDoesNotTouchTheQueue(): void {
+    $this->setSetting('perf_purge_trailing_slash', FALSE);
+    $this->expectWarnings([['@path' => '/synthetic bad path']]);
+    $queue = $this->createMock(QueueServiceInterface::class);
+    $queue->expects($this->never())->method('add');
+    $this->container->set('purge.queue', $queue);
+    $this->queuer()->queuePaths(['/synthetic bad path']);
+  }
+
+  /**
+   * A purger refusing a type does not prevent another supported path queuing.
+   */
+  public function testUnsupportedTypeIsLoggedAndTheOtherPathsAreQueued(): void {
+    $this->enableModules(['purge_purger_test']);
+    $this->container->get('purge.purgers')->setPluginsEnabled(['synthetic' => 'withform']);
+    $this->setSetting('perf_purge_trailing_slash', FALSE);
+    $this->setSetting('perf_purge_list_paths', '/synthetic-news/*,/synthetic-about');
+    $this->expectWarnings([['@path' => '/synthetic-news/*']]);
+    $this->queuer()->queueTags(['node_list']);
+    $this->assertSame(['/synthetic-about'], $this->queuedPaths());
+  }
+
+  /**
+   * Observes real queue calls through the log emitted for each add operation.
+   *
+   * @param array<int, array{string, int}> $adds
+   *   Recorded plugin IDs and batch sizes, filled by the logger.
+   */
+  private function observeQueueAdds(array &$adds): void {
+    $this->container->get('purge.logger')->setChannel('queue', [RfcLogLevel::DEBUG]);
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger->method('log')->willReturnCallback(static function ($level, $message, array $context) use (&$adds): void {
+      if (isset($context['@queuer'], $context['@no'])) {
+        $adds[] = [$context['@queuer'], $context['@no']];
+      }
+    });
+    $this->container->get('logger.factory')->get('purge')->addLogger($logger);
   }
 
   /**

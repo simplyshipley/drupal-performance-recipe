@@ -6,12 +6,17 @@ namespace Drupal\perf_purge_paths\Hook;
 
 use Drupal\Core\Cache\CacheTagsInvalidatorInterface;
 use Drupal\Core\Extension\ProceduralCall;
+use Drupal\Core\Extension\Requirement\RequirementSeverity;
 use Drupal\Core\Hook\Attribute\Hook;
 use Drupal\Core\Hook\Attribute\RemoveHook;
+use Drupal\Core\Link;
+use Drupal\Core\StringTranslation\StringTranslationTrait;
+use Drupal\Core\Url;
 use Drupal\file\FileInterface;
 use Drupal\path_alias\PathAliasInterface;
 use Drupal\perf_purge_paths\PathMapper;
 use Drupal\perf_purge_paths\PathsQueuer;
+use Drupal\purge\Plugin\Purge\Queue\StatsTrackerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
@@ -46,9 +51,15 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
  * RemoveHook below drops the contrib implementation (Drupal 11.2 and later);
  * Drupal 10.6 to 11.1 do the same through hook_module_implements_alter() in
  * perf_purge_paths.module.
+ *
+ * The on/off switch and a link to azure_cdn_purge's manual purge form are on
+ * core's Performance page, and one status report entry shows the purge
+ * queue counts.
  */
 #[RemoveHook(hook: 'node_update', class: ProceduralCall::class, method: 'azure_cdn_purge_node_update')]
 final class PerfPurgePathsHooks {
+
+  use StringTranslationTrait;
 
   /**
    * Constructs a PerfPurgePathsHooks.
@@ -61,6 +72,8 @@ final class PerfPurgePathsHooks {
    *   The cache tags invalidator.
    * @param \Psr\Log\LoggerInterface $logger
    *   The perf_purge_paths logger channel.
+   * @param \Drupal\purge\Plugin\Purge\Queue\StatsTrackerInterface $stats
+   *   Purge's queue statistics (counters kept in state).
    */
   public function __construct(
     private readonly PathsQueuer $queuer,
@@ -68,7 +81,70 @@ final class PerfPurgePathsHooks {
     private readonly CacheTagsInvalidatorInterface $invalidator,
     #[Autowire(service: 'logger.channel.perf_purge_paths')]
     private readonly LoggerInterface $logger,
+    #[Autowire(service: 'purge.queue.stats')]
+    private readonly StatsTrackerInterface $stats,
   ) {}
+
+  /**
+   * Implements hook_form_FORM_ID_alter() for system_performance_settings.
+   *
+   * Adds the on/off switch and a link to azure_cdn_purge's manual purge form.
+   * Core's ConfigFormBase loads, validates and saves the #config_target
+   * element, and says when settings.php overrides it.
+   */
+  #[Hook('form_system_performance_settings_alter')]
+  public function formSystemPerformanceSettingsAlter(array &$form): void {
+    $manual = Url::fromRoute('azure_cdn_purge.purge_form');
+    $form['perf_purge_paths'] = [
+      '#type' => 'details',
+      '#title' => $this->t('Front Door path purge'),
+      '#open' => TRUE,
+      'perf_purge_paths_settings_enabled' => [
+        '#type' => 'checkbox',
+        '#title' => $this->t('Queue Front Door purges when content changes'),
+        '#config_target' => 'perf_purge_paths.settings:enabled',
+        '#description' => $this->t('To switch it off for one environment, add this line to its settings.php: <code>@line</code>', [
+          '@line' => "\$config['perf_purge_paths.settings']['enabled'] = FALSE;",
+        ]),
+      ],
+      'manual' => [
+        '#type' => 'link',
+        '#title' => $this->t('Purge paths manually'),
+        '#url' => $manual,
+        '#access' => $manual->access(),
+      ],
+    ];
+  }
+
+  /**
+   * Implements hook_runtime_requirements().
+   *
+   * One status report entry: on or off, Purge's own queue counters, and a
+   * link to azure_cdn_purge's manual purge form. Drupal 10.6 to 11.2 reach it
+   * through hook_requirements() in perf_purge_paths.install.
+   *
+   * @return array<string, array<string, mixed>>
+   *   The requirements for the status report.
+   */
+  #[Hook('runtime_requirements')]
+  public function runtimeRequirements(): array {
+    $on = $this->queuer->isEnabled();
+    $level = $on ? 0 : 1;
+    $counts = [
+      '@waiting' => $this->stats->numberOfItems()->getInteger(),
+      '@purged' => $this->stats->totalSucceeded()->getInteger(),
+      '@failed' => $this->stats->totalFailed()->getInteger(),
+    ];
+    return [
+      'perf_purge_paths' => [
+        'title' => $this->t('Front Door path purge'),
+        'value' => $on ? $this->t('On. Purge queue: @waiting waiting, @purged purged, @failed failed', $counts) : $this->t('Off (perf_purge_paths.settings:enabled is FALSE)'),
+        'description' => Link::fromTextAndUrl($this->t('Purge paths manually'), Url::fromRoute('azure_cdn_purge.purge_form'))->toString(),
+        // Drupal 11.2 and later use the enum; older versions the integers.
+        'severity' => enum_exists(RequirementSeverity::class) ? RequirementSeverity::from($level) : $level,
+      ],
+    ];
+  }
 
   /**
    * Implements hook_path_alias_delete().

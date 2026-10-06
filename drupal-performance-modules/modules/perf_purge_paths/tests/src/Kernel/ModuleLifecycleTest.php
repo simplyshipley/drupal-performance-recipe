@@ -9,7 +9,6 @@ use Drupal\KernelTests\KernelTestBase;
 use Drupal\perf_purge_paths\Hook\PerfPurgePathsHooks;
 use Drupal\perf_purge_paths\PathMapper;
 use Drupal\perf_purge_paths\PathsQueuer;
-use Drupal\perf_purge_paths\PurgeEnqueuer;
 use PHPUnit\Framework\Attributes\Group;
 
 /**
@@ -47,14 +46,10 @@ final class ModuleLifecycleTest extends KernelTestBase {
     foreach (['purge', 'azure_cdn_purge', 'path_alias', 'file', 'perf_purge_paths'] as $module) {
       $this->assertTrue($handler->moduleExists($module), $module);
     }
-    $services = [
-      'perf_purge_paths.queuer',
-      'perf_purge_paths.mapper',
-      'perf_purge_paths.enqueuer',
-    ];
-    foreach ($services as $service) {
+    foreach (['perf_purge_paths.queuer', 'perf_purge_paths.mapper'] as $service) {
       $this->assertTrue(\Drupal::hasService($service), $service);
     }
+    $this->assertTrue(\Drupal::config('perf_purge_paths.settings')->get('enabled'), 'Path purging is on after install.');
   }
 
   /**
@@ -67,7 +62,6 @@ final class ModuleLifecycleTest extends KernelTestBase {
   public function testTheServicesAndTheHookClassCanBeCreated(): void {
     \Drupal::service('module_installer')->install(['perf_purge_paths']);
     $this->assertInstanceOf(PathMapper::class, \Drupal::service('perf_purge_paths.mapper'));
-    $this->assertInstanceOf(PurgeEnqueuer::class, \Drupal::service('perf_purge_paths.enqueuer'));
     $this->assertInstanceOf(PathsQueuer::class, \Drupal::service('perf_purge_paths.queuer'));
     $this->assertInstanceOf(CacheTagsInvalidatorInterface::class, \Drupal::service('perf_purge_paths.queuer'));
     $this->assertInstanceOf(PerfPurgePathsHooks::class, \Drupal::service(PerfPurgePathsHooks::class));

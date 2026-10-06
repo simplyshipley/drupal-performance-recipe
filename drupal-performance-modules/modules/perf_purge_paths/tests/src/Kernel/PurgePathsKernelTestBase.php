@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Drupal\Tests\perf_purge_paths\Kernel;
 
-use Drupal\Core\Site\Settings;
 use Drupal\file\Entity\File;
 use Drupal\image\Entity\ImageStyle;
 use Drupal\KernelTests\KernelTestBase;
@@ -83,7 +82,8 @@ abstract class PurgePathsKernelTestBase extends KernelTestBase {
       ->set('queuers', [['plugin_id' => 'path_queuer', 'status' => TRUE]])
       ->set('purgers', [['instance_id' => 'synthetic', 'plugin_id' => 'azurecdn', 'order_index' => 1]])
       ->save();
-    $this->setSetting('perf_purge_paths_enabled', TRUE);
+    // The module's default config switches path purging on.
+    $this->installConfig(['perf_purge_paths']);
     $this->setSetting('perf_purge_trailing_slash', TRUE);
     $this->setSetting('perf_purge_list_paths', '/,/node');
     $this->setSetting('perf_purge_sitewide_paths', '');
@@ -139,14 +139,33 @@ abstract class PurgePathsKernelTestBase extends KernelTestBase {
    *   What the fixture returns.
    */
   protected function withoutPurging(callable $fixture): mixed {
-    $before = Settings::get('perf_purge_paths_enabled');
-    $this->setSetting('perf_purge_paths_enabled', FALSE);
+    $before = $GLOBALS['config']['perf_purge_paths.settings']['enabled'] ?? NULL;
+    $this->overridePurging(FALSE);
     try {
       return $fixture();
     }
     finally {
-      $this->setSetting('perf_purge_paths_enabled', $before);
+      $this->overridePurging($before);
     }
+  }
+
+  /**
+   * Sets or removes the settings.php override of the purge switch.
+   *
+   * The same as the line an environment adds to its settings.php:
+   * $config['perf_purge_paths.settings']['enabled'] = FALSE;
+   *
+   * @param bool|null $enabled
+   *   The overriding value, or NULL to remove the override.
+   */
+  protected function overridePurging(?bool $enabled): void {
+    if ($enabled === NULL) {
+      unset($GLOBALS['config']['perf_purge_paths.settings']);
+    }
+    else {
+      $GLOBALS['config']['perf_purge_paths.settings']['enabled'] = $enabled;
+    }
+    $this->container->get('config.factory')->reset('perf_purge_paths.settings');
   }
 
   /**

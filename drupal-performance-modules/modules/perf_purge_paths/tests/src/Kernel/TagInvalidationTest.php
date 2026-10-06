@@ -59,7 +59,7 @@ final class TagInvalidationTest extends PurgePathsKernelTestBase {
    */
   public function testNothingIsQueuedWhilePurgingIsOff(): void {
     $node = $this->createNode('/synthetic-off');
-    $this->setSetting('perf_purge_paths_enabled', FALSE);
+    $this->overridePurging(FALSE);
     $node->setTitle('SYNTHETIC node, edited')->save();
     Cache::invalidateTags(['node:' . $node->id(), 'node_list']);
     $this->assertSame([], $this->queuedPaths());

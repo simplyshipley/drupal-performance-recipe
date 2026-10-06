@@ -6,6 +6,8 @@ namespace Drupal\Tests\perf_redis_failopen\Kernel;
 
 use ColinODell\PsrTestLogger\TestLogger;
 use Drupal\Core\Cache\CacheBackendInterface;
+use Drupal\Core\Cache\CacheFactoryInterface;
+use Drupal\Core\Cache\DatabaseBackend;
 use Drupal\Core\Cache\MemoryBackend;
 use Drupal\Core\Database\Database;
 use Drupal\KernelTests\KernelTestBase;
@@ -411,6 +413,108 @@ final class FailOpenCacheTest extends KernelTestBase {
    */
   public function testTheWrapperIsOnByDefault(): void {
     $this->assertInstanceOf(FailOpenCacheBackend::class, $this->container->get('cache.backend.redis')->get('render'));
+  }
+
+  /**
+   * Switched off by settings.php, a bin uses the database and never Redis.
+   *
+   * Removing the override switches Redis on again.
+   */
+  public function testSwitchedOffBinUsesTheDatabaseNotRedis(): void {
+    $inner = $this->container->get(FailingCacheFactory::class);
+    $backend = $this->overrideRedis(FALSE)->get('render');
+    $this->assertInstanceOf(DatabaseBackend::class, $backend);
+    $backend->set('synthetic_a', 'synthetic value');
+    $this->assertSame('synthetic value', $backend->get('synthetic_a')->data);
+    $this->assertSame(0, $inner->calls, 'The Redis factory was never asked.');
+    $this->assertInstanceOf(FailOpenCacheBackend::class, $this->overrideRedis(NULL)->get('render'));
+  }
+
+  /**
+   * Switching Redis on again empties each bin that was off, once.
+   *
+   * A delete made while Redis was off never reached it; the deleted entry must
+   * not come back from Redis.
+   */
+  public function testSwitchingRedisOnAgainEmptiesTheBinOnce(): void {
+    $inner = new FailingCacheBackend($this->container->get('datetime.time'));
+    $inner->set('a', 'synthetic stale value');
+    $this->container->get(FailingCacheFactory::class)->backend = $inner;
+    $this->overrideRedis(FALSE)->get('render')->delete('a');
+    $this->assertArrayHasKey('render', $this->store->all());
+    $this->assertFalse($this->overrideRedis(NULL)->get('render')->get('a'));
+    $this->assertSame(1, $inner->flushes);
+    $this->assertSame([], $this->store->all());
+  }
+
+  /**
+   * The bins Drupal reads to load config are never switched off.
+   */
+  public function testConfigBinsStayOnRedisWhenSwitchedOff(): void {
+    $factory = $this->overrideRedis(FALSE);
+    foreach (['bootstrap', 'config', 'discovery'] as $bin) {
+      $this->assertInstanceOf(FailOpenCacheBackend::class, $factory->get($bin), $bin);
+    }
+    $this->assertInstanceOf(DatabaseBackend::class, $factory->get('render'));
+  }
+
+  /**
+   * With the lab's real Redis: switched off, nothing connects to Redis.
+   */
+  public function testSwitchedOffNothingConnectsToTheRealRedis(): void {
+    $host = getenv('REDIS_HOST');
+    if (!$host) {
+      $this->markTestSkipped('Set REDIS_HOST to exercise a real Redis server.');
+    }
+    $this->setSetting('redis.connection', [
+      'interface' => 'PhpRedis',
+      'host' => $host,
+      'port' => (int) (getenv('REDIS_PORT') ?: 6379),
+    ]);
+    $this->setSetting('cache_prefix', 'synthetic_switch_' . bin2hex(random_bytes(8)));
+    $off = $this->overrideRedis(FALSE)->get('synthetic');
+    $off->set('synthetic_a', 'synthetic value');
+    $this->assertSame('synthetic value', $off->get('synthetic_a')->data);
+    $this->assertFalse(ClientFactory::hasClient(), 'Nothing connected to Redis.');
+    $on = $this->overrideRedis(NULL)->get('synthetic');
+    try {
+      $on->set('synthetic_b', 'synthetic value');
+      $this->assertTrue(ClientFactory::hasClient(), 'Redis is used again.');
+      $this->assertSame('synthetic value', $on->get('synthetic_b')->data);
+    }
+    finally {
+      $on->deleteAll();
+      foreach (['_clientInterface', '_client'] as $name) {
+        (new \ReflectionProperty(ClientFactory::class, $name))->setValue(NULL, NULL);
+      }
+    }
+  }
+
+  /**
+   * Sets or removes the settings.php override of the Redis switch.
+   *
+   * The same as the line an environment adds to its settings.php:
+   * $config['perf_redis_failopen.settings']['enabled'] = FALSE;
+   * The decorated factory is created again, as on the next request.
+   *
+   * @param bool|null $enabled
+   *   The overriding value, or NULL to remove the override.
+   *
+   * @return \Drupal\Core\Cache\CacheFactoryInterface
+   *   The new cache.backend.redis factory.
+   */
+  private function overrideRedis(?bool $enabled): CacheFactoryInterface {
+    if ($enabled === NULL) {
+      unset($GLOBALS['config']['perf_redis_failopen.settings']);
+    }
+    else {
+      $GLOBALS['config']['perf_redis_failopen.settings']['enabled'] = $enabled;
+    }
+    $this->container->get('config.factory')->reset('perf_redis_failopen.settings');
+    $this->health();
+    $this->container->set('cache.backend.redis', NULL);
+    $this->container->set('perf_redis_failopen.cache_factory', NULL);
+    return $this->container->get('cache.backend.redis');
   }
 
   /**
