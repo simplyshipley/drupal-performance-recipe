@@ -36,6 +36,7 @@ config/                          purge.plugins + azure_cdn_purge.settings (no se
 drupal-performance-modules/      second Composer package: modules/perf_purge_paths, modules/perf_redis_failopen,
                                  settings/settings.performance.php (env-driven include: Redis, proxy, Fast 404, purge credentials)
 infra/                           Redis (Valkey) image + push.sh, Azure Bicep
+bin/docker-redis                 site wrapper for infra/redis-image/push.sh (copy into a site's bin/)
 mock-afd/                        mock Azure Front Door purge + token endpoint (Python, Docker)
 edge/                            local Front Door cache + Azure WAF stand-in (nginx + ModSecurity CRS 3.3.10)
 ddev/                            DDEV files (config.perf.yaml, compose for mock, redis.conf, `ddev perf-test`)

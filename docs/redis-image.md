@@ -51,6 +51,18 @@ a local registry (`LOGIN_SERVER=localhost:5055`; image arch linux/amd64) [V:
 tmp/redis-image/push-local-test.log]; the Azure login and tag-exists check are not yet run
 against the real registry.
 
+**On a site (OIG layout, next to the other `bin/docker-*` scripts):** copy the recipe's
+wrapper once, then run it from the site root. It calls `push.sh` from the installed recipe and
+asks for the revision if you leave it out.
+
+```
+cp recipes/drupal-performance-recipe/bin/docker-redis bin/docker-redis
+./bin/docker-redis 1
+```
+
+Tested on the OIG test copy against the local registry (`bin/docker-redis` calling `push.sh`;
+tags `valkey-9.1.2-1` and `valkey-9.1.2-2` pushed) [V: registry tag list, 2026-10-06].
+
 Without local Docker: `az acr build --registry <registry-name> --image services/perf-redis:valkey-9.1.2-1 infra/redis-image`.
 
 **Tags:** server and version plus the image revision (`valkey-9.1.2-1`, `valkey-9.1.2-2`, …). Never deploy `latest`.
