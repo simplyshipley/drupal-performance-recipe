@@ -1,11 +1,10 @@
 # Cache modes for local testing
 
-Local environments usually turn Drupal's caches off. The usual tools are `settings.local.php`
-null backends, `sites/development.services.yml`, Twig debug and aggregation off. That is right for
-theming, but it makes cache, Redis, edge and purge tests meaningless.
+For developers running the recipe's tests in DDEV or Lando. It explains the `perf-cache` switch between dev and prod-like caching.
 
-The recipe adds a switch, so the same site can run as **dev** while you build and as
-**prod-like** while you test.
+Local sites usually turn Drupal's caches off (`settings.local.php` null backends, `sites/development.services.yml`, Twig debug, no aggregation). That suits theming, but makes cache, Redis, edge and purge tests meaningless.
+
+The recipe adds a switch. The same site runs as **dev** while you build and **prod-like** while you test.
 
 ## Modes
 
@@ -20,20 +19,19 @@ The recipe adds a switch, so the same site can run as **dev** while you build an
 | core "Development settings" (key_value `development_settings`) | all three on | Twig debug + Twig cache off | all off | all off |
 | Redis / edge required | no | no | used if configured | – |
 
-Page max-age is not forced in `prod-like`, so that the edge/HTML TTL tests (and you) can still
-change it.
+Page max-age is not forced in `prod-like`, so the edge/HTML TTL tests (and you) can still change it.
 
 ## Commands
 
-The commands are the same in every environment.
+The arguments are the same in every environment: `dev`, `dev-twig`, `prod-like`, `off`, `status`, `clear`.
 
-| Environment | Command |
-|---|---|
-| DDEV | `ddev perf-cache dev|dev-twig|prod-like|off|status|clear` (copy `ddev/commands/web/perf-cache` to `.ddev/commands/web/`) |
-| Lando | `lando perf-cache …` (tooling in `lando/lando.perf.yml`, then `lando rebuild`) |
-| Anywhere | `scripts/perf-cache.sh …`, run in the web container from the project root |
+| Environment | Command | Setup |
+|---|---|---|
+| DDEV | `ddev perf-cache <arg>` | Copy `ddev/commands/web/perf-cache` to `.ddev/commands/web/` |
+| Lando | `lando perf-cache <arg>` | Tooling is in `lando/lando.perf.yml`, then `lando rebuild` |
+| Anywhere | `scripts/perf-cache.sh <arg>` | Run in the web container from the project root |
 
-Switching a mode:
+Switching a mode does these steps:
 1. Writes the mode to `<site dir>/perf-cache-mode`, e.g. `web/sites/default/perf-cache-mode`. **Add it to `.gitignore`** (snippet below).
 2. Sets core's `development_settings` key_value to match, so the admin page at `/admin/config/development/settings` never contradicts the mode.
 3. Runs `drush cr`. This is needed because container YAMLs change.
@@ -51,8 +49,7 @@ Switching a mode:
 - the front page's cache headers, Twig debug comment count and aggregated CSS link count;
 - whether the edge is reachable.
 
-`PERF_CACHE_MODE` (environment) sets a default mode. A non-empty `perf-cache-mode` file wins over
-it, so the command always works. `off` writes an empty file.
+`PERF_CACHE_MODE` (environment) sets a default mode. A non-empty `perf-cache-mode` file wins over it, so the command always works. `off` writes an empty file.
 
 ## Include order (why it wins)
 
@@ -67,12 +64,9 @@ include in `settings.php`: after `settings.ddev.php`, `settings.local.php`, any
   - `status` shows the conflict on the `core development_settings` line. Rerun `perf-cache prod-like` to fix it.
 - **Aggregation / max-age:** these use `$config` overrides, so no config is written and nothing appears in `drush cex`.
 
-Verified in the DDEV lab with the example `settings.local.php` enabled:
-- null backends for render/page/dynamic_page_cache;
-- development.services.yml;
-- aggregation off.
-
-`prod-like` gave FailOpen (Redis) bins, Twig debug off, aggregation on and no development.services.yml. `dev-twig` gave Twig debug with caches on [V: `ddev perf-cache status` output, 2026-09-26].
+Verified in the DDEV lab with the example `settings.local.php` enabled (null backends for render/page/dynamic_page_cache, development.services.yml, aggregation off) [V: `ddev perf-cache status` output, 2026-09-26]:
+- `prod-like` gave FailOpen (Redis) bins, Twig debug off, aggregation on and no development.services.yml.
+- `dev-twig` gave Twig debug with caches on.
 
 ## Guard and .gitignore
 
@@ -83,12 +77,15 @@ Verified in the DDEV lab with the example `settings.local.php` enabled:
 
 `prod-like` is allowed anywhere. The guard is the real protection, but keep the file out of Git too. Add this to the site's root `.gitignore`:
 
-```
+```text
 # drupal-performance-recipe cache mode switch (local only)
 web/sites/*/perf-cache-mode
 ```
 
-Test `cache_mode_guard` sets `dev`, runs drush with `PERF_CACHE_GUARD_SIMULATE_REMOTE=1` (acts as outside DDEV/Lando; it can only refuse, never allow — unsetting `IS_DDEV_PROJECT` would also drop DDEV's database settings), and expects the mode refused and the render bin not null. Fail-proof: `CACHE_GUARD_NEGATIVE=1` keeps the markers and FAILS [V: tmp/ddev/run13-guard-failproof.log].
+Test `cache_mode_guard`:
+- Sets `dev` and runs drush with `PERF_CACHE_GUARD_SIMULATE_REMOTE=1`. That acts as outside DDEV/Lando. It can only refuse, never allow, because unsetting `IS_DDEV_PROJECT` would also drop DDEV's database settings.
+- Expects the mode refused and the render bin not null.
+- Fail-proof: `CACHE_GUARD_NEGATIVE=1` keeps the markers and FAILS [V: tmp/ddev/run13-guard-failproof.log].
 
 ## When to use which
 

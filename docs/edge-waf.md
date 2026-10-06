@@ -80,8 +80,12 @@ Drupal side (lab only, honoured only in DDEV/Lando):
 ### Bot header-consistency challenge and security headers (2026-09-29)
 
 **Challenge:**
-- **Trigger:** a GET/HEAD request with a browser user agent (`Chrome/`, `Firefox/`, `Safari/`, `Edg/`) that has **neither** `Sec-Fetch-Mode` **nor** `Accept-Language`, on an HTML route. `EDGE_CHALLENGE_MISSING=either` challenges when just one is missing; tested in the Lando lab on 2026-10-05 (49 PASS / 0 FAIL / 2 FINDING; see README). To test it, set `EDGE_CHALLENGE_MISSING: either` under the edge service's `environment:` in `.lando.local.yml`, run `lando rebuild -y`, then run `EDGE_CHALLENGE_MISSING=either bash recipes/drupal-performance-recipe/scripts/lando-test.sh`. Strict-mode testing is Lando only: `ddev-test.sh` and `lando perf-test-in` do not pass the variable, so `bot_challenge` FAILS against a strict edge there.
-- **Why both is the default:** real browsers can lack `Sec-Fetch-Mode`. Per MDN browser-compat-data `http/headers/Sec-Fetch-Mode.json` (https://raw.githubusercontent.com/mdn/browser-compat-data/main/http/headers/Sec-Fetch-Mode.json, read 2026-09-29): version_added Chrome 76, Edge mirrors Chrome, Firefox 90, Safari 16.4, Safari iOS mirrors Safari, older Safari (before 16.4), Firefox before 90 and Chrome before 76 do not send it. Privacy tools may strip it too.
+- **Trigger:** a GET/HEAD request with a browser user agent (`Chrome/`, `Firefox/`, `Safari/`, `Edg/`) that has **neither** `Sec-Fetch-Mode` **nor** `Accept-Language`, on an HTML route. `EDGE_CHALLENGE_MISSING=either` challenges when just one is missing; tested in the Lando lab on 2026-10-05 (49 PASS / 0 FAIL / 2 FINDING; see README).
+- **Test strict mode (Lando only):**
+  1. Set `EDGE_CHALLENGE_MISSING: either` under the edge service's `environment:` in `.lando.local.yml`.
+  2. Run `lando rebuild -y`, then `EDGE_CHALLENGE_MISSING=either bash recipes/drupal-performance-recipe/scripts/lando-test.sh`.
+- **DDEV and `lando perf-test-in`:** they do not pass the variable, so `bot_challenge` FAILS against a strict edge there.
+- **Why both is the default:** real browsers can lack `Sec-Fetch-Mode` (Chrome before 76, Firefox before 90, Safari before 16.4), and privacy tools may strip it. Evidence: MDN browser-compat-data `http/headers/Sec-Fetch-Mode.json` (https://raw.githubusercontent.com/mdn/browser-compat-data/main/http/headers/Sec-Fetch-Mode.json, read 2026-09-29): Chrome 76, Edge mirrors Chrome, Firefox 90, Safari 16.4, Safari iOS mirrors Safari.
 - **Session cookie:** requests with a Drupal session cookie (the same `S?SESS` match as the cache bypass) are never challenged, so logged-in editors are not affected. Test: `bot_challenge`; fail-proof `BOT_COOKIE_NEGATIVE=1` [V: tmp/ddev/bot-cookie-failproof.log].
 - **Rollout:** run it in Detection for at least a week and review who would have been challenged. At Front Door use a JS challenge, **never Block**.
 - **Answer:** `403` with `X-Edge-Action: challenge` and a "Checking your browser" body. Front Door Premium would serve a JavaScript challenge instead; the local edge cannot, and a real browser would pass it.
@@ -127,25 +131,36 @@ The vhost template now sends `expires max` for `sites/*/files/{css,js,styles}`, 
 
 The edge publishes no host port by design. Options:
 - **curl in the web container.** Use the examples above.
-- **Temporary port-forward.** `docker run -d --name edge-fwd --network <lab network> -p 8888:8888 alpine/socat tcp-listen:8888,fork,reuseaddr tcp-connect:edge:8080`, then open http://localhost:8888. Stop that container when done. It publishes a port, so check first that 8888 is free.
+- **Temporary port-forward.** Check first that port 8888 is free, then run:
+  ```bash
+  docker run -d --name edge-fwd --network <lab network> -p 8888:8888 alpine/socat tcp-listen:8888,fork,reuseaddr tcp-connect:edge:8080
+  ```
+  Open http://localhost:8888. Stop the container when done.
 
 ## Step by step: static asset caching test
 
 Run these in the web container (`ddev ssh` or `lando ssh`). Replace `EDGE` with `http://edge:8080`.
 
-1. **Find the asset URLs.** Take the aggregate URLs from the front page:
-   `curl -s http://localhost/ | grep -o '/sites/default/files/css/css_[^"]*' | head -1 | sed 's/&amp;/\&/g'`
-   (Lando: `http://appserver_nginx/`). Do the same for `files/js/js_`.
-2. **Warm the aggregate at the origin once.** Drupal builds it on the first request, and that PHP response is not cacheable. `curl -s -o /dev/null http://localhost<css-url>`
+1. **Find the asset URLs.** Take the aggregate URLs from the front page (Lando: use `http://appserver_nginx/`). Do the same for `files/js/js_`.
+   ```bash
+   curl -s http://localhost/ | grep -o '/sites/default/files/css/css_[^"]*' | head -1 | sed 's/&amp;/\&/g'
+   ```
+2. **Warm the aggregate at the origin once.** Drupal builds it on the first request, and that PHP response is not cacheable.
+   ```bash
+   curl -s -o /dev/null http://localhost<css-url>
+   ```
 3. **First request through the edge:**
-   `curl -s -o /dev/null -D - -H 'Accept-Encoding: gzip' "$EDGE<css-url>" | grep -iE 'x-cache|cache-control|content-encoding'`
+   ```bash
+   curl -s -o /dev/null -D - -H 'Accept-Encoding: gzip' "$EDGE<css-url>" | grep -iE 'x-cache|cache-control|content-encoding'
+   ```
    Expect `X-Cache: TCP_MISS`, a `Cache-Control` with a max-age, and `Content-Encoding: gzip`.
 4. **Repeat the request.** Expect `X-Cache: TCP_HIT`.
 5. **Image:** repeat steps 3–4 for `/core/misc/druplicon.png`.
 6. **Query string:** add `&x=1` in `use` mode and you get a new object (MISS). Reordering the aggregate's own parameters still gives a HIT. In `ignore` mode (port 8090), any query string HITs.
-7. **Purge:**
-   `curl -s -X POST -d '{"contentPaths":["/sites/default/files/css/*"]}' http://edge:8099/__edge/purge`.
-   The JSON lists the purged keys. The next request is `TCP_MISS`.
+7. **Purge.** The JSON response lists the purged keys. The next request is `TCP_MISS`.
+   ```bash
+   curl -s -X POST -d '{"contentPaths":["/sites/default/files/css/*"]}' http://edge:8099/__edge/purge
+   ```
 8. **Run the automated version:** `ddev perf-test edge_static_hit edge_querystring`, or `lando perf-test-in …`.
 
 ## Tests

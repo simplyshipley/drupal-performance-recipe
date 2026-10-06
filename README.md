@@ -1,18 +1,17 @@
 # Drupal performance recipe (Redis, Purge for Azure Front Door, Fast 404)
 
-A Drupal recipe plus a settings include for Drupal 10.6+ / 11 sites on Azure App Service
-behind Azure Front Door, with local DDEV and Lando test harnesses (including a mock Front
-Door purge endpoint) and a scripted test suite.
+A Drupal recipe plus a settings include for Drupal 10.6+ / 11 sites on Azure App Service behind Azure Front Door, with local DDEV and Lando test harnesses (including a mock Front Door purge endpoint) and a scripted test suite.
+For Drupal developers installing it. Start with the [setup guide](docs/setup-guide.md).
 
-Evidence labels used in every doc: **[V: evidence]** = verified in the SYNTHETIC lab sites
-(DDEV `perflab106`, Lando `perflab106lando`, Drupal 10.6.17, PHP 8.3) on 2026-09-25, with the
-evidence named; **[ASSUMED]** = not tested here.
+Evidence labels used in every doc:
+- **[V: evidence]**: verified in the SYNTHETIC lab sites (DDEV `perflab106`, Lando `perflab106lando`, Drupal 10.6.17, PHP 8.3) on 2026-09-25, with the evidence named.
+- **[ASSUMED]**: not tested here.
 
 ## Front Door path purging is on by default
 
-Path purging is on unless an environment switches it off ([install.md](docs/install.md#8-turn-caching-off-per-environment)): every cache tag invalidation (node, term, file, listing...) queues the
-matching Front Door paths. It needs the recipe's azure_cdn_purge patches applied from the root composer.json
-([install.md](docs/install.md), [cache-sync.md](docs/cache-sync.md)).
+- Path purging is on unless an environment switches it off ([install.md](docs/install.md#8-turn-caching-off-per-environment)).
+- Every cache tag invalidation (node, term, file, listing...) queues the matching Front Door paths.
+- It needs the recipe's azure_cdn_purge patches applied from the root composer.json ([install.md](docs/install.md), [cache-sync.md](docs/cache-sync.md)).
 
 ## What it installs
 
@@ -49,9 +48,9 @@ docs/                            all documentation
 
 ## Local labs
 
-`drupal-performance-modules/settings/example.settings.local-lab.php` holds the settings only a local
-DDEV or Lando lab uses. Never include it on a shared or production host (each part also refuses to
-act outside DDEV or Lando). Include it last in the lab's `settings.php`, after `settings.performance.php`:
+`drupal-performance-modules/settings/example.settings.local-lab.php` holds the settings only a local DDEV or Lando lab uses.
+- Never include it on a shared or production host (each part also refuses to act outside DDEV or Lando).
+- Include it last in the lab's `settings.php`, after `settings.performance.php`:
 
 ```php
 include $app_root . '/modules/custom/drupal-performance-modules/settings/example.settings.local-lab.php';
@@ -96,7 +95,10 @@ Redis server switched to Valkey 9.1.2 in both labs and the Azure image. DDEV 49 
 
 ## Lab results (2026-10-05, Lando on the final edge code)
 
-Lando, default `EDGE_CHALLENGE_MISSING=both`: 49 PASS / 0 FAIL / 2 FINDING [V: tmp/lando-run15-default.log]. Lando, strict `EDGE_CHALLENGE_MISSING=either` (edge and test both set): 49 / 0 / 2 [V: tmp/lando-run14-strict.log]; fail-proof: test expecting `both` against an `either` edge FAILS bot_challenge [V: tmp/lando-strict-failproof.log]. The 2 findings are open decisions 1 and 2 in docs/cache-sync.md.
+- **Default** `EDGE_CHALLENGE_MISSING=both`: 49 PASS / 0 FAIL / 2 FINDING [V: tmp/lando-run15-default.log].
+- **Strict** `EDGE_CHALLENGE_MISSING=either` (edge and test both set): 49 / 0 / 2 [V: tmp/lando-run14-strict.log].
+- **Fail-proof:** a test expecting `both` against an `either` edge FAILS bot_challenge [V: tmp/lando-strict-failproof.log].
+- The 2 findings are open decisions 1 and 2 in docs/cache-sync.md.
 
 ## Earlier lab results (2026-09-29, bot challenge + headers)
 

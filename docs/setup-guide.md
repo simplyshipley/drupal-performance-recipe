@@ -1,26 +1,32 @@
 # Setup guide
 
-Order of operations only; detail lives in the linked docs.
+Start here: the order of operations from nothing to a working, verified setup. Detail lives in the linked docs.
 Nothing here has run on Azure (phases 3 and 4). Lab sites and all lab content are SYNTHETIC.
 "(assumed)" = not verified. "(untested)" = never run.
 
+## Windows VM with WSL2
+
+Not yet tested on WSL2.
+- Clone and run inside the WSL filesystem (for example `~/sites/...`), not `/mnt/c` (slow, permission problems).
+- Enable nested virtualization on the host hypervisor; WSL2 and Docker need it.
+- Use Docker Desktop with WSL integration, or Docker Engine inside WSL.
+- `.gitattributes` keeps scripts on Unix line endings; clone inside WSL anyway.
+- `LANDO_PROXY=OFF` is only needed when DDEV is also installed on the same machine (DDEV holds ports 80/443).
+
 ## Phase 0: Prerequisites
 
-1. Install Docker, DDEV and/or Lando, Composer, Git. On a Mac running DDEV, start Lando with `LANDO_PROXY=OFF` ([lando.md](lando.md#footguns-on-this-mac-from-the-2026-09-16-lando-lab)).
+1. Install Docker, DDEV and/or Lando, Composer, Git. When DDEV is also installed, start Lando with `LANDO_PROXY=OFF` ([lando.md](lando.md#footguns-on-this-mac-from-the-2026-09-16-lando-lab)).
 2. Phase 3 only: install Azure CLI with Bicep, then `az cloud set --name AzureUSGovernment` and `az login`.
    Check: `az cloud show --query name -o tsv`
 3. Create before phase 3 (assumed: none were created in the lab):
    - Resource group, Log Analytics workspace, Key Vault, Azure Container Registry.
-   - VNet with a subnet delegated to `Microsoft.App/environments`; size per the comments in `infra/azure/redis-containerapp.bicep` (lines 6 to 8).
-   - A separate subnet for App Service VNet integration.
+   - VNet with a subnet delegated to `Microsoft.App/environments` (size per `infra/azure/redis-containerapp.bicep` lines 6 to 8) and a separate subnet for App Service VNet integration.
    - App Service running the site; Front Door profile and endpoint.
    - User-assigned identity with AcrPull on the registry, passed as `acrPullIdentityId`.
    - Key Vault read access for the App Service managed identity, or the Key Vault references in 3.7 will not resolve (assumed).
-   - Purge app registration (3.5).
-   - Optional: action group for restart and memory alerts (`actionGroupId`).
-4. Drupal 10.6+ or 11, Composer-managed, Drush, PHP extensions `redis` and `apcu` ([install.md](install.md#1-prerequisites)).
+   - Purge app registration (3.5); optional: action group for restart and memory alerts (`actionGroupId`).
+4. Drupal 10.6+ or 11, Composer-managed, Drush, PHP extensions `redis` and `apcu` ([install.md](install.md#1-prerequisites)). Adding the extensions to the Azure image's Dockerfile is (assumed).
    Check: `php -m | grep -E 'redis|apcu'`
-   Adding the extensions to the Azure image's Dockerfile is (assumed).
 
 ## Phase 1: Local labs
 
@@ -33,11 +39,14 @@ The tests use `node/1` and `node/2` on SYNTHETIC content.
 1. Create a Drupal 10.6 project (`drupal/recommended-project:^10.6`, PHP 8.3, MySQL 8.0).
    - DDEV: `ddev config --project-type=drupal10 --php-version=8.3 --database=mysql:8.0`
    - Lando: use the `drupal10` recipe with nginx. The repo gives no `lando init` command.
-2. Install and generate 60 SYNTHETIC articles; prefix with `ddev` or `lando`. Lando's `drush si` also needs `--db-url` ([ddev.md](ddev.md#4-install--apply), [lando.md](lando.md#3-apply-the-recipe)).
-   - `drush si standard --site-name="SYNTHETIC perflab106"`
-   - `composer require drupal/devel`, then `drush en devel_generate`
-   - `drush genc 60 --bundles=article`
-   - Check: `drush status`
+2. Install and generate 60 SYNTHETIC articles. Prefix each command with `ddev` or `lando`. Lando's `drush si` also needs `--db-url` ([ddev.md](ddev.md#4-install--apply), [lando.md](lando.md#3-apply-the-recipe)).
+   ```bash
+   drush si standard --site-name="SYNTHETIC perflab106"
+   composer require drupal/devel
+   drush en devel_generate
+   drush genc 60 --bundles=article
+   ```
+   Check: `drush status`
 
 ### 1a. DDEV
 
@@ -45,18 +54,26 @@ The tests use `node/1` and `node/2` on SYNTHETIC content.
 2. Add Redis: [ddev.md](ddev.md#2-redis-add-on). Check: `ddev redis-cli ping` answers `PONG`.
 3. Add the mock Front Door: [ddev.md](ddev.md#3-mock-front-door-endpoint-environment-and-command). Check: `ddev exec curl -s http://mock-afd:8080/__mock/health`
 4. Add the edge: [edge-waf.md](edge-waf.md#setup-ddev). Check: `ddev exec curl -sI http://edge:8080/`
-5. Apply the recipe: `ddev drush recipe ../recipes/drupal-performance-recipe`, then `ddev drush cr` and `ddev drush cron` ([ddev.md](ddev.md#4-install--apply)).
+5. Apply the recipe ([ddev.md](ddev.md#4-install--apply)):
+   ```bash
+   ddev drush recipe ../recipes/drupal-performance-recipe
+   ddev drush cr
+   ddev drush cron
+   ```
 
 ### 1b. Lando
 
 1. Install the recipe: [lando.md](lando.md#1-install-the-recipe).
 2. Add the services: [lando.md](lando.md#2-add-the-services). Check: `lando ssh -s appserver -c "curl -sI http://edge:8080/"`
-3. Apply the recipe: `LANDO_PROXY=OFF lando drush recipe ../recipes/drupal-performance-recipe` ([lando.md](lando.md#3-apply-the-recipe)).
+3. Apply the recipe ([lando.md](lando.md#3-apply-the-recipe)):
+   ```bash
+   LANDO_PROXY=OFF lando drush recipe ../recipes/drupal-performance-recipe
+   ```
 
 ### 1c. Run the tests
 
-- DDEV: `ddev perf-test`, or named tests: `ddev perf-test purge_send headers_anon`. Full runs stop and restart this project's Redis.
-- Lando: `bash recipes/drupal-performance-recipe/scripts/lando-test.sh`, from the app root.
+- DDEV: `ddev perf-test`, or named tests: `ddev perf-test purge_send headers_anon`. A full run stops and restarts this project's Redis.
+- Lando, from the app root: `bash recipes/drupal-performance-recipe/scripts/lando-test.sh`
 - Strict bot challenge, Lando only: set the edge to `either`, then run with `EDGE_CHALLENGE_MISSING=either`. DDEV and `lando perf-test-in` do not pass it, so `bot_challenge` FAILS there against a strict edge ([edge-waf.md](edge-waf.md#bot-header-consistency-challenge-and-security-headers-2026-09-29)).
 - Expected on DDEV and Lando: 53 PASS / 0 FAIL / 1 FINDING ([README](../README.md#lab-results-2026-10-05-perf_purge_deleted)). A `FINDING` is an open decision, not a failure ([tests.md](tests.md)).
 - The test wrappers switch to prod-like and restore your mode. To switch by hand: `ddev perf-cache dev|dev-twig|prod-like|off|status` or `lando perf-cache ...`. Add `web/sites/*/perf-cache-mode` to `.gitignore` ([cache-modes.md](cache-modes.md)).
@@ -79,7 +96,13 @@ There is no upgrade path. Apply this recipe to a site that has not run an older 
 4. Include the settings file after `$databases` in `settings.php`, as the last include: [install.md](install.md#4-include-the-settings-file).
    - To switch purging or Redis off for one environment (local, QA, Prod), add the `$config[...]` lines in [install.md](install.md#8-turn-caching-off-per-environment) to its `settings.php`.
    - Switching Redis later needs no deploy: set `REDIS_ENABLED=0`; back on with `REDIS_ENABLED=1`, then `drush cr` ([install.md](install.md#8-turn-caching-off-per-environment)).
-5. Apply the recipe: `drush cr`, `drush recipe ../recipes/drupal-performance-recipe`, `drush cr`, then build the Themed Fast 404 static page with the `php:eval` line in [install.md](install.md#5-apply-the-recipe). Not a full `drush cron`: it runs every module's cron job.
+5. Apply the recipe, then build the Themed Fast 404 static page. Not a full `drush cron`: it runs every module's cron job ([install.md](install.md#5-apply-the-recipe)).
+   ```bash
+   drush cr
+   drush recipe ../recipes/drupal-performance-recipe
+   drush cr
+   drush php:eval "\Drupal::service('themed_fast_404.manager')->buildStatic404();"
+   ```
    Check: `drush cget azure_cdn_purge.settings` shows `endpoint_type: afdEndpoints`.
 6. Deleted, renamed and retargeted aliases and deleted files: nothing to install, `perf_purge_paths` purges them ([install.md](install.md#deleted-and-renamed-aliases-and-deleted-files)).
 7. Export config: `drush cex`. Credentials stay in the environment.
@@ -119,8 +142,7 @@ Check from Kudu or SSH: `redisHost` resolves to the static IP and the port answe
 - Default is plain `tcp` on 6379 inside the VNet.
 - The shipped Bicep does not support TLS: ingress and probes are fixed to 6379, with no TLS settings or certificate secret. The image with `REDIS_TLS=1` closes the plain port.
 - TLS on 6380 needs Bicep changes not in this repo (ingress and probe port, certificate secret, `REDIS_TLS*` variables). `tls://` through drupal/redis 1.11 is untested.
-- Decide before go-live: [redis-image.md](redis-image.md).
-- One Redis per site; shared mode: [redis-sharing.md](redis-sharing.md#3-recommendation).
+- Decide before go-live: [redis-image.md](redis-image.md). One Redis per site; shared mode: [redis-sharing.md](redis-sharing.md#3-recommendation).
 
 ### 3.5 Purge credentials
 
@@ -131,8 +153,7 @@ Check from Kudu or SSH: `redisHost` resolves to the static IP and the port answe
 ### 3.6 Front Door route and caching
 
 Follow [caching-guide.md](caching-guide.md#azure-front-door-for-drupal) (assumed; the local edge reproduces it).
-- Cache on, honour origin headers.
-- Bypass for `SESS` cookies and `/user*`, `/admin*`, `/node/*/edit`, `/batch`, `/system/ajax`.
+- Cache on, honour origin headers. Bypass for `SESS` cookies and `/user*`, `/admin*`, `/node/*/edit`, `/batch`, `/system/ajax`.
 - Query strings: Use query string, never Ignore. To drop marketing parameters, ignore-specified for `utm_*`, `fbclid`, `gclid`.
 - Lock the origin to the `AzureFrontDoor.Backend` tag plus `X-Azure-FDID`.
 
@@ -197,4 +218,3 @@ Gaps:
 - `api-version 2024-02-01` and the patched purger: not tested on Azure Government ([azure.md](azure.md#azure-government-patched-azure_cdn_purge)).
 - `JSChallenge` action name: assumed ([hardening.md](hardening.md#header-consistency-rule-browser-ua-without-browser-headers)).
 - Themed Fast 404 requests itself over HTTP; fast_404 TypeError per 404: open ([troubleshooting.md](troubleshooting.md)).
-- Everything in phases 3 and 4: not run on Azure.

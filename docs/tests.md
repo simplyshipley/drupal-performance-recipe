@@ -1,15 +1,20 @@
 # Test reference
 
-`scripts/test-local.sh` runs inside the web container from the project root. Each check prints
-`PASS`, `FAIL` or `INFO`, then `# summary`. Exit status = number of FAILs. `--list` prints the
-names. All content it creates is SYNTHETIC (titles start "SYNTHETIC").
+For developers reading or running the recipe's test suite. Look up a test by name to see what it does and what PASS means.
 
-Environment: `BASE_URL` (DDEV `http://localhost`, Lando `http://appserver_nginx`),
-`PERF_MOCK_URL`, the same `REDIS_*` variables the site uses (`REDIS_PREFIX` optional: without it the Redis checks match any prefix, which is only accurate if no other site shares the Redis), `DRUSH` (default
-`vendor/bin/drush`).
+`scripts/test-local.sh` runs inside the web container from the project root.
+- Each check prints `PASS`, `FAIL` or `INFO`, then `# summary`.
+- Exit status = number of FAILs.
+- `--list` prints the names.
+- All content it creates is SYNTHETIC (titles start "SYNTHETIC").
 
-Results below are from the final lab runs [V: tmp/ddev/run9.log,
-tmp/lando-run7.log].
+Environment variables:
+- `BASE_URL`: DDEV `http://localhost`, Lando `http://appserver_nginx`.
+- `PERF_MOCK_URL`.
+- The same `REDIS_*` variables the site uses. `REDIS_PREFIX` is optional: without it the Redis checks match any prefix, which is only accurate if no other site shares the Redis.
+- `DRUSH` (default `vendor/bin/drush`).
+
+Results below are from the final lab runs [V: tmp/ddev/run9.log, tmp/lando-run7.log].
 
 | Test | What it does | PASS means | Lab result |
 |---|---|---|---|
@@ -36,9 +41,11 @@ tmp/lando-run7.log].
 
 ### Edge / WAF tests (docs/edge-waf.md)
 
-These need the `edge` service. `PERF_EDGE=0` skips them. **Fail-proof:** `EDGE_SEARCH_PATHS=.` on the edge (search limit on every path) makes `waf_rate_limit` FAIL on `/node?page=N` (search-zone limits counted from the edge error log) [V: tmp/ddev/run11-edge-failproof.log, tmp/ddev/run12-search-failproof.log]. `EDGE_NEGATIVE=1` sends the
-edge requests to the origin (and, for `edge_purge_e2e`, turns off the purge forwarding); all 11
-FAIL in both labs [V: tmp/ddev/edge-failproof.log, tmp/lando-edge-failproof.log].
+These need the `edge` service. `PERF_EDGE=0` skips them.
+
+Fail-proofs:
+- `EDGE_SEARCH_PATHS=.` on the edge (search limit on every path) makes `waf_rate_limit` FAIL on `/node?page=N`. Search-zone limits are counted from the edge error log [V: tmp/ddev/run11-edge-failproof.log, tmp/ddev/run12-search-failproof.log].
+- `EDGE_NEGATIVE=1` sends the edge requests to the origin (and, for `edge_purge_e2e`, turns off the purge forwarding). All 11 FAIL in both labs [V: tmp/ddev/edge-failproof.log, tmp/lando-edge-failproof.log].
 
 | Test | What it does | PASS means | Lab result |
 |---|---|---|---|
@@ -61,18 +68,14 @@ The suite switches to `prod-like` for its run and restores the previous cache mo
 
 ### Cache sync tests (docs/cache-sync.md)
 
-17 `sync_*` tests (alias, single save, listing, alias change, delete, alias delete, publish cycle,
-revert, 404-then-create, term/user, menu, same-URL file, file delete, file swap, bulk/chunking,
-cron processor, wildcard) plus `sync_redis_down` (wrappers, Redis stopped). Results and before/after
-table: [cache-sync.md](cache-sync.md). A third status, `FINDING`, marks known gaps left as open
-decisions; it does not count as FAIL. Fail-proof: `SYNC_NEGATIVE=1` switches path purging off
-through the settings.php line `$config['perf_purge_paths.settings']['enabled'] = FALSE;` (the lab
-settings.php sets it when `PERF_LAB_PURGE_OFF=1`). Every test that depends on the module then
-FAILS: 17; `sync_new_path_404` and `sync_wildcard` do not use it [V: tmp/jrock-build2/ddev-sync-negative.log].
+17 `sync_*` tests (alias, single save, listing, alias change, delete, alias delete, publish cycle, revert, 404-then-create, term/user, menu, same-URL file, file delete, file swap, bulk/chunking, cron processor, wildcard) plus `sync_redis_down` (wrappers, Redis stopped). Results and before/after table: [cache-sync.md](cache-sync.md).
 
-Four tests (`sync_delete`, `sync_alias_delete`, `sync_file_delete`, `sync_file_swap`) need the delete hooks of
-`perf_purge_paths` (the former `perf_purge_deleted`). With them, stale = FAIL; without them, stale = FINDING. Each one first checks that the URLs were cached at the edge
-(`TCP_HIT`, 200) before the delete, so "never cached" cannot pass as "purged".
+- **`FINDING`:** a third status for known gaps left as open decisions. It does not count as FAIL.
+- **Fail-proof:** `SYNC_NEGATIVE=1` switches path purging off through the settings.php line `$config['perf_purge_paths.settings']['enabled'] = FALSE;`. The lab settings.php sets it when `PERF_LAB_PURGE_OFF=1`. Every test that depends on the module then FAILS: 17. `sync_new_path_404` and `sync_wildcard` do not use it [V: tmp/jrock-build2/ddev-sync-negative.log].
+
+Four tests (`sync_delete`, `sync_alias_delete`, `sync_file_delete`, `sync_file_swap`) need the delete hooks of `perf_purge_paths` (the former `perf_purge_deleted`).
+- With the hooks, stale = FAIL. Without them, stale = FINDING.
+- Each test first checks that the URLs were cached at the edge (`TCP_HIT`, 200) before the delete, so "never cached" cannot pass as "purged".
 
 | Test | What it does | PASS means | Lab result |
 |---|---|---|---|
@@ -85,14 +88,15 @@ module on but `SYNC_NEGATIVE=1`: all four FAIL [V: tmp/lando-deleted-failproof.l
 
 ## Unit tests (fail-open module)
 
-`modules/perf_redis_failopen/tests/src/Unit/FailOpenCacheBackendTest.php`, plain PHPUnit:
-connection error at construction = miss and one warning; a lost delete empties the bin on
-recovery; a record written by another instance during a flush survives it and triggers a second
-flush (token compare-and-delete); non-Redis exceptions are rethrown. 4 tests, 16 assertions
-PASS; phpcs Drupal +
-DrupalPractice clean [V: tmp/ddev/phpcs-phpunit-failopen-v2.log]. The lab ran them with PHPUnit
-10.5 installed in `/tmp/pu` inside the web container and a bootstrap that loads the project's
-`vendor/autoload.php` and the module's PSR-4 paths (the site has no dev dependencies).
+File: `modules/perf_redis_failopen/tests/src/Unit/FailOpenCacheBackendTest.php`, plain PHPUnit. It checks:
+- a connection error at construction = miss and one warning;
+- a lost delete empties the bin on recovery;
+- a record written by another instance during a flush survives it and triggers a second flush (token compare-and-delete);
+- non-Redis exceptions are rethrown.
+
+Result: 4 tests, 16 assertions PASS; phpcs Drupal + DrupalPractice clean [V: tmp/ddev/phpcs-phpunit-failopen-v2.log].
+
+How the lab ran them: PHPUnit 10.5 installed in `/tmp/pu` inside the web container, with a bootstrap that loads the project's `vendor/autoload.php` and the module's PSR-4 paths. The site has no dev dependencies.
 
 ## Not covered
 

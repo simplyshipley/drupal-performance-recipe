@@ -1,9 +1,8 @@
 # One Redis per site, or one shared Redis?
 
-Both models use the image in [redis-image.md](redis-image.md). The shared model was tested
-locally: two "sites" (two ACL users and prefixes) on one instance
-[V: tmp/redis-image/shared-drupal.log, fail-proof tmp/redis-image/shared-drupal-failproof.log,
-tmp/redis-image/test-image.log].
+Helps DevOps and the ISSO choose between a Redis per site and one shared Redis. Both models use the image in [redis-image.md](redis-image.md).
+
+The shared model was tested locally: two "sites" (two ACL users and prefixes) on one instance [V: tmp/redis-image/shared-drupal.log, fail-proof tmp/redis-image/shared-drupal-failproof.log, tmp/redis-image/test-image.log].
 
 ## 1. One instance per site (current Bicep)
 
@@ -11,7 +10,8 @@ tmp/redis-image/test-image.log].
 - **Sizing:** start at 0.5 vCPU / 1 GiB with `maxmemory 768mb`. Grow when `evicted_keys` rises steadily and the hit rate drops. Only the heavy bins (render, page, dynamic_page_cache, data, entity, menu) live in Redis.
 - **Cost:** one small Consumption container per site, billed for vCPU-seconds and GiB-seconds while running (always, with min 1 replica). Use the Azure Government pricing calculator for figures; none are quoted here [ASSUMED: no price checked].
 - **Drupal:**
-  ```
+
+  ```text
   REDIS_HOST=cpsc-prod-redis  REDIS_PORT=6379  REDIS_PASSWORD=<kv secret>  REDIS_PREFIX=cpsc
   ```
 
@@ -47,8 +47,9 @@ tmp/redis-image/test-image.log].
   - Cached render output contains site content, and for logged-in users possibly non-public data.
   - A shared instance puts several systems' data in one process and memory space, separated only by ACL. That must be documented in each system's SSP and boundary diagram.
   - If the sites are different FedRAMP systems or authorizations, a shared cache crosses boundaries and is likely not acceptable [ASSUMED: confirm with the ISSO].
-- **Drupal settings per site** (`REDIS_USERNAME` is no longer read by `settings.performance.php`: one Redis per site, ruling H4):
-  ```
+- **Drupal settings per site.** `REDIS_USERNAME` is no longer read by `settings.performance.php` (one Redis per site, ruling H4):
+
+  ```text
   # CPSC
   REDIS_HOST=shared-redis  REDIS_USERNAME=cpsc  REDIS_PASSWORD=<cpsc secret>  REDIS_PREFIX=cpsc
   # OIG

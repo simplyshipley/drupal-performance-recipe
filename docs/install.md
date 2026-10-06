@@ -1,14 +1,15 @@
 # Install into an existing site
 
-These are the steps the lab sites followed, in order [V: lab-ddev and lab-lando, 2026-09-25].
+How to add the recipe to an existing Drupal site. For developers installing it; these are the steps the lab sites followed, in order [V: lab-ddev and lab-lando, 2026-09-25].
 Run commands through your environment wrapper (`ddev composer`, `lando drush`, and so on).
 
 ## 1. Prerequisites
 
 - Drupal 10.6+ or 11, Composer-managed (`drupal/recommended-project` layout, web root `web/`).
 - Drush: `composer require drush/drush` (the 10.6 project template does not include it) [V].
-- PHP extensions `redis` (phpredis) and `apcu` in the web container. DDEV's PHP 8.3 image has
-  both (phpredis 6.3.0) [V: `php -m`]. For Azure images, add them to your Dockerfile [ASSUMED].
+- PHP extensions `redis` (phpredis) and `apcu` in the web container.
+  - DDEV's PHP 8.3 image has both (phpredis 6.3.0) [V: `php -m`].
+  - For Azure images, add them to your Dockerfile [ASSUMED].
 
 ## 2. Let Composer place recipes
 
@@ -29,7 +30,7 @@ The recipe is two Composer packages:
 Composer reads `composer.json` only at a repository's root, so a `vcs` repository on this GitHub
 repo cannot supply the modules package [ASSUMED: Composer behaviour, not tested].
 
-**Today (labs and the OIG test copy):** path repositories to a checkout of this repo [V: OIG copy
+**a. Today (labs and the OIG test copy):** path repositories to a checkout of this repo [V: OIG copy
 `composer.json`]:
 
 ```bash
@@ -38,10 +39,16 @@ composer config repositories.perf-recipe '{"type":"path","url":"/path/to/repo","
 composer require simplyshipley/drupal-performance-recipe:1.0.x-dev simplyshipley/drupal-performance-modules:1.0.x-dev
 ```
 
-**For production (not done yet):** move `drupal-performance-modules/` to its own repository, tag
-both repos (`1.0.0`), and serve them from a registry the sites already use (for OIG,
-`oig-packages.bitbucket.io`) or as two `vcs` repositories. Then:
-`composer require simplyshipley/drupal-performance-recipe:^1.0`.
+**b. For production (not done yet):**
+
+1. Move `drupal-performance-modules/` to its own repository.
+2. Tag both repos (`1.0.0`).
+3. Serve them from a registry the sites already use (for OIG, `oig-packages.bitbucket.io`) or as two `vcs` repositories.
+4. Then:
+
+```bash
+composer require simplyshipley/drupal-performance-recipe:^1.0
+```
 
 Composer installs the recipe at `recipes/drupal-performance-recipe`, the modules package at
 `web/modules/custom/drupal-performance-modules`, and the contrib projects into
@@ -50,20 +57,18 @@ Composer installs the recipe at `recipes/drupal-performance-recipe`, the modules
 ## 4. Include the settings file
 
 Append to `web/sites/default/settings.php`, **after** `$databases` is defined. Use `require`, not
-a `file_exists` check, so a missing package fails loudly instead of silently dropping the Redis,
-proxy and trusted-host settings:
+a `file_exists` check: a missing package then fails loudly instead of silently dropping the Redis,
+proxy and trusted-host settings.
 
 ```php
 // Performance recipe settings (Redis, reverse proxy, Fast 404, Azure purge).
 require $app_root . '/modules/custom/drupal-performance-modules/settings/settings.performance.php';
 ```
 
-Every block is controlled by environment variables and does nothing when they are unset. The
-full list is at the top of `settings.performance.php`. Redis is used only when
-`REDIS_HOST` is set [ASSUMED: code guard at settings.performance.php "Redis cache backend" block; the no-Redis path was not run in the lab].
+- Every block is controlled by environment variables and does nothing when they are unset. The full list is at the top of `settings.performance.php`.
+- Redis is used only when `REDIS_HOST` is set [ASSUMED: code guard at settings.performance.php "Redis cache backend" block; the no-Redis path was not run in the lab].
 
-If you use DDEV's `ddev/ddev-redis` add-on, it adds its own `settings.ddev.redis.php`; retire it
-(rename with the `__ARCHIVED_` prefix) so this file is the only Redis configuration [V].
+- With DDEV's `ddev/ddev-redis` add-on: it adds its own `settings.ddev.redis.php`. Retire it (rename with the `__ARCHIVED_` prefix) so this file is the only Redis configuration [V].
 
 ## 4b. Redis fail-open wrapper
 
@@ -87,11 +92,13 @@ Do not run a full `drush cron` here: it runs every module's cron job. On the OIG
 [V: tmp/codex-oig/sitemap/cron-A.log]. The `php:eval` line runs only the 404 page build, the same
 call as `themed_fast_404_cron()` [V: OIG copy, file `page-not-found-en.html` rewritten].
 
-Result: 13 modules installed (big_pipe, syslog, redis, purge, purge_ui, purge_processor_cron,
-purge_queuer_coretags, purge_drush, azure_cdn_purge, fast404, themed_fast_404, page_cache,
-dynamic_page_cache), `system.performance` page max-age 900 and CSS/JS aggregation on,
-`purge.plugins` with the Azure purger, `azure_cdn_purge.settings` with `endpoint_type:
-afdEndpoints`, `chunk_size: 50`, empty credentials [V: tmp/ddev/recipe-apply.log, `drush cget`].
+Result:
+- 13 modules installed: big_pipe, syslog, redis, purge, purge_ui, purge_processor_cron, purge_queuer_coretags, purge_drush, azure_cdn_purge, fast404, themed_fast_404, page_cache, dynamic_page_cache.
+- `system.performance`: page max-age 900, CSS/JS aggregation on.
+- `purge.plugins` with the Azure purger.
+- `azure_cdn_purge.settings`: `endpoint_type: afdEndpoints`, `chunk_size: 50`, empty credentials.
+
+Evidence: tmp/ddev/recipe-apply.log, `drush cget` [V].
 
 Notes:
 - The recipe ships `purge.plugins` and `azure_cdn_purge.settings` as config files because
@@ -141,12 +148,13 @@ requirement) once a Twig release or Drupal core update fixes the incompatibility
 
 ## 6. Export config
 
-`drush cex`. Credentials are runtime overrides from `settings.performance.php`: the stored
-config is empty (`drush cget azure_cdn_purge.settings` shows `tenant_id: ''`,
-`client_secret: ''`) and `--include-overridden` shows the environment values [V]. `drush cex`
-exports stored values, not overrides [ASSUMED: core behaviour; cex not run in the lab]. Do not
-save the Azure CDN settings form on a site with overrides, because the form writes whatever it
-displays into stored config [ASSUMED].
+```bash
+drush cex
+```
+
+- Credentials are runtime overrides from `settings.performance.php`. The stored config is empty (`drush cget azure_cdn_purge.settings` shows `tenant_id: ''`, `client_secret: ''`); `--include-overridden` shows the environment values [V].
+- `drush cex` exports stored values, not overrides [ASSUMED: core behaviour; cex not run in the lab].
+- Do not save the Azure CDN settings form on a site with overrides: the form writes whatever it displays into stored config [ASSUMED].
 
 ## 7. Set environment variables
 
@@ -184,8 +192,7 @@ watchdog table and site-specific views that reference it. To switch:
 drush pm:uninstall dblog -y
 ```
 
-[ASSUMED: not run in the lab.] The caching guide's client-IP test reads
-`/admin/reports/dblog`; with dblog removed, check the IP in the syslog stream instead.
+[ASSUMED: not run in the lab.] The caching guide's client-IP test reads `/admin/reports/dblog`. With dblog removed, check the IP in the syslog stream instead.
 
 ## Optional: unpublished content as 404/410
 

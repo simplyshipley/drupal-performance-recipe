@@ -1,5 +1,7 @@
 # Security hardening and penetration testing
 
+Controls for the Azure Front Door, App Service and Drupal stack, plus how to work with penetration testers. For security engineers and Drupal developers on these sites.
+
 ## Approach
 
 The goal is that anyone scanning or attacking from one IP gets slowed, challenged and then blocked, while authorized testers are let through on purpose. Every control below is \[ASSUMED\] until tested in non-production; confirm each Azure feature is in FedRAMP scope for our cloud.
@@ -33,12 +35,11 @@ These are the Azure versions of what the local edge emulates ([edge-waf.md](edge
 `bot_challenge` and `security_headers`). They come from the uspsoig.gov check
 ([uspsoig-cache-bot-check.md](uspsoig-cache-bot-check.md)).
 
+Everything not stated on the Microsoft pages listed under Sources below is marked [ASSUMED], including availability in our Azure Government SKU.
+
 Sources opened:
 - https://learn.microsoft.com/en-us/azure/web-application-firewall/afds/waf-front-door-custom-rules
 - https://learn.microsoft.com/en-us/azure/web-application-firewall/waf-javascript-challenge
-
-Everything not stated on those pages is marked [ASSUMED], including availability in our Azure
-Government SKU.
 
 ### Rollout: Detection first
 
@@ -85,20 +86,13 @@ rule conditions are ANDed, so one rule with both conditions means "both headers 
 The action string `JSChallenge` and the "header missing" test (regex `.+` negated) are [ASSUMED]:
 verify both in a non-production policy.
 
-**Spot check (2026-09-29):** the Front Door WAF REST reference
-(https://learn.microsoft.com/en-us/rest/api/frontdoor/webapplicationfirewall/policies/create-or-update,
-api-version 2022-05-01) lists `ActionType` as `Allow`, `Block`, `Log`, `Redirect` and
-`AnomalyScoring`, with **no JSChallenge**. The JS challenge page says the action exists on Premium,
-so it needs a newer API version or portal setting. `JSChallenge` stays [ASSUMED] until checked in
-our tenant.
+**Spot check (2026-09-29):**
+- The Front Door WAF REST reference (api-version 2022-05-01) lists `ActionType` as `Allow`, `Block`, `Log`, `Redirect` and `AnomalyScoring`, with **no JSChallenge**.
+- The JS challenge page says the action exists on Premium, so it needs a newer API version or portal setting.
+- `JSChallenge` stays [ASSUMED] until checked in our tenant.
+- The bot rule set name `Microsoft_BotManagerRuleSet` is verified (see the second link under Evidence).
 
-The bot rule set name `Microsoft_BotManagerRuleSet` is verified
-(https://learn.microsoft.com/en-us/azure/web-application-firewall/afds/waf-front-door-policy-configure-bot-protection,
-`az network front-door waf-policy managed-rules add --type Microsoft_BotManagerRuleSet --version 1.0`).
-
-**Match both headers missing, not either.** Real browsers can lack `Sec-Fetch-Mode`. Per MDN browser-compat-data `http/headers/Sec-Fetch-Mode.json` (https://raw.githubusercontent.com/mdn/browser-compat-data/main/http/headers/Sec-Fetch-Mode.json, read 2026-09-29): version_added Chrome 76, Edge mirrors Chrome, Firefox 90, Safari 16.4, Safari iOS mirrors Safari, older
-Safari (before 16.4), Firefox before 90 and Chrome before 76 do not send it, and privacy tools can strip
-it. So:
+**Match both headers missing, not either.** Real browsers can lack `Sec-Fetch-Mode`: Chrome before 76, Firefox before 90 and Safari before 16.4 do not send it, and privacy tools can strip it. So:
 - **One rule:** put **both** missing-header conditions (`Sec-Fetch-Mode` and `Accept-Language`) in one rule. Conditions are ANDed, which matches the local default `EDGE_CHALLENGE_MISSING=both`.
 - **Session cookie exemption:** add a negated `Cookies` condition for the Drupal session cookie, so logged-in users are never challenged.
 - **Detection first:** keep the rule on `Log` (Detection) for at least a week.
@@ -134,7 +128,7 @@ it. So:
 
 az CLI:
 
-```
+```bash
 az network front-door waf-policy rule create -g <rg> --policy-name <policy> \
   --name ChallengeBrowserNoSecFetch --priority 20 --rule-type MatchRule --action Log --defer
 az network front-door waf-policy rule match-condition add -g <rg> --policy-name <policy> \
@@ -148,8 +142,12 @@ az network front-door waf-policy rule update -g <rg> --policy-name <policy> \
   --name ChallengeBrowserNoSecFetch --action JSChallenge
 ```
 
-The `az network front-door waf-policy` commands apply to Standard/Premium policies. Check the flag
-names with `--help` on your CLI version [ASSUMED].
+The `az network front-door waf-policy` commands apply to Standard/Premium policies. Check the flag names with `--help` on your CLI version [ASSUMED].
+
+Evidence:
+- Microsoft REST reference: https://learn.microsoft.com/en-us/rest/api/frontdoor/webapplicationfirewall/policies/create-or-update
+- Bot rule set name: https://learn.microsoft.com/en-us/azure/web-application-firewall/afds/waf-front-door-policy-configure-bot-protection (`az network front-door waf-policy managed-rules add --type Microsoft_BotManagerRuleSet --version 1.0`)
+- MDN browser-compat-data (read 2026-09-29): https://raw.githubusercontent.com/mdn/browser-compat-data/main/http/headers/Sec-Fetch-Mode.json (Chrome 76, Edge mirrors Chrome, Firefox 90, Safari 16.4, Safari iOS mirrors Safari)
 
 ### Bot Manager
 
@@ -205,7 +203,7 @@ tag.
 **Watch out:** its default list also removes `X-Drupal-Cache` and `X-Drupal-Dynamic-Cache`, which
 the recipe's tests and cache debugging rely on. Set the list to `X-Generator` only:
 
-```
+```bash
 composer require drupal/remove_http_headers:^2.1
 drush en remove_http_headers -y
 drush php:eval '\Drupal::configFactory()->getEditable("remove_http_headers.settings")->set("headers_to_remove", ["X-Generator"])->save();'
@@ -278,12 +276,12 @@ Test every control in non-production first, from an IP we control, and never run
 - **Tools:** OWASP ZAP (already in the Playwright suite: `lando zap-scan`, `lando zap-e2e`), plus scripted `curl` loops for rate limits and blocked paths.
 - **Checks:** Blocked paths return 403 at the edge; rate limits trigger at the expected count; direct `*.azurewebsites.net` access is refused; security headers are present; the real client IP appears in Drupal logs; auto-block adds and expires an IP.
 
-* [ ] WAF policy in Prevention mode with managed and bot rules
-* [ ] Rate limit and blocked-path custom rules
-* [ ] Origin locked; Kudu restricted
-* [ ] Container web server limits, denied files, headers hidden
-* [ ] Security headers and CSP (report-only first)
-* [ ] Flood control tuned; 2FA for editors; unused modules removed
-* [ ] Logs to Log Analytics; alerts and auto-block playbook
-* [ ] Pen-test rules of engagement and allowlist procedure written
-* [ ] Controls documented in the System Security Plan
+- [ ] WAF policy in Prevention mode with managed and bot rules
+- [ ] Rate limit and blocked-path custom rules
+- [ ] Origin locked; Kudu restricted
+- [ ] Container web server limits, denied files, headers hidden
+- [ ] Security headers and CSP (report-only first)
+- [ ] Flood control tuned; 2FA for editors; unused modules removed
+- [ ] Logs to Log Analytics; alerts and auto-block playbook
+- [ ] Pen-test rules of engagement and allowlist procedure written
+- [ ] Controls documented in the System Security Plan

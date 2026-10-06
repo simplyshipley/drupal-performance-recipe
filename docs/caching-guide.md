@@ -4,7 +4,7 @@ Sep 25, 2026 · @Bo Shipley
 
 ## Purpose and how to use this doc
 
-This is the working reference for setting up, testing and tuning caching on Drupal 10.6 sites hosted on Azure App Service (Docker containers) with Azure Database for MySQL (HA) and Azure Front Door, in a FedRAMP environment.
+Working reference for setting up, testing and tuning caching on Drupal 10.6 sites on Azure App Service (Docker), Azure Database for MySQL (HA) and Azure Front Door, in a FedRAMP environment. Read it if you run or tune these sites.
 
 - **Evidence labels:** \[V\] = verified by a command or file read (the source is named). \[ASSUMED\] = based on how Drupal and Azure generally behave, not yet tested on our sites. Promote a claim from \[ASSUMED\] to \[V\] only after the lab or a real site proves it.
 - **Living doc:** Add findings per site in the checklist section, and log every change at the bottom.
@@ -29,7 +29,9 @@ A request can be answered by any of six layers, outermost first. Fix problems at
 
 ## Diagnosing cache table growth
 
-Drupal caps each database bin at 5,000 rows, but only when cron runs, so tables can grow without limit between cron runs. \[V: `core/lib/Drupal/Core/Cache/DatabaseBackend.php` lines 30 and 404, and `core/modules/system/src/Hook/SystemHooks.php` line 323, Drupal 11.4 lab; ASSUMED identical in 10.6\]
+Drupal caps each database bin at 5,000 rows, but only when cron runs, so tables can grow without limit between cron runs.
+
+- **Evidence:** \[V: `core/lib/Drupal/Core/Cache/DatabaseBackend.php` lines 30 and 404, and `core/modules/system/src/Hook/SystemHooks.php` line 323, Drupal 11.4 lab; ASSUMED identical in 10.6\]
 
 - **Observed:** `cache_render` refilled from 500 to 1,500 to 4,000 to 90,000+ rows within 20 to 30 seconds of `drush cr`. Some tables exceed 1 GB, and deletes and writes on them slow the site.
 - **How cleanup works:** Cron finds the `created` time of the 5,001st-newest row and deletes everything older in one `DELETE`. A large delete on an HA database holds locks and commits slowly. \[ASSUMED for the HA effect\]
@@ -184,7 +186,9 @@ Container memory is about 1.3 to 1.5 times `maxmemory`. These are starting point
 The Purge module queues Drupal's cache-tag invalidations and sends them to an external cache. For Front Door, invalidated tags must be translated into paths. \[ASSUMED\]
 
 - **Modules:** `purge`, `purge_queuer_coretags` (queues invalidated tags), a processor (`purge_processor_cron` or late runtime), `purge_drush` (`drush p:queue-work`, `drush p:diagnostics`), and a Front Door purger.
-- **Front Door purger:** Use Azure CDN Purge (\`azure\_cdn\_purge\`), which provides a purger, queuer and processor and works with Front Door when the endpoint type is \`afdEndpoints\` (issues #3420242, #3301320). Front Door has no cache tags, so purging is by path only: pair it with its path queuer and short HTML lifetimes.
+- **Front Door purger:** Use Azure CDN Purge (`azure_cdn_purge`). It provides a purger, queuer and processor, and works with Front Door when the endpoint type is `afdEndpoints`.
+- **Path only:** Front Door has no cache tags, so pair the purger with its path queuer and short HTML lifetimes.
+- **Evidence:** drupal.org issues #3420242, #3301320.
 - **Local testing:** Point the purger at a mock HTTP container. Check that editing content queues items, that processing the queue sends the expected calls, and that failures are retried. Then test against a non-production Front Door profile using a service principal.
 - **Until then:** Short HTML cache lifetimes plus `az afd endpoint purge` for urgent changes.
 
@@ -268,7 +272,7 @@ Copy this list for each site and record the results beside it.
 
 - Valkey or Redis, and managed service or self-hosted container?
 - How many App Service instances does each site run? (Decides whether a sidecar is viable.)
-- Does azure\_cdn\_purge support Drupal 10.6, and does its path queuer cover our listing pages?
+- Does `azure_cdn_purge` support Drupal 10.6, and does its path queuer cover our listing pages?
 - Which Azure services are in FedRAMP scope for our cloud?
 - Should the lab use a real site's module list?
 

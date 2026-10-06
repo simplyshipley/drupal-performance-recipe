@@ -1,16 +1,6 @@
 # Cache sync: Drupal, Redis, the purge queue and Front Door
 
-This page explains how one content change reaches every cache layer, which edge cases were
-tested, and what to configure. The lab uses the local edge (the Front Door stand-in,
-[edge-waf.md](edge-waf.md)) and mock-afd.
-
-**Evidence:**
-- Before the fixes: [V: tmp/ddev/sync-baseline.log]
-- After the fixes: [V: tmp/ddev/sync-fixed.log]
-- Fail-proof: [V: tmp/ddev/sync-failproof.log]
-- Full suites: [V: tmp/ddev/run15.log, tmp/lando-run11.log] (earlier: run14-sync, lando-run10-sync)
-- Delete tests, module on and off: [V: tmp/lando-deleted-on.log, tmp/lando-deleted-off.log]; fail-proof [V: tmp/lando-deleted-failproof.log]
-- Full suites with the delete hooks (then the separate `perf_purge_deleted` module, now part of `perf_purge_paths`): [V: tmp/lando-run17-deleted.log, tmp/ddev/run19-deleted.log]
+How one content change reaches every cache layer, which edge cases were tested, and what to configure. For developers and DevOps running the purge setup. The lab uses the local edge (the Front Door stand-in, [edge-waf.md](edge-waf.md)) and mock-afd. Test logs are listed under Evidence at the end.
 
 ## The layers
 
@@ -168,3 +158,12 @@ The test now waits up to 180 s for the lock before running cron, and reports the
   - Wildcards need the patch.
 - **Alias and file hooks:** part of `perf_purge_paths`, on with path purging.
 - **Monitoring:** watch `drush p:queue-volume` and dblog. A growing queue means purges fail, for example because of credentials.
+
+## Evidence
+
+- Before the fixes: [V: tmp/ddev/sync-baseline.log]
+- After the fixes: [V: tmp/ddev/sync-fixed.log]
+- Fail-proof: [V: tmp/ddev/sync-failproof.log]
+- Full suites: [V: tmp/ddev/run15.log, tmp/lando-run11.log] (earlier: run14-sync, lando-run10-sync)
+- Delete tests, module on and off: [V: tmp/lando-deleted-on.log, tmp/lando-deleted-off.log]; fail-proof [V: tmp/lando-deleted-failproof.log]
+- Full suites with the delete hooks (then the separate `perf_purge_deleted` module, now part of `perf_purge_paths`): [V: tmp/lando-run17-deleted.log, tmp/ddev/run19-deleted.log]
