@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace Drupal\perf_redis_failopen\Hook;
 
+use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Extension\Requirement\RequirementSeverity;
+use Drupal\Core\Form\ConfigTarget;
+use Drupal\Core\Form\ToConfig;
 use Drupal\Core\Hook\Attribute\Hook;
 use Drupal\Core\Site\Settings;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
@@ -38,6 +41,8 @@ final class PerfRedisFailopenHooks {
    *   The string translation service.
    * @param \Drupal\perf_redis_failopen\Cache\FailOpenCacheBackendFactory $factory
    *   The decorating cache factory, which knows the config switch.
+   * @param \Drupal\Core\Config\ConfigFactoryInterface $configFactory
+   *   The config factory, to read the switch with its overrides.
    */
   public function __construct(
     private readonly RedisHealth $health,
@@ -46,6 +51,7 @@ final class PerfRedisFailopenHooks {
     TranslationInterface $translation,
     #[Autowire(service: 'perf_redis_failopen.cache_factory')]
     private readonly FailOpenCacheBackendFactory $factory,
+    private readonly ConfigFactoryInterface $configFactory,
   ) {
     $this->stringTranslation = $translation;
   }
@@ -55,7 +61,7 @@ final class PerfRedisFailopenHooks {
    *
    * Adds the Redis on/off switch. Core's ConfigFormBase loads, validates and
    * saves the #config_target element, and says when settings.php overrides
-   * it.
+   * it. An overridden switch is shown read-only (see lockIfOverridden()).
    */
   #[Hook('form_system_performance_settings_alter')]
   public function formSystemPerformanceSettingsAlter(array &$form): void {
@@ -67,11 +73,35 @@ final class PerfRedisFailopenHooks {
         '#type' => 'checkbox',
         '#title' => $this->t('Use Redis for the cache bins set in settings.php'),
         '#config_target' => 'perf_redis_failopen.settings:enabled',
-        '#description' => $this->t('Off: those bins use the database, and each is emptied once when Redis is switched on again. To switch it off for one environment, add this line to its settings.php: <code>@line</code>', [
+        '#description' => $this->t('Off: those bins use the database. Each switch, off or on, empties them once. To switch it off for one environment, add this line to its settings.php: <code>@line</code>', [
           '@line' => "\$config['perf_redis_failopen.settings']['enabled'] = FALSE;",
         ]),
       ],
     ];
+    $this->lockIfOverridden($form['perf_redis_failopen']['perf_redis_failopen_settings_enabled']);
+  }
+
+  /**
+   * Shows the value settings.php sets for the switch, and does not save it.
+   *
+   * Core's ConfigFormBase shows and saves the stored value of a #config_target
+   * element and only says that settings.php overrides it
+   * (loadDefaultValuesFromConfig(), submitForm(), checkConfigOverrides()).
+   * Like core's SystemBrandingOffCanvasForm, an overridden value is not
+   * edited: the checkbox shows the value that applies and is disabled, and
+   * ToConfig::NoOp keeps the stored value as it is.
+   *
+   * @param array $element
+   *   The switch checkbox.
+   */
+  private function lockIfOverridden(array &$element): void {
+    $config = $this->configFactory->get('perf_redis_failopen.settings');
+    if (!$config->hasOverrides('enabled')) {
+      return;
+    }
+    $element['#default_value'] = (bool) $config->get('enabled');
+    $element['#disabled'] = TRUE;
+    $element['#config_target'] = new ConfigTarget('perf_redis_failopen.settings', 'enabled', toConfig: static fn (): ToConfig => ToConfig::NoOp);
   }
 
   /**

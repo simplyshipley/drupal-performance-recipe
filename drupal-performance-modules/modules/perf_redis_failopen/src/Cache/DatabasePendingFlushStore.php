@@ -15,10 +15,12 @@ use Drupal\Core\Database\DatabaseExceptionWrapper;
  * - clear() deletes only when the stored token is still the one the flusher
  *   read, so a record written after the flush started survives and triggers
  *   another flush.
- * - all() treats a missing table as "nothing pending". The decorator that uses
- *   this store is live for a moment before the table exists (module install)
- *   and after it is dropped (module uninstall), and a request in that moment
- *   must not fail.
+ * - all() and record() treat a missing table as "nothing pending" and
+ *   "nothing to record". The decorator that uses this store is live for a
+ *   moment before the table exists (module install: core creates cache.data
+ *   before installSchema()) and after it is dropped (module uninstall), and a
+ *   request in that moment must not fail. A bin switched off during the
+ *   install is recorded by the next request.
  */
 final class DatabasePendingFlushStore {
 
@@ -39,12 +41,24 @@ final class DatabasePendingFlushStore {
 
   /**
    * Records (or refreshes) a pending flush for a bin with a new token.
+   *
+   * @param string $bin
+   *   The cache bin.
+   * @param string $prefix
+   *   Starts the token, so a reader can tell who wrote it.
    */
-  public function record(string $bin): void {
-    $this->connection->merge(self::TABLE)
-      ->key('bin', $bin)
-      ->fields(['token' => bin2hex(random_bytes(8))])
-      ->execute();
+  public function record(string $bin, string $prefix = ''): void {
+    try {
+      $this->connection->merge(self::TABLE)
+        ->key('bin', $bin)
+        ->fields(['token' => $prefix . bin2hex(random_bytes(8))])
+        ->execute();
+    }
+    catch (DatabaseExceptionWrapper $e) {
+      if ($this->connection->schema()->tableExists(self::TABLE)) {
+        throw $e;
+      }
+    }
   }
 
   /**

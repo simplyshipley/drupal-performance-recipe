@@ -139,9 +139,14 @@ final class RedisHealth {
 
   /**
    * Records that a delete/invalidate for a bin was lost.
+   *
+   * @param string $bin
+   *   The cache bin.
+   * @param string $prefix
+   *   Starts the record's token, so a reader can tell who wrote it.
    */
-  public function recordLostWrite(string $bin): void {
-    $this->store->record($bin);
+  public function recordLostWrite(string $bin, string $prefix = ''): void {
+    $this->store->record($bin, $prefix);
     // Force a re-read so this process flushes on its next successful use.
     $this->pending = NULL;
   }

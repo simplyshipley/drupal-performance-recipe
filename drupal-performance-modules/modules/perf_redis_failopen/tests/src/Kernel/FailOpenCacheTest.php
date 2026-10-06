@@ -10,6 +10,7 @@ use Drupal\Core\Cache\CacheFactoryInterface;
 use Drupal\Core\Cache\DatabaseBackend;
 use Drupal\Core\Cache\MemoryBackend;
 use Drupal\Core\Database\Database;
+use Drupal\Core\Entity\EntityStorageInterface;
 use Drupal\KernelTests\KernelTestBase;
 use Drupal\perf_redis_failopen\Cache\DatabasePendingFlushStore;
 use Drupal\perf_redis_failopen\Cache\FailOpenCacheBackend;
@@ -34,7 +35,7 @@ final class FailOpenCacheTest extends KernelTestBase {
   /**
    * {@inheritdoc}
    */
-  protected static $modules = ['system', 'redis', 'perf_redis_failopen', 'perf_redis_failopen_test'];
+  protected static $modules = ['system', 'user', 'redis', 'perf_redis_failopen', 'perf_redis_failopen_test'];
 
   /**
    * The real module store, including its compare-and-delete SQL.
@@ -418,7 +419,9 @@ final class FailOpenCacheTest extends KernelTestBase {
   /**
    * Switched off by settings.php, a bin uses the database and never Redis.
    *
-   * Removing the override switches Redis on again.
+   * The next request keeps what the first one cached: the database copy is
+   * emptied once, not on every request. Removing the override switches Redis
+   * on again.
    */
   public function testSwitchedOffBinUsesTheDatabaseNotRedis(): void {
     $inner = $this->container->get(FailingCacheFactory::class);
@@ -426,6 +429,7 @@ final class FailOpenCacheTest extends KernelTestBase {
     $this->assertInstanceOf(DatabaseBackend::class, $backend);
     $backend->set('synthetic_a', 'synthetic value');
     $this->assertSame('synthetic value', $backend->get('synthetic_a')->data);
+    $this->assertSame('synthetic value', $this->overrideRedis(FALSE)->get('render')->get('synthetic_a')->data);
     $this->assertSame(0, $inner->calls, 'The Redis factory was never asked.');
     $this->assertInstanceOf(FailOpenCacheBackend::class, $this->overrideRedis(NULL)->get('render'));
   }
@@ -434,7 +438,8 @@ final class FailOpenCacheTest extends KernelTestBase {
    * Switching Redis on again empties each bin that was off, once.
    *
    * A delete made while Redis was off never reached it; the deleted entry must
-   * not come back from Redis.
+   * not come back from Redis. The next request with Redis on keeps what the
+   * first one cached.
    */
   public function testSwitchingRedisOnAgainEmptiesTheBinOnce(): void {
     $inner = new FailingCacheBackend($this->container->get('datetime.time'));
@@ -442,9 +447,76 @@ final class FailOpenCacheTest extends KernelTestBase {
     $this->container->get(FailingCacheFactory::class)->backend = $inner;
     $this->overrideRedis(FALSE)->get('render')->delete('a');
     $this->assertArrayHasKey('render', $this->store->all());
-    $this->assertFalse($this->overrideRedis(NULL)->get('render')->get('a'));
+    $on = $this->overrideRedis(NULL)->get('render');
+    $this->assertFalse($on->get('a'));
     $this->assertSame(1, $inner->flushes);
     $this->assertSame([], $this->store->all());
+
+    $on->set('b', 'synthetic new value');
+    $this->assertSame('synthetic new value', $this->overrideRedis(NULL)->get('render')->get('b')->data);
+    $this->assertSame(1, $inner->flushes);
+  }
+
+  /**
+   * Off, on, off: an entity changed while Redis was on is not served stale.
+   *
+   * Saving an entity deletes its cache entry from the bin in use only
+   * (ContentEntityStorageBase::resetCache()), so the database copy still holds
+   * the old entity when Redis is switched off again. The same holds when the
+   * entity changed during an outage (the delete was recorded as lost).
+   *
+   * @dataProvider redisAnswers
+   */
+  #[DataProvider('redisAnswers')]
+  public function testAnEntityChangedWhileRedisWasOnIsNotStaleWhenSwitchedOffAgain(bool $answers): void {
+    $this->installEntitySchema('user');
+    $redis = $this->container->get(FailingCacheFactory::class);
+    $redis->backend = new FailingCacheBackend($this->container->get('datetime.time'));
+    $users = $this->entityRequest(FALSE);
+    $user = $users->create(['name' => 'synthetic-before', 'mail' => 'synthetic@example.com', 'status' => 1]);
+    $user->save();
+    /** @var \Drupal\user\UserInterface $before */
+    $before = $users->load($user->id());
+    $this->assertSame('synthetic-before', $before->getAccountName());
+
+    $redis->fail = !$answers;
+    /** @var \Drupal\user\UserInterface $changed */
+    $changed = $this->entityRequest(NULL)->load($user->id());
+    $changed->setUsername('synthetic-after')->save();
+    $redis->fail = FALSE;
+
+    /** @var \Drupal\user\UserInterface $after */
+    $after = $this->entityRequest(FALSE)->load($user->id());
+    $this->assertSame('synthetic-after', $after->getAccountName());
+  }
+
+  /**
+   * Whether Redis answers while it is switched on.
+   *
+   * @return array<string, array{bool}>
+   *   One case with Redis answering, one with an outage.
+   */
+  public static function redisAnswers(): array {
+    return [
+      'Redis answers' => [TRUE],
+      'Redis is down' => [FALSE],
+    ];
+  }
+
+  /**
+   * Starts a new request for the user storage, with Redis switched as given.
+   *
+   * @param bool|null $enabled
+   *   The settings.php override, or NULL for none (Redis on).
+   *
+   * @return \Drupal\Core\Entity\EntityStorageInterface
+   *   A user storage whose persistent cache is the switched entity bin.
+   */
+  private function entityRequest(?bool $enabled): EntityStorageInterface {
+    $this->container->set('cache.entity', $this->overrideRedis($enabled)->get('entity'));
+    $this->container->get('entity.memory_cache')->deleteAll();
+    $this->container->get('entity_type.manager')->clearCachedDefinitions();
+    return $this->container->get('entity_type.manager')->getStorage('user');
   }
 
   /**

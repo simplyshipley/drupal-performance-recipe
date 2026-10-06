@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Drupal\Tests\perf_redis_failopen\Functional;
 
+use Drupal\Core\Cache\DatabaseBackend;
 use Drupal\Core\Site\Settings;
 use Drupal\perf_redis_failopen\Cache\DatabasePendingFlushStore;
 use Drupal\perf_redis_failopen\Cache\FailOpenCacheBackend;
@@ -80,6 +81,42 @@ final class InstallTest extends BrowserTestBase {
       $this->assertRedisCacheAndPage(FALSE);
     }
     finally {
+      $this->clearSyntheticBins();
+    }
+  }
+
+  /**
+   * A site on Redis installs the module with the switch already off.
+   *
+   * Core reads the switch before it creates the module's table
+   * (ModuleInstaller::install() builds the route provider, which needs
+   * cache.data, before installSchema()), and settings.php overrides apply to a
+   * config object that does not exist yet.
+   */
+  public function testInstallWithRedisSwitchedOffInSettingsPhp(): void {
+    $this->configureRedisSite();
+    try {
+      $this->assertRedisCacheAndPage(FALSE);
+      $this->writeSettings([
+        'config' => [
+          'perf_redis_failopen.settings' => [
+            'enabled' => (object) ['value' => FALSE, 'required' => TRUE],
+          ],
+        ],
+      ]);
+      Settings::initialize(DRUPAL_ROOT, $this->siteDirectory, $this->classLoader);
+      $this->container->get('module_installer')->install(['perf_redis_failopen']);
+      $this->rebuildContainer();
+      $this->drupalGet('<front>');
+      $this->assertSession()->statusCodeEquals(200);
+      foreach (['data', 'render'] as $bin) {
+        $this->assertInstanceOf(DatabaseBackend::class, $this->container->get('cache.' . $bin), $bin);
+      }
+      $this->assertEqualsCanonicalizing(['data', 'render'], array_keys($this->container->get(DatabasePendingFlushStore::class)->all()), 'Both bins are emptied on Redis when it is switched on.');
+    }
+    finally {
+      $GLOBALS['config']['perf_redis_failopen.settings']['enabled'] = TRUE;
+      $this->rebuildContainer();
       $this->clearSyntheticBins();
     }
   }

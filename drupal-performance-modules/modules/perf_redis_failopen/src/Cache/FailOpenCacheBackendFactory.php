@@ -44,6 +44,11 @@ final class FailOpenCacheBackendFactory implements CacheFactoryInterface {
   private const CONFIG_BINS = ['bootstrap', 'config', 'discovery'];
 
   /**
+   * Starts the token of a flush record written while Redis is switched off.
+   */
+  private const SWITCHED_OFF = 'off-';
+
+  /**
    * Backends already created, keyed by bin.
    *
    * @var array<string, \Drupal\perf_redis_failopen\Cache\FailOpenCacheBackend>
@@ -119,16 +124,21 @@ final class FailOpenCacheBackendFactory implements CacheFactoryInterface {
   /**
    * Returns core's database backend for a bin while Redis is switched off.
    *
-   * The bin is also recorded as needing a flush, once: deletes made while
-   * Redis is off never reach it, so when Redis is switched on again the
-   * fail-open wrapper empties the bin before its first use (as after an
-   * outage).
+   * Deletes made while one backend serves a bin never reach the other, so
+   * each switch empties the copy it switches to, once:
+   * - The bin is recorded as needing a flush on Redis, with a token that
+   *   starts with "off-". When Redis is switched on again, the fail-open
+   *   wrapper empties the bin before its first use and removes the record.
+   * - Without such a record, Redis served the bin until now (or lost a delete
+   *   in an outage), so the database copy is emptied first.
    */
   private function databaseBin(string $bin): CacheBackendInterface {
-    if ($this->health->pendingToken($bin) === NULL) {
-      $this->health->recordLostWrite($bin);
+    $backend = $this->database->get($bin);
+    if (!str_starts_with($this->health->pendingToken($bin) ?? '', self::SWITCHED_OFF)) {
+      $backend->deleteAll();
+      $this->health->recordLostWrite($bin, self::SWITCHED_OFF);
     }
-    return $this->database->get($bin);
+    return $backend;
   }
 
 }

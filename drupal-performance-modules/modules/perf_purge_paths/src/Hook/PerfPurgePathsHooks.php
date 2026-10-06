@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace Drupal\perf_purge_paths\Hook;
 
 use Drupal\Core\Cache\CacheTagsInvalidatorInterface;
+use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Extension\ProceduralCall;
 use Drupal\Core\Extension\Requirement\RequirementSeverity;
+use Drupal\Core\Form\ConfigTarget;
+use Drupal\Core\Form\ToConfig;
 use Drupal\Core\Hook\Attribute\Hook;
 use Drupal\Core\Hook\Attribute\RemoveHook;
 use Drupal\Core\Link;
@@ -74,6 +77,8 @@ final class PerfPurgePathsHooks {
    *   The perf_purge_paths logger channel.
    * @param \Drupal\purge\Plugin\Purge\Queue\StatsTrackerInterface $stats
    *   Purge's queue statistics (counters kept in state).
+   * @param \Drupal\Core\Config\ConfigFactoryInterface $configFactory
+   *   The config factory, to read the switch with its overrides.
    */
   public function __construct(
     private readonly PathsQueuer $queuer,
@@ -83,6 +88,7 @@ final class PerfPurgePathsHooks {
     private readonly LoggerInterface $logger,
     #[Autowire(service: 'purge.queue.stats')]
     private readonly StatsTrackerInterface $stats,
+    private readonly ConfigFactoryInterface $configFactory,
   ) {}
 
   /**
@@ -90,7 +96,8 @@ final class PerfPurgePathsHooks {
    *
    * Adds the on/off switch and a link to azure_cdn_purge's manual purge form.
    * Core's ConfigFormBase loads, validates and saves the #config_target
-   * element, and says when settings.php overrides it.
+   * element, and says when settings.php overrides it. An overridden switch is
+   * shown read-only (see lockIfOverridden()).
    */
   #[Hook('form_system_performance_settings_alter')]
   public function formSystemPerformanceSettingsAlter(array &$form): void {
@@ -114,6 +121,30 @@ final class PerfPurgePathsHooks {
         '#access' => $manual->access(),
       ],
     ];
+    $this->lockIfOverridden($form['perf_purge_paths']['perf_purge_paths_settings_enabled']);
+  }
+
+  /**
+   * Shows the value settings.php sets for the switch, and does not save it.
+   *
+   * Core's ConfigFormBase shows and saves the stored value of a #config_target
+   * element and only says that settings.php overrides it
+   * (loadDefaultValuesFromConfig(), submitForm(), checkConfigOverrides()).
+   * Like core's SystemBrandingOffCanvasForm, an overridden value is not
+   * edited: the checkbox shows the value that applies and is disabled, and
+   * ToConfig::NoOp keeps the stored value as it is.
+   *
+   * @param array $element
+   *   The switch checkbox.
+   */
+  private function lockIfOverridden(array &$element): void {
+    $config = $this->configFactory->get('perf_purge_paths.settings');
+    if (!$config->hasOverrides('enabled')) {
+      return;
+    }
+    $element['#default_value'] = (bool) $config->get('enabled');
+    $element['#disabled'] = TRUE;
+    $element['#config_target'] = new ConfigTarget('perf_purge_paths.settings', 'enabled', toConfig: static fn (): ToConfig => ToConfig::NoOp);
   }
 
   /**

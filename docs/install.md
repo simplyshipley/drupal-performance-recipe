@@ -136,7 +136,7 @@ See [azure.md](azure.md) for production and [ddev.md](ddev.md) / [lando.md](land
 
 Both custom modules have an on/off switch on the Performance page
 (`admin/config/development/performance`). To switch one off for one environment, add its line
-to that environment's `settings.php`. The Performance page then shows the value as overridden.
+to that environment's `settings.php`. The Performance page then shows that value, overridden and read-only.
 
 ```php
 // Local (example): no Front Door purges, no Redis.
@@ -148,7 +148,7 @@ $config['perf_purge_paths.settings']['enabled'] = FALSE;
 ```
 
 - Purge off: no paths are queued. azure_cdn_purge's own node hook stays removed while the module is installed.
-- Redis off: the Redis bins use the database. Each bin is emptied once when Redis is switched on again.
+- Redis off: the Redis bins use the database. Each switch, off or on, empties the bins once.
   `bootstrap`, `config` and `discovery` stay on Redis if `REDIS_BINS` lists them (Drupal reads them to load this setting).
 
 ## Optional: remove dblog
