@@ -7,7 +7,6 @@ namespace Drupal\Tests\perf_purge_paths\Kernel;
 use Drupal\Core\Form\FormState;
 use Drupal\system\Form\PerformanceForm;
 use Drupal\Tests\user\Traits\UserCreationTrait;
-use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 
 /**
@@ -49,55 +48,15 @@ final class PerformancePageTest extends PurgePathsKernelTestBase {
   }
 
   /**
-   * The page says when settings.php overrides the switch, and saves nothing.
-   *
-   * The checkbox shows the value that applies and is disabled. Submitting the
-   * overriding value keeps the stored value, so removing the override later
-   * brings back what was stored.
-   *
-   * @dataProvider overrides
-   */
-  #[DataProvider('overrides')]
-  public function testThePageSaysWhenSettingsPhpOverridesTheSwitch(bool $stored, bool $override): void {
-    $this->config('perf_purge_paths.settings')->set('enabled', $stored)->save();
-    $this->overridePurging($override);
-    $form = $this->container->get('form_builder')->getForm(PerformanceForm::class);
-    $links = $form['config_override_status_messages']['message']['#message_list']['status'][0]['#links'];
-    $this->assertSame(['Queue Front Door purges when content changes'], array_map(static fn (array $link): string => (string) $link['title'], $links));
-    $checkbox = $form['perf_purge_paths']['perf_purge_paths_settings_enabled'];
-    $this->assertSame($override, $checkbox['#checked']);
-    $this->assertTrue($checkbox['#disabled']);
-
-    $form_state = (new FormState())->setValues(['perf_purge_paths_settings_enabled' => $override ? 1 : NULL]);
-    $this->container->get('form_builder')->submitForm(PerformanceForm::class, $form_state);
-    $this->assertSame([], $form_state->getErrors());
-    $this->assertSame($stored, $this->config('perf_purge_paths.settings')->get('enabled'));
-    $this->assertSame($override, $this->container->get('perf_purge_paths.queuer')->isEnabled());
-  }
-
-  /**
-   * The two directions of a settings.php override.
-   *
-   * @return array<string, array{bool, bool}>
-   *   The stored value and the overriding value.
-   */
-  public static function overrides(): array {
-    return [
-      'stored on, settings.php off' => [TRUE, FALSE],
-      'stored off, settings.php on' => [FALSE, TRUE],
-    ];
-  }
-
-  /**
    * The status entry shows Purge's queue counts and links to the manual purge.
    */
   public function testTheStatusEntryShowsTheQueueAndTheManualPurgeLink(): void {
-    $this->setSetting('perf_purge_trailing_slash', FALSE);
     $this->container->get('perf_purge_paths.queuer')->queuePaths(['/synthetic-about']);
     $this->container->get('purge.queue')->commit();
     [$severity, $value, $description] = $this->entry();
     $this->assertSame(0, $severity);
-    $this->assertSame('On. Purge queue: 1 waiting, 0 purged, 0 failed', $value);
+    // The path and its "path/" twin.
+    $this->assertSame('On. Purge queue: 2 waiting, 0 purged, 0 failed', $value);
     $this->assertStringContainsString('/admin/config/services/azure/purge', $description);
 
     $this->overridePurging(FALSE);

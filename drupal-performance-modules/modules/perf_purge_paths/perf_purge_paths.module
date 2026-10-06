@@ -2,11 +2,7 @@
 
 /**
  * @file
- * Procedural hook shims for Drupal 10.6 (Drupal 11.1 and later use the class).
- *
- * The logic is in \Drupal\perf_purge_paths\Hook\PerfPurgePathsHooks. Each
- * function below only passes its arguments on, and carries #[LegacyHook] so
- * that Drupal 11 does not run it a second time next to the #[Hook] method.
+ * Drupal 10.6 hook shims; the logic is in PerfPurgePathsHooks.
  */
 
 declare(strict_types=1);
@@ -53,10 +49,7 @@ function perf_purge_paths_form_system_performance_settings_alter(array &$form): 
  * Implements hook_module_implements_alter().
  *
  * Drupal 10.6 to 11.1: drops azure_cdn_purge's hook_node_update(), which only
- * queues the node alias a second time (the tag mapping already queues it).
- * Drupal 11.2 and later use #[RemoveHook] on the hook class and skip this
- * function. The two lines stay here, not in a service: implementations are
- * looked up while services are still being created.
+ * queues the node alias a second time (11.2 and later use #[RemoveHook]).
  */
 #[LegacyModuleImplementsAlter]
 function perf_purge_paths_module_implements_alter(array &$implementations, string $hook): void {

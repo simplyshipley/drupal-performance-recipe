@@ -74,7 +74,7 @@ There is no upgrade path. Apply this recipe to a site that has not run an older 
    ```
 3. Add the patches to the root `composer.json`: run the whole block in [install.md](install.md#5b-azure-government-patch) top to bottom, then commit `patches/` and `patches.lock.json`.
    - Required for Azure Government.
-   - With path purging on (the default) the wildcard patch is needed for `*` list or site-wide paths. The skip-node-hook patch avoids queueing the alias twice (harmless, wasted work).
+   - With path purging on (the default) the wildcard patch is needed for `*` list or site-wide paths.
    - Do not run `composer update <recipe> -W`: it pulled Twig 3.30.0 and broke every page.
 4. Include the settings file after `$databases` in `settings.php`, as the last include: [install.md](install.md#4-include-the-settings-file).
    - To switch purging or Redis off for one environment (local, QA, Prod), add the `$config[...]` lines in [install.md](install.md#8-turn-caching-off-per-environment) to its `settings.php`.
@@ -150,12 +150,12 @@ az webapp config appsettings set -g $RG -n <webapp> --settings \
 | Group | Variables | Default and rule |
 |---|---|---|
 | Redis | `REDIS_HOST`, `REDIS_PORT`, `REDIS_SCHEME`, `REDIS_PASSWORD`, `REDIS_PREFIX`, shared mode adds `REDIS_USERNAME` | Unset `REDIS_HOST` = no Redis. Prefix required on a shared Redis |
-| Perf tuning | `PERF_REDIS_CONNECT_TIMEOUT` (1), `PERF_REDIS_READ_TIMEOUT` (2), `PERF_REDIS_RETRY_INTERVAL` (30), `PERF_FAST404` | Keep the defaults. Never set `PERF_REDIS_FAILOPEN=0` or `REDIS_LOCK_FLOOD_TAGS` |
+| Perf tuning | `PERF_REDIS_RETRY_INTERVAL` (30), `PERF_FAST404` | Keep the defaults. Never set `REDIS_LOCK_FLOOD_TAGS` |
 | Purge credentials | `AZURE_CDN_TENANT_ID`, `AZURE_CDN_CLIENT_ID`, `AZURE_CDN_CLIENT_SECRET` (Key Vault), `AZURE_CDN_SUBSCRIPTION_ID`, `AZURE_CDN_RESOURCE_GROUP`, `AZURE_CDN_PROFILE`, `AZURE_CDN_ENDPOINT`, `AZURE_CDN_ENDPOINT_TYPE` (`afdEndpoints`), `AZURE_CLOUD` (`usgovernment`) | Leave `AZURE_CDN_SCOPE` unset and clear any stored scope ([azure.md](azure.md#azure-government-patched-azure_cdn_purge)) |
 | Proxy | `DRUPAL_TRUSTED_HOSTS`, `DRUPAL_REVERSE_PROXY`, `DRUPAL_REVERSE_PROXY_ADDRESSES` | [azure.md](azure.md#client-ip) |
 
 - Never set `PERF_MOCK_AFD_PROXY` or `PERF_EDGE_PROXY_HOST` outside a local lab.
-- After changing `REDIS_BINS`, `PERF_REDIS_FAILOPEN` or `REDIS_LOCK_FLOOD_TAGS`, run `drush cr`.
+- After changing `REDIS_BINS` or `REDIS_LOCK_FLOOD_TAGS`, run `drush cr`.
 
 ### 3.8 WAF and edge rules
 

@@ -47,6 +47,22 @@ scripts/ddev-test.sh, lando-test.sh  host wrappers (add the Redis-down test)
 docs/                            all documentation
 ```
 
+## Local labs
+
+`drupal-performance-modules/settings/example.settings.local-lab.php` holds the settings only a local
+DDEV or Lando lab uses. Never include it on a shared or production host (each part also refuses to
+act outside DDEV or Lando). Include it last in the lab's `settings.php`, after `settings.performance.php`:
+
+```php
+include $app_root . '/modules/custom/drupal-performance-modules/settings/example.settings.local-lab.php';
+```
+
+- `PERF_EDGE_PROXY_HOST`: trusts the local edge (`edge/`, the Front Door stand-in) as a reverse proxy and echoes the headers it sent in `X-Perf-Edge-Seen`.
+- `PERF_MOCK_AFD_PROXY`: sends Drupal's outbound HTTP to the mock Front Door (`mock-afd/`), so purges reach it.
+- `PERF_CACHE_MODE` or the `perf-cache-mode` file: dev, dev-twig or prod-like caching ([cache-modes.md](docs/cache-modes.md)).
+
+`ddev/config.perf.yaml` and `lando/lando.perf.yml` set these variables.
+
 ## Docs
 
 1. **Start here: [setup guide](docs/setup-guide.md)** (nothing to working, verified; links every detail doc)

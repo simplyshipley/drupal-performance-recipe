@@ -51,8 +51,7 @@ The fixes (small and in scope):
 
    | Tag | Paths queued |
    |---|---|
-   | `node:N`, `taxonomy_term:N`, `media:N`, `user:N` | System path, current alias, trailing-slash variants |
-   | `path_alias:N` | Alias and path, including the previous alias revision if one exists. Never fires on stock core, which invalidates only `route_match` for aliases (open decision 1) |
+   | `node:N`, `taxonomy_term:N` | System path, current alias, trailing-slash variants |
    | `file:N` | File URL, and every image-style derivative URL |
    | `*_list` | `PERF_PURGE_LIST_PATHS` (default `/,/node,/rss.xml`; `/news/*` allowed) |
    | Block content, menu links, menus, blocks | `PERF_PURGE_SITEWIDE_PATHS` (default empty) |
@@ -69,17 +68,17 @@ The fixes (small and in scope):
 
 ## Queue volume
 
-These counts were measured with the skip-node-hook patch applied [V: tmp/ddev/run15.log].
+These counts were measured with azure_cdn_purge's node hook removed by perf_purge_paths [V: tmp/jrock-cut/13-ddev-suite.log].
 
-- **One node save with an alias queues 8 invalidations, each exactly once** (test `sync_single_save`):
-  - `/`, `/node`, `/node/`, `/rss.xml` (no `rss.xml/`: paths with a file extension get no trailing-slash twin)
+- **One node save with an alias queues 9 invalidations, each exactly once** (test `sync_single_save`):
+  - `/`, `/node`, `/node/`, `/rss.xml`, `/rss.xml/`
   - `/node/N`, `/node/N/`
   - the alias and `alias/`
-- **Bulk:** 60 node saves in one drush call queued 124 items (the listing paths once per request), which were sent as 3 purge requests of up to 50 paths.
+- **Bulk:** 60 node saves in one drush call queued 125 items (the listing paths once per request), which were sent as 3 purge requests of up to 50 paths.
   - Before the dedupe it was 185 items: duplicates plus azure_cdn_purge's own alias item.
   - With azure_cdn_purge alone it was 60 (alias only).
-- **Dedupe:** paths are de-duplicated per PHP request. Limitation: a long-running process that saves, works the queue, then saves the same node again in the same request would not re-queue it. Normal saves, cron and drush runs are separate requests.
-- **Double-queue fix:** `patches/azure_cdn_purge-skip-node-hook-with-perf-purge-paths.patch` makes the module's `hook_node_update` return early while `perf_purge_paths` is enabled. Without the patch each save also queues the alias a second time; this is harmless but wasteful.
+- **Dedupe:** a tag is mapped once per PHP request, and each invalidation queues a path once. Limitation: a long-running process that saves, works the queue, then saves the same node again in the same request would not re-queue it. Normal saves, cron and drush runs are separate requests.
+- **Double-queue fix:** while installed, `perf_purge_paths` removes azure_cdn_purge's `hook_node_update` (`#[RemoveHook]`; `hook_module_implements_alter()` on Drupal 10.6), which would queue the alias a second time.
 
 ## Edge cases and results (DDEV lab, 2026-09-28)
 

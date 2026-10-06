@@ -5,23 +5,17 @@ declare(strict_types=1);
 namespace Drupal\perf_redis_failopen\Hook;
 
 use Drupal\Core\Extension\Requirement\RequirementSeverity;
-use Drupal\Core\Form\ConfigTarget;
-use Drupal\Core\Form\ToConfig;
 use Drupal\Core\Hook\Attribute\Hook;
 use Drupal\Core\Site\Settings;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\Core\StringTranslation\TranslationInterface;
 use Drupal\perf_redis_failopen\Cache\FailOpenCacheBackendFactory;
-use Drupal\perf_redis_failopen\Cache\RedisHealth;
-use Drupal\perf_redis_failopen\Client\TimeoutClientInstaller;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 /**
- * Hook implementations of the Redis fail-open module (Drupal 11.1 and later).
+ * The status report entry of the Redis fail-open module.
  *
- * Drupal 10.6 to 11.2 reach the status entry through the procedural
- * hook_requirements() in perf_redis_failopen.install, and Drupal 10.6 the
- * Performance page section through perf_redis_failopen.module.
+ * Drupal 10.6 to 11.2 reach it through perf_redis_failopen.install.
  */
 final class PerfRedisFailopenHooks {
 
@@ -30,10 +24,6 @@ final class PerfRedisFailopenHooks {
   /**
    * Constructs a PerfRedisFailopenHooks.
    *
-   * @param \Drupal\perf_redis_failopen\Cache\RedisHealth $health
-   *   The outage state the cache wrapper keeps.
-   * @param \Drupal\perf_redis_failopen\Client\TimeoutClientInstaller $installer
-   *   Knows whether the bounded Redis client is in use.
    * @param \Drupal\Core\Site\Settings $settings
    *   The site settings.
    * @param \Drupal\Core\StringTranslation\TranslationInterface $translation
@@ -42,8 +32,6 @@ final class PerfRedisFailopenHooks {
    *   The decorating cache factory, which knows the config switch.
    */
   public function __construct(
-    private readonly RedisHealth $health,
-    private readonly TimeoutClientInstaller $installer,
     private readonly Settings $settings,
     TranslationInterface $translation,
     #[Autowire(service: 'perf_redis_failopen.cache_factory')]
@@ -53,40 +41,10 @@ final class PerfRedisFailopenHooks {
   }
 
   /**
-   * Implements hook_form_FORM_ID_alter() for system_performance_settings.
-   *
-   * Shows the Redis on/off switch, read-only: switching Redis is a deploy
-   * step (settings.php, then drush cr; Bo's ruling ix, 2026-10-06). The
-   * checkbox shows the value this request runs on. ToConfig::NoOp keeps core's
-   * ConfigFormBase from saving it, while core still says when settings.php
-   * overrides it (checkConfigOverrides()).
-   */
-  #[Hook('form_system_performance_settings_alter')]
-  public function formSystemPerformanceSettingsAlter(array &$form): void {
-    $form['perf_redis_failopen'] = [
-      '#type' => 'details',
-      '#title' => $this->t('Redis cache'),
-      '#open' => TRUE,
-      'perf_redis_failopen_settings_enabled' => [
-        '#type' => 'checkbox',
-        '#title' => $this->t('Use Redis for the cache bins set in settings.php'),
-        '#default_value' => $this->factory->isRedisOn(),
-        '#disabled' => TRUE,
-        '#config_target' => new ConfigTarget('perf_redis_failopen.settings', 'enabled', toConfig: static fn (): ToConfig => ToConfig::NoOp),
-        '#description' => $this->t('Off: those bins use the database. Changed per environment in settings.php, then <code>drush cr</code>: <code>@line</code>', [
-          '@line' => "\$config['perf_redis_failopen.settings']['enabled'] = FALSE;",
-        ]),
-      ],
-    ];
-  }
-
-  /**
    * Implements hook_runtime_requirements().
    *
-   * One status report entry. Error while Redis is skipped after an error (the
-   * site still works on cache misses; drupal/redis's own entry shows the
-   * connection). Warning when Redis or fail-open is switched off or the
-   * bounded client is not in use. Information when no bin uses Redis.
+   * Information when no bin uses Redis, a warning when Redis is switched off,
+   * otherwise the Redis bins. drupal/redis's own entry shows the connection.
    *
    * @return array<string, array<string, mixed>>
    *   The requirements for the status report.
@@ -100,11 +58,7 @@ final class PerfRedisFailopenHooks {
     if (!$this->factory->isRedisOn()) {
       return $this->requirement(1, $this->t('Off (perf_redis_failopen.settings:enabled is FALSE)'), $this->t('The bins @bins use the database.', ['@bins' => implode(', ', $bins)]));
     }
-    if ($this->health->isDown()) {
-      return $this->requirement(2, $this->t('Degraded: Redis does not answer'), $this->t('Every read from the Redis bins is a miss and writes are dropped, so pages are slower and the database does more work. Redis is used again as soon as it answers. The perf_redis_failopen log names the address and the error.'));
-    }
-    $problems = $this->problems();
-    return $this->requirement($problems ? 1 : 0, $this->t('Redis bins: @bins', ['@bins' => implode(', ', $bins)]), implode(' ', $problems));
+    return $this->requirement(0, $this->t('Redis bins: @bins', ['@bins' => implode(', ', $bins)]), '');
   }
 
   /**
@@ -120,27 +74,10 @@ final class PerfRedisFailopenHooks {
   }
 
   /**
-   * Returns what is not as intended, as sentences.
-   *
-   * @return \Drupal\Core\StringTranslation\TranslatableMarkup[]
-   *   The problems, empty when everything is as intended.
-   */
-  private function problems(): array {
-    $problems = [];
-    if (!$this->settings->get('perf_redis_failopen_enabled', TRUE)) {
-      $problems[] = $this->t('Fail-open is switched off (PERF_REDIS_FAILOPEN=0): a Redis outage returns HTTP 500.');
-    }
-    if ($this->installer->isMissing()) {
-      $problems[] = $this->t('The Redis connect and read timeouts or TLS options are not applied: another Redis client connected first.');
-    }
-    return $problems;
-  }
-
-  /**
    * Builds the requirements array for the one entry.
    *
    * @param int $level
-   *   -1 info, 0 OK, 1 warning, 2 error (the values of both severity types).
+   *   -1 info, 0 OK, 1 warning (the values of both severity types).
    * @param mixed $value
    *   The value column.
    * @param mixed $description

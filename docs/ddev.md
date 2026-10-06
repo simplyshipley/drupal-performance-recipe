@@ -105,9 +105,9 @@ container, then stops **only** `ddev-<project>-redis` with `docker stop`, runs `
 and starts it again. Exit status = number of FAIL lines.
 
 Expected result [V: tmp/ddev/run9.log]: 15 PASS, then `redis_down` PASS (pages 200 with
-Redis stopped) and `redis_recover` PASS and `redis_hang` PASS. To see the failure mode, add
-`PERF_REDIS_FAILOPEN=0` to `.ddev/config.*.yaml`, `ddev restart`, `ddev drush cr`: `redis_down`
-then FAILS with HTTP 500. See [tests.md](tests.md) for what each line means.
+Redis stopped) and `redis_recover` PASS and `redis_hang` PASS. To see the failure mode, use the
+Lando lab (DDEV labs share aliases): uninstall `perf_redis_failopen` with Redis up, then stop
+Redis; pages then fail with HTTP 500. See [tests.md](tests.md) for what each line means.
 
 ## 6. Manual checks
 

@@ -56,9 +56,9 @@ it, so the command always works. `off` writes an empty file.
 
 ## Include order (why it wins)
 
-`settings.performance.php` must be the **last** include in `settings.php`, after
-`settings.ddev.php`, `settings.local.php` and any `settings.ddev.redis.php`. Its cache-mode block
-is at the very end of the file. So:
+The cache-mode block is in `settings/example.settings.local-lab.php`, which must be the **last**
+include in `settings.php`: after `settings.ddev.php`, `settings.local.php`, any
+`settings.ddev.redis.php` and `settings.performance.php` (README.md, "Local labs"). So:
 
 - **Null backends:** `$settings['cache']['bins'][...] = 'cache.backend.null'` set in `settings.local.php` is replaced (`dev`) or removed (`prod-like`).
 - **development.services.yml:** it is taken out of `$settings['container_yamls']`, and the mode's own YAML is appended last. The files are `settings/cache-mode.debug.services.yml` and `cache-mode.prod.services.yml`. Container parameters from later YAMLs win, so `twig.config` is ours even if `services.yml` enables Twig debug.

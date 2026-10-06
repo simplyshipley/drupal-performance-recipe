@@ -1,9 +1,5 @@
-# Cache tags and delete hooks become Front Door purge paths.
-#
-# The queuer is a cache_tags_invalidator, so core creates it together with the
-# cache tags service, very early. It therefore reaches config, the mapper and
-# the purge services through service closures (see PathsQueuer); injecting
-# them directly would create a circular reference.
+# The queuer is a cache_tags_invalidator, created with the cache tags service,
+# so it reaches config, the mapper and Purge through closures (PathsQueuer).
 services:
   _defaults:
     autowire: true

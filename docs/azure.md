@@ -15,16 +15,16 @@ your cloud before use (see the caching guide).
 >   request, including Drush, and cannot fail open; with them on Redis an outage was a site
 >   outage [V: earlier redis_down runs, HTTP 500].
 > - A **fail-open wrapper** (`modules/perf_redis_failopen`) turns Redis errors into cache
->   misses. With Redis stopped, pages and Drush keep working, one warning is logged per 60 s,
+>   misses. With Redis stopped, pages and Drush keep working, one warning is logged per retry interval,
 >   and Redis is used again after the retry interval [V: redis_down and redis_recover PASS,
->   tmp/ddev/run8-redis.log, tmp/lando-run6-redis.log]. With the wrapper off
->   (`PERF_REDIS_FAILOPEN=0`) the same test gives HTTP 500 [V: fail-proof in run8-redis.log].
+>   tmp/ddev/run8-redis.log, tmp/lando-run6-redis.log]. With the wrapper off the same test
+>   gives HTTP 500 [V: fail-proof in run8-redis.log].
 > - Cost during an outage: every heavy-bin read is a miss, so pages are built from the
 >   database each time (slower, more MySQL load); anonymous pages are not page-cached. Plan
 >   MySQL headroom for that.
 > - Hung Redis (accepts TCP, never answers): drupal/redis 1.11 connects without a timeout, so
->   the wrapper installs a `PhpRedis` client subclass with `PERF_REDIS_CONNECT_TIMEOUT` (1 s)
->   and `PERF_REDIS_READ_TIMEOUT` (2 s). With Redis paused the first request took 2.1 s and
+>   the module installs a `PhpRedis` client subclass that connects with a 2 s connect and
+>   read timeout. With Redis paused the first request took 2.1 s and
 >   later ones about 0.03 s; with the timeouts off the first request stalled 60.8 s
 >   [V: redis_hang, tmp/ddev/run9.log incl. fail-proof, tmp/lando-run7.log].
 > - Any Redis client exception counts as an outage (connection errors, timeouts, OOM,

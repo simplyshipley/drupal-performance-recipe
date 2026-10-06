@@ -12,16 +12,9 @@ use Drupal\Core\Cache\CacheFactoryInterface;
  * Cache backend that turns Redis outages into cache misses.
  *
  * Reads return misses, writes are dropped, and deletes/invalidations that
- * could not be applied are recorded so the bin is emptied on recovery.
- *
- * ANY Redis client exception (\RedisException, Predis\PredisException,
- * Relay\Exception) is treated as an outage, not only connection errors:
- * that includes timeouts, "OOM command not allowed" (memory full under a
- * noeviction policy), "READONLY" (a replica) and "WRONGTYPE". All of them mean
- * Redis cannot serve this bin right now, and failing open (cache miss, one
- * throttled warning, retry later) is safer than an HTTP 500. The warning
- * carries the exception class and message so they can be told apart.
- * Exceptions that are not from the Redis client are rethrown.
+ * could not be applied are recorded so the bin is emptied on recovery. Any
+ * \RedisException counts as an outage (also a timeout, OOM or READONLY);
+ * other exceptions are not caught.
  */
 final class FailOpenCacheBackend implements CacheBackendInterface {
 
@@ -165,8 +158,9 @@ final class FailOpenCacheBackend implements CacheBackendInterface {
       // creating the backend are caught here too.
       return $call($this->backend());
     }
-    catch (\Throwable $e) {
-      return $this->absorb($e, $operation, $fallback, $destructive);
+    catch (\RedisException $e) {
+      $this->health->markDown($e, $this->bin, $operation);
+      return $this->degrade($fallback, $destructive);
     }
   }
 
@@ -175,26 +169,11 @@ final class FailOpenCacheBackend implements CacheBackendInterface {
    */
   private function backend(): CacheBackendInterface {
     $this->inner ??= $this->redisFactory->get($this->bin);
-    $token = $this->health->pendingToken($this->bin);
-    if ($token !== NULL) {
+    if ($this->health->pendingToken($this->bin) !== NULL) {
       $this->inner->deleteAll();
-      $this->health->flushDone($this->bin, $token);
+      $this->health->flushDone($this->bin);
     }
     return $this->inner;
-  }
-
-  /**
-   * Handles an exception from a Redis call: absorb Redis errors, rethrow rest.
-   *
-   * @return mixed
-   *   The fallback value.
-   */
-  private function absorb(\Throwable $e, string $operation, mixed $fallback, bool $destructive): mixed {
-    if (!RedisHealth::isRedisError($e)) {
-      throw $e;
-    }
-    $this->health->markDown($e, $this->bin, $operation);
-    return $this->degrade($fallback, $destructive);
   }
 
   /**

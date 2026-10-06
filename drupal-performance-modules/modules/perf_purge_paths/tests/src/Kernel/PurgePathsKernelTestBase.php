@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace Drupal\Tests\perf_purge_paths\Kernel;
 
+use Drupal\Core\Logger\RfcLogLevel;
 use Drupal\file\Entity\File;
 use Drupal\image\Entity\ImageStyle;
 use Drupal\KernelTests\KernelTestBase;
 use Drupal\node\Entity\Node;
 use Drupal\node\Entity\NodeType;
 use Drupal\path_alias\Entity\PathAlias;
-use Drupal\Core\Logger\RfcLogLevel;
 use Drupal\purge\Plugin\Purge\Invalidation\ImmutableInvalidationInterface;
 use Drupal\purge\Plugin\Purge\Queue\QueueServiceInterface;
 use Psr\Log\LoggerInterface;
@@ -18,20 +18,15 @@ use Psr\Log\LoggerInterface;
 /**
  * Base class of the perf_purge_paths Kernel tests.
  *
- * Installs the entity types the module maps (nodes, aliases, files, image
- * styles, users), enables the real Purge queue and turns path purging on.
- * Fixtures are created with purging switched off: the queuer
- * remembers what it queued for the rest of the PHP process (here, the whole
- * test), so a fixture that queued its paths would hide the same paths when the
- * test then asks for them. All content is SYNTHETIC.
+ * The real Purge database queue, path purging on. Fixtures are created with
+ * purging off, so they leave nothing in the queue. All content is SYNTHETIC.
  */
 abstract class PurgePathsKernelTestBase extends KernelTestBase {
 
   /**
    * {@inheritdoc}
    *
-   * Taxonomy stands in for "another module that implements hook_node_update()",
-   * which the hook removal test must see untouched.
+   * Taxonomy is also the witness module of the hook removal test.
    */
   protected static $modules = [
     'system',
@@ -53,9 +48,8 @@ abstract class PurgePathsKernelTestBase extends KernelTestBase {
   /**
    * {@inheritdoc}
    *
-   * Core registers the private:// stream wrapper only when a private path is
-   * set before the container is built, so the tests of private files need it
-   * here and not in setUp().
+   * Core registers private:// only when its path is set before the container
+   * is built.
    */
   protected function setUpFilesystem(): void {
     parent::setUpFilesystem();
@@ -82,27 +76,36 @@ abstract class PurgePathsKernelTestBase extends KernelTestBase {
       ->set('queuers', [['plugin_id' => 'path_queuer', 'status' => TRUE]])
       ->set('purgers', [['instance_id' => 'synthetic', 'plugin_id' => 'azurecdn', 'order_index' => 1]])
       ->save();
-    // The module's default config switches path purging on.
+    // Last: the module's default config switches path purging on.
     $this->installConfig(['perf_purge_paths']);
-    $this->setSetting('perf_purge_trailing_slash', TRUE);
     $this->setSetting('perf_purge_list_paths', '/,/node');
     $this->setSetting('perf_purge_sitewide_paths', '');
   }
 
   /**
-   * Reads paths from Purge's database queue, committing its transaction buffer.
+   * Returns the paths in Purge's database queue.
    *
    * @return string[]
-   *   Paths with their leading slash, as accepted by the module.
+   *   Paths with their leading slash.
    */
   protected function queuedPaths(): array {
-    $queue = $this->container->get('purge.queue');
-    $queue->selectPageLimit(1000);
-    return array_map(static fn (ImmutableInvalidationInterface $item): string => '/' . $item->getExpression(), $queue->selectPage());
+    return array_map(static fn (ImmutableInvalidationInterface $item): string => '/' . $item->getExpression(), $this->queuedItems());
   }
 
   /**
-   * Makes the external queue fail while keeping the module services real.
+   * Returns the invalidations in Purge's database queue.
+   *
+   * @return \Drupal\purge\Plugin\Purge\Invalidation\ImmutableInvalidationInterface[]
+   *   The queued invalidations.
+   */
+  protected function queuedItems(): array {
+    $queue = $this->container->get('purge.queue');
+    $queue->selectPageLimit(1000);
+    return $queue->selectPage();
+  }
+
+  /**
+   * Makes Purge's queue fail.
    */
   protected function failQueue(): void {
     $queue = $this->createMock(QueueServiceInterface::class);
@@ -111,10 +114,10 @@ abstract class PurgePathsKernelTestBase extends KernelTestBase {
   }
 
   /**
-   * Expects warnings from the real logger channel, including their context.
+   * Expects these warnings, in order, from the module's logger channel.
    *
    * @param array<int, array<string, string>> $contexts
-   *   Required context entries for each warning in order.
+   *   Required context entries of each warning.
    */
   protected function expectWarnings(array $contexts): void {
     $logger = $this->createMock(LoggerInterface::class);
@@ -130,7 +133,7 @@ abstract class PurgePathsKernelTestBase extends KernelTestBase {
   }
 
   /**
-   * Runs a fixture with path purging off, so it queues and remembers nothing.
+   * Runs a fixture with path purging off.
    *
    * @param callable $fixture
    *   Creates the entities a test needs.
@@ -151,9 +154,6 @@ abstract class PurgePathsKernelTestBase extends KernelTestBase {
 
   /**
    * Sets or removes the settings.php override of the purge switch.
-   *
-   * The same as the line an environment adds to its settings.php:
-   * $config['perf_purge_paths.settings']['enabled'] = FALSE;
    *
    * @param bool|null $enabled
    *   The overriding value, or NULL to remove the override.
@@ -193,8 +193,8 @@ abstract class PurgePathsKernelTestBase extends KernelTestBase {
   protected function loadAlias(string $alias): PathAlias {
     $aliases = \Drupal::entityTypeManager()->getStorage('path_alias')->loadByProperties(['alias' => $alias]);
     $this->assertCount(1, $aliases, "Alias $alias exists.");
+    /** @var \Drupal\path_alias\Entity\PathAlias $found */
     $found = reset($aliases);
-    assert($found instanceof PathAlias);
     return $found;
   }
 

@@ -18,13 +18,6 @@ final class FailingCacheFactory extends CacheBackendFactory {
   public int $calls = 0;
 
   /**
-   * Requested bins, including failed connection attempts.
-   *
-   * @var string[]
-   */
-  public array $requestedBins = [];
-
-  /**
    * Whether the synthetic server refuses connections.
    */
   public bool $fail = FALSE;
@@ -39,7 +32,6 @@ final class FailingCacheFactory extends CacheBackendFactory {
    */
   public function get($bin): CacheBackendInterface {
     $this->calls++;
-    $this->requestedBins[] = $bin;
     if ($this->fail) {
       throw new \RedisException('Synthetic connection refused');
     }

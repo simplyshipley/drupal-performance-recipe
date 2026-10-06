@@ -55,8 +55,8 @@ If you use DDEV's `ddev/ddev-redis` add-on, it adds its own `settings.ddev.redis
 Nothing to install: `settings.performance.php` registers `modules/perf_redis_failopen`'s
 service and classes through `container_yamls` and the class loader whenever `REDIS_HOST` is set,
 the same way the redis module's own services are registered before it is installed [V: both
-labs]. The heavy bins then use `cache.backend.redis_failopen`. After changing `REDIS_BINS`,
-`PERF_REDIS_FAILOPEN` or `REDIS_LOCK_FLOOD_TAGS`, run `drush cr`.
+labs]. The heavy bins then use `cache.backend.redis_failopen`. After changing `REDIS_BINS` or
+`REDIS_LOCK_FLOOD_TAGS`, run `drush cr`.
 
 ## 5. Apply the recipe
 
@@ -101,8 +101,7 @@ composer require cweagans/composer-patches:^2
 composer config --json extra.patches.drupal/azure_cdn_purge '[
   {"description":"drupal.org #3427718 MR !6 at 9859fc45 (Azure cloud selector)","url":"patches/azure_cdn_purge-3427718-mr6-9859fc45.patch"},
   {"description":"Follow-up to #3427718: commercial default, host overrides, scope from cloud, config schema","url":"patches/azure_cdn_purge-3427718-followup-default-cloud.patch"},
-  {"description":"Send wildcardpath invalidations to Azure (were marked done without an API call)","url":"patches/azure_cdn_purge-wildcardpath-purged.patch"},
-  {"description":"Skip the module's node hook when perf_purge_paths queues the paths (no duplicates)","url":"patches/azure_cdn_purge-skip-node-hook-with-perf-purge-paths.patch"}]'
+  {"description":"Send wildcardpath invalidations to Azure (were marked done without an API call)","url":"patches/azure_cdn_purge-wildcardpath-purged.patch"}]'
 composer patches-relock
 composer patches-repatch
 ```
@@ -134,10 +133,10 @@ See [azure.md](azure.md) for production and [ddev.md](ddev.md) / [lando.md](land
 
 ## 8. Turn caching off per environment
 
-Both custom modules show an on/off switch on the Performance page
-(`admin/config/development/performance`). To switch one off for one environment, add its line
-to that environment's `settings.php`. The Performance page then shows that value, overridden and read-only.
-The Redis switch is always read-only there: switching Redis is a deploy step.
+The path purge module shows its on/off switch on the Performance page
+(`admin/config/development/performance`). To switch purging off for one environment, add its line
+to that environment's `settings.php`; the Performance page then says the value is overridden.
+The Redis switch is set in `settings.php` only.
 
 ```php
 // Local (example): no Front Door purges, no Redis.
@@ -189,7 +188,7 @@ The module turns cache tag invalidations into Front Door purge paths. **It is on
 azure_cdn_purge purges only the alias of an updated node. Listings, `/node/N`, deletes,
 terms, files and old aliases would stay stale at Front Door ([cache-sync.md](cache-sync.md)).
 
-- **Patches:** apply both extra patches above. The wildcard patch makes `news/*`-style list paths work. The skip-node-hook patch stops the module from queueing the alias a second time. Without it, each node save queues the alias twice. That is harmless, but it is wasted work.
+- **Patches:** apply the wildcard patch above; it makes `news/*`-style list paths work. The alias is not queued twice: perf_purge_paths removes azure_cdn_purge's own node hook while it is installed.
 - **Queue volume:** about 6–10 items per node save, and more with `PERF_PURGE_LIST_PATHS`/`PERF_PURGE_SITEWIDE_PATHS`. See the numbers in cache-sync.md.
 - **Turn it off:** see [section 8](#8-turn-caching-off-per-environment). azure_cdn_purge's own node hook stays removed while the module is installed; uninstall the module to get it back.
 

@@ -6,17 +6,13 @@ namespace Drupal\perf_redis_failopen;
 
 use Drupal\Core\DependencyInjection\ContainerBuilder;
 use Drupal\Core\DependencyInjection\ServiceModifierInterface;
-use Drupal\perf_redis_failopen\Client\TimeoutClientInstaller;
-use Symfony\Component\DependencyInjection\Reference;
+use Drupal\perf_redis_failopen\Client\TimeoutPhpRedis;
 
 /**
- * Bounds the Redis connect and read time before anything connects.
+ * Makes redis.factory use the bounded client before anything connects.
  *
- * The redis 1.x module has no timeout setting (the upstream evaluation is in
- * the package README). Every consumer (cache backends, lock, flood, queue and
- * the cache tag checksum) gets its client through the redis.factory service,
- * so a configurator on that service runs before the first connection,
- * whatever is instantiated first.
+ * Every Redis consumer gets its client through redis.factory, so its
+ * configurator runs before the first connection.
  */
 final class PerfRedisFailopenServiceProvider implements ServiceModifierInterface {
 
@@ -24,11 +20,9 @@ final class PerfRedisFailopenServiceProvider implements ServiceModifierInterface
    * {@inheritdoc}
    */
   public function alter(ContainerBuilder $container): void {
-    if (!$container->hasDefinition('redis.factory')) {
-      return;
+    if ($container->hasDefinition('redis.factory')) {
+      $container->getDefinition('redis.factory')->setConfigurator([TimeoutPhpRedis::class, 'install']);
     }
-    $container->getDefinition('redis.factory')
-      ->setConfigurator([new Reference(TimeoutClientInstaller::class), 'install']);
   }
 
 }

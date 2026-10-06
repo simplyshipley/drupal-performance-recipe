@@ -13,9 +13,7 @@ use Drupal\perf_purge_paths\Hook\PerfPurgePathsHooks;
 /**
  * Implements hook_requirements().
  *
- * Drupal 11.3 and later run the OOP runtime_requirements hook instead (see
- * \Drupal\perf_purge_paths\Hook\PerfPurgePathsHooks); this shim is the
- * Drupal 10.6 to 11.2 path.
+ * Drupal 10.6 to 11.2; 11.3 and later run PerfPurgePathsHooks directly.
  */
 #[LegacyRequirementsHook]
 function perf_purge_paths_requirements(string $phase): array {

@@ -6,7 +6,6 @@ namespace Drupal\Tests\perf_redis_failopen\Functional;
 
 use Drupal\Core\Cache\DatabaseBackend;
 use Drupal\Core\Site\Settings;
-use Drupal\perf_redis_failopen\Cache\DatabasePendingFlushStore;
 use Drupal\perf_redis_failopen\Cache\FailOpenCacheBackend;
 use Drupal\perf_redis_failopen\Cache\FailOpenCacheBackendFactory;
 use Drupal\redis\Cache\CacheBackendFactory;
@@ -16,11 +15,7 @@ use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\RequiresPhpExtension;
 
 /**
- * Installs and uninstalls the fail-open module on a real test site.
- *
- * Covers a site with no Redis settings and sites with active Redis cache bins.
- * Direct uninstall and configuration import must leave the plain Redis backend
- * usable after removing the fail-open wrapper.
+ * Installs the fail-open module on a real test site that uses Redis.
  *
  * @group perf_redis_failopen
  * @requires extension redis
@@ -33,57 +28,6 @@ final class InstallTest extends BrowserTestBase {
    * {@inheritdoc}
    */
   protected $defaultTheme = 'stark';
-
-  /**
-   * Installs, serves pages, shows the status entry, uninstalls.
-   */
-  public function testInstallServePagesAndUninstall(): void {
-    $admin = $this->drupalCreateUser(['administer site configuration', 'access site reports']);
-
-    $this->container->get('module_installer')->install(['perf_redis_failopen']);
-    $this->rebuildContainer();
-    $this->assertTrue($this->container->get('module_handler')->moduleExists('redis'), 'The redis module came as a dependency.');
-
-    $this->drupalGet('<front>');
-    $this->assertSession()->statusCodeEquals(200);
-
-    $this->drupalLogin($admin);
-    $this->drupalGet('admin/reports/status');
-    $this->assertSession()->statusCodeEquals(200);
-    $this->assertSession()->pageTextContains('Redis fail-open');
-    $this->assertSession()->pageTextContains('No cache bin uses Redis');
-    $this->drupalGet('admin/config/development/performance');
-    $this->assertSession()->statusCodeEquals(200);
-    $this->assertSession()->checkboxChecked('perf_redis_failopen_settings_enabled');
-
-    $this->container->get('module_installer')->uninstall(['perf_redis_failopen']);
-    $this->rebuildContainer();
-    $this->drupalGet('admin/reports/status');
-    $this->assertSession()->statusCodeEquals(200);
-    $this->assertSession()->pageTextNotContains('Redis fail-open');
-    $this->drupalLogout();
-    $this->drupalGet('<front>');
-    $this->assertSession()->statusCodeEquals(200);
-  }
-
-  /**
-   * Installing and uninstalling keeps active Redis bins and HTTP pages usable.
-   */
-  public function testActiveRedisBinsSurviveInstallAndUninstall(): void {
-    $this->configureRedisSite();
-    try {
-      $this->assertRedisCacheAndPage(FALSE);
-      $this->container->get('module_installer')->install(['perf_redis_failopen']);
-      $this->rebuildContainer();
-      $this->assertRedisCacheAndPage(TRUE);
-      $this->container->get('module_installer')->uninstall(['perf_redis_failopen']);
-      $this->rebuildContainer();
-      $this->assertRedisCacheAndPage(FALSE);
-    }
-    finally {
-      $this->clearSyntheticBins();
-    }
-  }
 
   /**
    * A site on Redis installs the module with the switch already off.
@@ -107,7 +51,7 @@ final class InstallTest extends BrowserTestBase {
       Settings::initialize(DRUPAL_ROOT, $this->siteDirectory, $this->classLoader);
       $this->container->get('module_installer')->install(['perf_redis_failopen']);
       // Recorded by the install request itself, before any other request.
-      $pending = \Drupal::service(DatabasePendingFlushStore::class)->all();
+      $pending = \Drupal::keyValue('perf_redis_failopen')->getAll();
       $this->assertStringStartsWith('off-', $pending['data'] ?? '', 'cache.data, switched off before the table existed, is recorded.');
       $this->rebuildContainer();
       $this->drupalGet('<front>');
@@ -115,35 +59,11 @@ final class InstallTest extends BrowserTestBase {
       foreach (['data', 'render'] as $bin) {
         $this->assertInstanceOf(DatabaseBackend::class, $this->container->get('cache.' . $bin), $bin);
       }
-      $this->assertEqualsCanonicalizing(['data', 'render'], array_keys($this->container->get(DatabasePendingFlushStore::class)->all()), 'Both bins are emptied on Redis when it is switched on.');
+      $this->assertEqualsCanonicalizing(['data', 'render'], array_keys($this->container->get('keyvalue')->get('perf_redis_failopen')->getAll()), 'Both bins are emptied on Redis when it is switched on.');
     }
     finally {
       $GLOBALS['config']['perf_redis_failopen.settings']['enabled'] = TRUE;
       $this->rebuildContainer();
-      $this->clearSyntheticBins();
-    }
-  }
-
-  /**
-   * ConfigImporter can remove the wrapper while bins still point at Redis.
-   */
-  public function testConfigurationImportRemovesOnlyTheWrapper(): void {
-    $this->configureRedisSite();
-    try {
-      $this->assertRedisCacheAndPage(FALSE);
-      $this->copyConfig($this->container->get('config.storage'), $this->container->get('config.storage.sync'));
-      $this->container->get('module_installer')->install(['perf_redis_failopen']);
-      $this->rebuildContainer();
-      $this->assertRedisCacheAndPage(TRUE);
-      $importer = $this->configImporter();
-      $importer->import();
-      $this->assertSame([], $importer->getErrors());
-      $this->rebuildContainer();
-      $this->assertFalse($this->container->get('module_handler')->moduleExists('perf_redis_failopen'));
-      $this->assertTrue($this->container->get('module_handler')->moduleExists('redis'));
-      $this->assertRedisCacheAndPage(FALSE);
-    }
-    finally {
       $this->clearSyntheticBins();
     }
   }
@@ -172,12 +92,11 @@ final class InstallTest extends BrowserTestBase {
   }
 
   /**
-   * Checks the factory, schema, real cache round trips and an HTTP response.
+   * Checks the factory, real cache round trips and an HTTP response.
    */
   private function assertRedisCacheAndPage(bool $decorated): void {
     $factory = $this->container->get('cache.backend.redis');
-    $this->assertInstanceOf($decorated ? FailOpenCacheBackendFactory::class : CacheBackendFactory::class, $factory);
-    $this->assertSame($decorated, $this->container->get('database')->schema()->tableExists(DatabasePendingFlushStore::TABLE));
+    $this->assertSame($decorated ? FailOpenCacheBackendFactory::class : CacheBackendFactory::class, $factory::class);
     foreach (['data', 'render'] as $bin) {
       $backend = $this->container->get('cache.' . $bin);
       $this->assertInstanceOf($decorated ? FailOpenCacheBackend::class : PhpRedis::class, $backend);

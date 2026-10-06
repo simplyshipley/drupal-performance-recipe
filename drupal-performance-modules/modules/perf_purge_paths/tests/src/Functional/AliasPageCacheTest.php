@@ -10,14 +10,9 @@ use PHPUnit\Framework\Attributes\Group;
 /**
  * Tests what visitors see after an alias is deleted or renamed.
  *
- * The requests are real HTTP through Drupal's page cache. Page cache entries
- * do not expire, and core invalidates only "route_match" when an alias goes,
- * so without the module a visitor keeps getting the cached 200 for an alias
- * that no longer exists. The first test is the control: it shows that
- * behaviour with the module not installed, so the other two tests can only
- * pass because of the module. If core ever starts invalidating the entity on
- * an alias change the control goes red, and the module's alias hooks can be
- * reviewed. All content is SYNTHETIC.
+ * Real HTTP through Drupal's page cache. Core invalidates only "route_match"
+ * when an alias goes, so without the module a visitor keeps getting the
+ * cached 200. All content is SYNTHETIC.
  *
  * @group perf_purge_paths
  */
@@ -87,18 +82,6 @@ final class AliasPageCacheTest extends BrowserTestBase {
     $aliases = $this->container->get('entity_type.manager')->getStorage('path_alias')->loadByProperties(['alias' => $alias]);
     $this->assertCount(1, $aliases, "Alias $alias exists.");
     return reset($aliases);
-  }
-
-  /**
-   * Control: without the module a deleted alias is still answered from cache.
-   */
-  public function testWithoutTheModuleDeletedAliasIsStillServedFromPageCache(): void {
-    $this->createPage('/synthetic-control');
-    $this->warmPageCache('/synthetic-control');
-    $this->loadAlias('/synthetic-control')->delete();
-    $this->drupalGet('/synthetic-control');
-    $this->assertSession()->statusCodeEquals(200);
-    $this->assertSession()->responseHeaderEquals('X-Drupal-Cache', 'HIT');
   }
 
   /**

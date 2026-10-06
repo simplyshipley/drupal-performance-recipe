@@ -4,39 +4,30 @@ declare(strict_types=1);
 
 namespace Drupal\perf_redis_failopen\Cache;
 
+use Drupal\Core\KeyValueStore\KeyValueFactoryInterface;
+use Drupal\Core\KeyValueStore\KeyValueStoreInterface;
 use Drupal\Core\Site\Settings;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 /**
- * Tracks whether Redis is reachable and what must be flushed on recovery.
+ * Tracks whether Redis is reachable and which bins must be emptied.
  *
- * - Outage state lives in this object (per process) and, when APCu is
- *   available, in APCu so other PHP workers on the same instance skip Redis
- *   until the retry time instead of each paying the connection error.
- * - Warnings are throttled: at most one per log interval (APCu-wide when
- *   available, per process otherwise).
- * - Deletes and invalidations that could not reach Redis are recorded per bin
- *   (one row per bin with a unique token, DatabasePendingFlushStore). When
- *   Redis answers again, the first worker that sees the record empties that
- *   bin and clears the record only if its token is unchanged, so no stale
- *   entry survives the outage and no newer record is lost. Tag
- *   invalidations do not need this: the cache tag checksum stays in the
- *   database.
- * - The pending records are read from the database once per request (one
- *   small indexed SELECT on the first Redis-backed cache use), with no APCu
- *   copy: a healthy instance sees a new record on its next request. Trade-off:
- *   one extra query per request instead of up to 5 s of possibly stale
- *   entries.
- *
- * Settings: perf_redis_failopen_retry_interval (seconds Redis is skipped after
- * an error, default 30) and perf_redis_failopen_log_interval (seconds between
- * warnings, default 60).
+ * - After a Redis error, Redis is skipped for the retry interval (setting
+ *   perf_redis_failopen_retry_interval, default 30 s): in this object and,
+ *   when APCu is available, for every PHP worker on the instance.
+ * - A delete or invalidation that could not reach Redis leaves a note per bin
+ *   in core's key_value store; the next request that reaches Redis empties
+ *   the bin and removes the note. The notes are read once per request (on the
+ *   first use of a Redis bin), not once per bin. A note written while another
+ *   worker empties the same bin can be removed with it (rare; never seen).
  */
 final class RedisHealth {
 
+  /**
+   * APCu key: the time until which Redis is skipped.
+   */
   private const APCU_DOWN = 'perf_redis_failopen:down_until';
-  private const APCU_LOGGED = 'perf_redis_failopen:logged';
 
   /**
    * Unix time until which Redis is treated as down in this process.
@@ -44,16 +35,16 @@ final class RedisHealth {
   private float $downUntil = 0.0;
 
   /**
-   * Unix time of the last warning written by this process.
-   */
-  private float $lastLogged = 0.0;
-
-  /**
-   * Pending flush tokens by bin, read at most once per request.
+   * The notes, bin => note, read at most once per request.
    *
    * @var array<string, string>|null
    */
   private ?array $pending = NULL;
+
+  /**
+   * The key_value collection that holds the notes.
+   */
+  private readonly KeyValueStoreInterface $notes;
 
   /**
    * Seconds Redis is skipped after an error.
@@ -61,37 +52,23 @@ final class RedisHealth {
   private readonly int $retryInterval;
 
   /**
-   * Seconds between two outage warnings.
-   */
-  private readonly int $logInterval;
-
-  /**
    * Constructs a RedisHealth.
    *
-   * @param \Drupal\perf_redis_failopen\Cache\DatabasePendingFlushStore $store
-   *   Where lost deletes and invalidations are recorded.
    * @param \Psr\Log\LoggerInterface $logger
    *   The perf_redis_failopen logger channel.
+   * @param \Drupal\Core\KeyValueStore\KeyValueFactoryInterface $keyValue
+   *   The key_value factory.
    * @param \Drupal\Core\Site\Settings $settings
-   *   The site settings (the two intervals above).
+   *   The site settings (the retry interval).
    */
   public function __construct(
-    private readonly DatabasePendingFlushStore $store,
     #[Autowire(service: 'logger.channel.perf_redis_failopen')]
     private readonly LoggerInterface $logger,
-    private readonly Settings $settings,
+    KeyValueFactoryInterface $keyValue,
+    Settings $settings,
   ) {
+    $this->notes = $keyValue->get('perf_redis_failopen');
     $this->retryInterval = (int) $settings->get('perf_redis_failopen_retry_interval', 30);
-    $this->logInterval = (int) $settings->get('perf_redis_failopen_log_interval', 60);
-  }
-
-  /**
-   * Whether a Redis error is a connection/availability error we absorb.
-   */
-  public static function isRedisError(\Throwable $e): bool {
-    return $e instanceof \RedisException
-      || is_a($e, 'Predis\PredisException')
-      || is_a($e, 'Relay\Exception');
   }
 
   /**
@@ -102,89 +79,59 @@ final class RedisHealth {
     if ($this->downUntil > $now) {
       return TRUE;
     }
-    if (self::apcu()) {
-      $shared = apcu_fetch(self::APCU_DOWN);
-      if (is_float($shared) && $shared > $now) {
-        $this->downUntil = $shared;
-        return TRUE;
-      }
+    $shared = self::apcu() ? apcu_fetch(self::APCU_DOWN) : FALSE;
+    if (is_float($shared) && $shared > $now) {
+      $this->downUntil = $shared;
+      return TRUE;
     }
     return FALSE;
   }
 
   /**
-   * Records an outage and logs a throttled warning.
+   * Records an outage and logs a warning.
    */
-  public function markDown(\Throwable $e, string $bin, string $operation): void {
-    $now = microtime(TRUE);
-    $this->downUntil = $now + $this->retryInterval;
+  public function markDown(\RedisException $e, string $bin, string $operation): void {
+    $this->downUntil = microtime(TRUE) + $this->retryInterval;
     if (self::apcu()) {
       apcu_store(self::APCU_DOWN, $this->downUntil, $this->retryInterval);
     }
-    $log = self::apcu()
-      ? apcu_add(self::APCU_LOGGED, TRUE, $this->logInterval)
-      : ($now - $this->lastLogged >= $this->logInterval);
-    if ($log) {
-      $this->lastLogged = $now;
-      $this->logger->warning('Redis unavailable at @target, serving cache misses for @retry s (bin @bin, @op): @class: @message', [
-        '@target' => $this->target(),
-        '@retry' => $this->retryInterval,
-        '@bin' => $bin,
-        '@op' => $operation,
-        '@class' => get_class($e),
-        '@message' => $e->getMessage(),
-      ]);
-    }
-  }
-
-  /**
-   * Records that a delete/invalidate for a bin was lost.
-   *
-   * @param string $bin
-   *   The cache bin.
-   * @param string $prefix
-   *   Starts the record's token, so a reader can tell who wrote it.
-   */
-  public function recordLostWrite(string $bin, string $prefix = ''): void {
-    $this->store->record($bin, $prefix);
-    // Force a re-read so this process flushes on its next successful use.
-    $this->pending = NULL;
-  }
-
-  /**
-   * Returns the pending-flush token for a bin, or NULL if none.
-   */
-  public function pendingToken(string $bin): ?string {
-    $this->pending ??= $this->store->all();
-    return $this->pending[$bin] ?? NULL;
-  }
-
-  /**
-   * Clears the record for a bin after it was emptied.
-   *
-   * Only the record with the token that was read is removed; a newer record
-   * stays and causes another flush.
-   */
-  public function flushDone(string $bin, string $token): void {
-    $cleared = $this->store->clear($bin, $token);
-    unset($this->pending[$bin]);
-    $this->logger->notice('Redis reachable again; emptied bin @bin because writes were lost during the outage@newer.', [
+    $this->logger->warning('Redis unavailable, serving cache misses for @retry s (bin @bin, @op): @message', [
+      '@retry' => $this->retryInterval,
       '@bin' => $bin,
-      '@newer' => $cleared ? '' : ' (a newer record exists and will trigger another flush)',
+      '@op' => $operation,
+      '@message' => $e->getMessage(),
     ]);
   }
 
   /**
-   * Returns the configured Redis address for the log, never the password.
+   * Leaves a note that a bin must be emptied on Redis.
    *
-   * A mismatch between the site and the server (plain against TLS, the wrong
-   * port, a changed host name) is easiest to see when the log names the
-   * address the site is trying, with its tls:// prefix if it has one.
+   * @param string $bin
+   *   The cache bin.
+   * @param string $prefix
+   *   The note, so a reader can tell who wrote it.
    */
-  private function target(): string {
-    $connection = $this->settings->get('redis.connection', []);
-    $host = $connection['host'] ?? 'localhost';
-    return (is_array($host) ? implode(',', array_map('strval', $host)) : (string) $host) . ':' . ($connection['port'] ?? 6379);
+  public function recordLostWrite(string $bin, string $prefix = ''): void {
+    $this->notes->set($bin, $prefix);
+    // Read again, so this process empties the bin on its next use of Redis.
+    $this->pending = NULL;
+  }
+
+  /**
+   * Returns the note for a bin, or NULL if it needs no emptying.
+   */
+  public function pendingToken(string $bin): ?string {
+    $this->pending ??= $this->notes->getAll();
+    return $this->pending[$bin] ?? NULL;
+  }
+
+  /**
+   * Removes the note of a bin that was just emptied.
+   */
+  public function flushDone(string $bin): void {
+    $this->notes->delete($bin);
+    unset($this->pending[$bin]);
+    $this->logger->notice('Redis reachable again; emptied bin @bin because writes were lost during the outage.', ['@bin' => $bin]);
   }
 
   /**

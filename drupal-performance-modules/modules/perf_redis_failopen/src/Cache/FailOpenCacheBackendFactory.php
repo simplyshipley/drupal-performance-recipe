@@ -6,7 +6,6 @@ namespace Drupal\perf_redis_failopen\Cache;
 
 use Drupal\Core\Cache\CacheBackendInterface;
 use Drupal\Core\Cache\CacheFactoryInterface;
-use Drupal\Core\Site\Settings;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\DependencyInjection\Attribute\AutowireDecorated;
 use Symfony\Component\DependencyInjection\Attribute\AutowireServiceClosure;
@@ -19,16 +18,11 @@ use Symfony\Component\DependencyInjection\Attribute\AutowireServiceClosure;
  * inside get(), so the wrapper calls it lazily and catches connection errors
  * there too.
  *
- * Two switches:
- * - The config perf_redis_failopen.settings:enabled (TRUE when installed)
- *   keeps the Redis bins off Redis when FALSE: they use core's database
- *   backend. An environment sets it in settings.php:
- *   $config['perf_redis_failopen.settings']['enabled'] = FALSE;
- *   See isRedisOn().
- * - The setting perf_redis_failopen_enabled (env PERF_REDIS_FAILOPEN, default
- *   on) switches only the wrapper off without uninstalling the module: the
- *   plain Redis backends are returned, so a Redis outage is an HTTP 500 again.
- *   It exists for the tests that prove the wrapper matters.
+ * The config perf_redis_failopen.settings:enabled (TRUE when installed)
+ * keeps the Redis bins off Redis when FALSE: they use core's database
+ * backend. An environment sets it in settings.php:
+ * $config['perf_redis_failopen.settings']['enabled'] = FALSE;
+ * See isRedisOn().
  */
 final class FailOpenCacheBackendFactory implements CacheFactoryInterface {
 
@@ -56,11 +50,6 @@ final class FailOpenCacheBackendFactory implements CacheFactoryInterface {
   private array $bins = [];
 
   /**
-   * Whether the fail-open wrapper is active (perf_redis_failopen_enabled).
-   */
-  private readonly bool $failOpen;
-
-  /**
    * The config switch, read on first use.
    */
   private ?bool $redisOn = NULL;
@@ -72,8 +61,6 @@ final class FailOpenCacheBackendFactory implements CacheFactoryInterface {
    *   The decorated cache.backend.redis factory.
    * @param \Drupal\perf_redis_failopen\Cache\RedisHealth $health
    *   Shared outage state for all bins in this process.
-   * @param \Drupal\Core\Site\Settings $settings
-   *   The site settings (perf_redis_failopen_enabled).
    * @param \Drupal\Core\Cache\CacheFactoryInterface $database
    *   Core's database cache factory, used while Redis is switched off.
    * @param \Closure $configFactory
@@ -83,14 +70,11 @@ final class FailOpenCacheBackendFactory implements CacheFactoryInterface {
     #[AutowireDecorated]
     private readonly CacheFactoryInterface $inner,
     private readonly RedisHealth $health,
-    Settings $settings,
     #[Autowire(service: 'cache.backend.database')]
     private readonly CacheFactoryInterface $database,
     #[AutowireServiceClosure('config.factory')]
     private readonly \Closure $configFactory,
-  ) {
-    $this->failOpen = (bool) $settings->get('perf_redis_failopen_enabled', TRUE);
-  }
+  ) {}
 
   /**
    * {@inheritdoc}
@@ -98,9 +82,6 @@ final class FailOpenCacheBackendFactory implements CacheFactoryInterface {
   public function get($bin): CacheBackendInterface {
     if (!in_array($bin, self::CONFIG_BINS, TRUE) && !$this->isRedisOn()) {
       return $this->databaseBin($bin);
-    }
-    if (!$this->failOpen) {
-      return $this->inner->get($bin);
     }
     return $this->bins[$bin] ??= new FailOpenCacheBackend($bin, $this->inner, $this->health);
   }

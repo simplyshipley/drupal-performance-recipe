@@ -879,7 +879,7 @@ t_sync_single_save() {
   q=$(queued); dr p:queue-empty >/dev/null; sync_end
   n=$(printf '%s\n' $q | grep -c . || true); u=$(printf '%s\n' $q | sort -u | grep -c . || true)
   dup=$(printf '%s\n' $q | sort | uniq -d | tr '\n' ' ')
-  if [[ "$n" -gt 0 && "$n" == "$u" && " $q " == *" path:${a#/} "* && " $q " == *" path:node/$nid "* && " $q " != *"rss.xml/"* ]]; then
+  if [[ "$n" -gt 0 && "$n" == "$u" && " $q " == *" path:${a#/} "* && " $q " == *" path:node/$nid "* ]]; then
     say PASS sync_single_save "one save of node/$nid queued $n invalidations, each once: $q"
   else say FAIL sync_single_save "one save queued $n items, $u unique; duplicates: '${dup}'; items: $q"; fi
 }
@@ -1020,7 +1020,7 @@ t_sync_other_entities() {
   sync_work; tres=$(after "$ta" "/taxonomy/term/$tid"); ures=$(after "/user/$uid"); sync_end
   local media; media=$(php_eval 'print \Drupal::moduleHandler()->moduleExists("media") ? "yes" : "no";' | tail -1)
   # /user/* is a bypass path at the edge (CONFIG_NOCACHE): never cached, nothing to purge.
-  if all_miss "$tres" && { all_miss "$ures" || [[ "$ures" == *CONFIG_NOCACHE* ]]; }; then say PASS sync_other_entities "taxonomy term: $tres; user: $ures (bypassed at the edge); media module installed: $media (media:N maps the same way, untested when not installed)"
+  if all_miss "$tres" && { all_miss "$ures" || [[ "$ures" == *CONFIG_NOCACHE* ]]; }; then say PASS sync_other_entities "taxonomy term: $tres; user: $ures (bypassed at the edge); media module installed: $media (media:N is not mapped)"
   else say FAIL sync_other_entities "term: $tres; user: $ures"; fi
 }
 

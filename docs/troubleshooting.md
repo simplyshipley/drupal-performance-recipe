@@ -5,21 +5,22 @@
 With the default settings a Redis outage is absorbed by `modules/perf_redis_failopen`
 [V: redis_down PASS in both labs: home, node and login 200, Drush works, one warning logged].
 
-- Log: `perf_redis_failopen` warning "Redis unavailable, serving cache misses for 30 s ..." at
-  most once per `PERF_REDIS_LOG_INTERVAL` (60 s) per instance [V: 1 entry for a whole lab
-  outage].
+- Log: `perf_redis_failopen` warning "Redis unavailable, serving cache misses for 30 s ..." once
+  per outage detection, so about once per retry interval per instance (the APCu outage state)
+  [V: redis_down, 1 warning, tmp/jrock-cut/13-ddev-suite.log].
 - Recovery: Redis is retried after `PERF_REDIS_RETRY_INTERVAL` (30 s; lab 5 s) and pages are
   cached in Redis again [V: redis_recover]. If a delete or invalidation was lost during the
   outage, the first request after recovery empties that bin (notice "Redis reachable again;
   emptied bin ...") so no stale entry survives [V: unit test].
-- Pending flushes are one `key_value` row per bin (`perf_redis_failopen` /
-  `flush_pending:<bin>`) with a token; they are read from MySQL once per request (no APCu copy,
-  so no stale window; cost: one small query per request).
-- Slow first request after Redis hangs: expected, bounded by `PERF_REDIS_CONNECT_TIMEOUT` +
-  `PERF_REDIS_READ_TIMEOUT` once per retry window per PHP-FPM instance [V: redis_hang].
-- If it still returns HTTP 500 with `RedisException`: check that `PERF_REDIS_FAILOPEN` is not
-  `0`, that `REDIS_LOCK_FLOOD_TAGS` is not `1` (those services are not wrapped), and run
-  `drush cr` after changing either (the service container must be rebuilt).
+- Pending flushes are one `key_value` row per bin (collection `perf_redis_failopen`, key = the
+  bin). They are read from MySQL once per request, not once per bin (no APCu copy, so no stale
+  window; cost: one small query per request) [V: tmp/jrock-cut/12-query-count-after-warm.log].
+- Slow first request after Redis hangs: expected, bounded by the module's 2 s connect and read
+  timeout once per retry window per PHP-FPM instance [V: redis_hang 2.04 s,
+  tmp/jrock-cut/13-ddev-suite.log].
+- If it still returns HTTP 500 with `RedisException`: check that the `perf_redis_failopen`
+  module is installed, that `REDIS_LOCK_FLOOD_TAGS` is not `1` (those services are not wrapped),
+  and run `drush cr` after changing it (the service container must be rebuilt).
 - The redis module's own report page `/admin/reports/redis` talks to Redis directly and is not
   wrapped [ASSUMED: it may error while Redis is down; admin only]. The status report only
   shows "Not connected" [V: redis.install].

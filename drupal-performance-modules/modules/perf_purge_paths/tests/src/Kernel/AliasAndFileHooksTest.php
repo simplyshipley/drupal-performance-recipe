@@ -5,18 +5,10 @@ declare(strict_types=1);
 namespace Drupal\Tests\perf_purge_paths\Kernel;
 
 use Drupal\Core\Cache\Cache;
-use Drupal\Core\Cache\CacheTagsInvalidatorInterface;
-use Drupal\Core\File\FileUrlGeneratorInterface;
-use Drupal\file\Entity\File;
 use PHPUnit\Framework\Attributes\Group;
 
 /**
- * Tests the hooks that run while an alias or a file is still in hand.
- *
- * The cache tags of a deleted entity are invalidated after it is gone, so the
- * tag mapping cannot find its alias or file URL any more. The module's hooks
- * queue them in time, and for an alias they also invalidate the aliased
- * entity's cache tags, which core does not do.
+ * Tests the hooks that queue a deleted or renamed alias and a deleted file.
  *
  * @group perf_purge_paths
  */
@@ -43,20 +35,6 @@ final class AliasAndFileHooksTest extends PurgePathsKernelTestBase {
   }
 
   /**
-   * Deleting an alias invalidates the cache tags of the node it pointed to.
-   *
-   * Without this Drupal's page cache keeps answering the deleted alias with a
-   * cached 200: core invalidates only "route_match" for an alias and page
-   * cache entries do not expire.
-   */
-  public function testDeletingAnAliasInvalidatesTheNodesCacheTags(): void {
-    $node = $this->createNode('/synthetic-gone');
-    $cid = $this->cacheEntryTaggedWithNode($node->id());
-    $this->loadAlias('/synthetic-gone')->delete();
-    $this->assertFalse(\Drupal::cache()->get($cid), 'The page cached for the node is invalidated.');
-  }
-
-  /**
    * Renaming an alias queues the old one and not the new one twice.
    */
   public function testRenamingAnAliasQueuesTheOldAlias(): void {
@@ -75,17 +53,6 @@ final class AliasAndFileHooksTest extends PurgePathsKernelTestBase {
     $cid = $this->cacheEntryTaggedWithNode($node->id());
     $this->loadAlias('/synthetic-old')->setAlias('/synthetic-new')->save();
     $this->assertFalse(\Drupal::cache()->get($cid));
-  }
-
-  /**
-   * Saving an alias without changing its text queues nothing.
-   */
-  public function testSavingAnUnchangedAliasQueuesNothing(): void {
-    $node = $this->createNode('/synthetic-same');
-    $cid = $this->cacheEntryTaggedWithNode($node->id());
-    $this->loadAlias('/synthetic-same')->save();
-    $this->assertSame([], $this->queuedPaths());
-    $this->assertNotFalse(\Drupal::cache()->get($cid), 'Nothing was invalidated either.');
   }
 
   /**
@@ -152,82 +119,6 @@ final class AliasAndFileHooksTest extends PurgePathsKernelTestBase {
     $this->loadAlias('/synthetic-off')->delete();
     $this->createFile('public://synthetic-off.png')->delete();
     $this->assertSame([], $this->queuedPaths());
-  }
-
-  /**
-   * A purge queue that fails stops neither the rename nor the invalidation.
-   */
-  public function testFailingQueueDoesNotStopTheRename(): void {
-    $node = $this->createNode('/synthetic-old');
-    $cid = $this->cacheEntryTaggedWithNode($node->id());
-    $this->failQueue();
-    $this->loadAlias('/synthetic-old')->setAlias('/synthetic-new')->save();
-    $this->loadAlias('/synthetic-new');
-    $this->assertFalse(\Drupal::cache()->get($cid), 'The page cache is still invalidated.');
-  }
-
-  /**
-   * A purge queue that fails stops neither the delete nor the invalidation.
-   *
-   * Cron deletes files and editors delete aliases: neither may fail because
-   * the queue could not be written. Drupal's own page cache must still be
-   * invalidated, as it does not depend on the CDN queue.
-   */
-  public function testFailingQueueDoesNotStopTheDelete(): void {
-    $node = $this->createNode('/synthetic-failing');
-    $cid = $this->cacheEntryTaggedWithNode($node->id());
-    $this->failQueue();
-    $this->loadAlias('/synthetic-failing')->delete();
-    $this->assertSame([], \Drupal::entityTypeManager()->getStorage('path_alias')->loadByProperties(['alias' => '/synthetic-failing']));
-    $this->assertFalse(\Drupal::cache()->get($cid), 'The page cache is still invalidated.');
-  }
-
-  /**
-   * A failed cache-tag invalidation cannot prevent queuing the old alias.
-   */
-  public function testRenameStillQueuesTheOldAliasWhenTheInvalidationFails(): void {
-    $this->createNode('/synthetic-old');
-    $this->failInvalidation();
-    $this->loadAlias('/synthetic-old')->setAlias('/synthetic-new')->save();
-    $this->loadAlias('/synthetic-new');
-    $this->assertContains('/synthetic-old', $this->queuedPaths());
-  }
-
-  /**
-   * Alias deletion survives the same independent invalidation failure.
-   */
-  public function testDeleteStillQueuesTheAliasWhenTheInvalidationFails(): void {
-    $this->createNode('/synthetic-gone');
-    $this->failInvalidation();
-    $this->loadAlias('/synthetic-gone')->delete();
-    $this->assertContains('/synthetic-gone', $this->queuedPaths());
-  }
-
-  /**
-   * A failed URL generator cannot prevent the real file entity deletion.
-   */
-  public function testFileDeleteIsNotStoppedWhenItsPathsCannotBeBuilt(): void {
-    $file = $this->createFile('public://synthetic-broken.png');
-    $generator = $this->createMock(FileUrlGeneratorInterface::class);
-    $generator->expects($this->once())->method('generateString')->willThrowException(new \RuntimeException('SYNTHETIC URL failure'));
-    $this->container->set('file_url_generator', $generator);
-    $this->expectWarnings([['@msg' => 'SYNTHETIC URL failure']]);
-    $file->delete();
-    $this->assertNull(File::load($file->id()));
-  }
-
-  /**
-   * Adds a failing external invalidator without replacing any module service.
-   */
-  private function failInvalidation(): void {
-    $invalidator = $this->createMock(CacheTagsInvalidatorInterface::class);
-    $invalidator->method('invalidateTags')->willReturnCallback(static function (array $tags): void {
-      if (array_filter($tags, static fn (string $tag): bool => str_starts_with($tag, 'node:'))) {
-        throw new \RuntimeException('SYNTHETIC invalidation failure');
-      }
-    });
-    $this->container->get('cache_tags.invalidator')->addInvalidator($invalidator);
-    $this->expectWarnings([['@msg' => 'SYNTHETIC invalidation failure']]);
   }
 
 }

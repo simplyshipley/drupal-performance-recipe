@@ -12,7 +12,7 @@
 #                                    local edge)
 #
 # The mode is written to <site dir>/perf-cache-mode, which
-# settings.performance.php reads (it wins over PERF_CACHE_MODE). Core's
+# example.settings.local-lab.php reads (it wins over PERF_CACHE_MODE). Core's
 # "Development settings" page (/admin/config/development/settings) stores
 # its Twig/cache toggles in key_value "development_settings"; this script sets
 # them to match the mode so the admin page and the mode never disagree.
