@@ -106,6 +106,9 @@ final class InstallTest extends BrowserTestBase {
       ]);
       Settings::initialize(DRUPAL_ROOT, $this->siteDirectory, $this->classLoader);
       $this->container->get('module_installer')->install(['perf_redis_failopen']);
+      // Recorded by the install request itself, before any other request.
+      $pending = \Drupal::service(DatabasePendingFlushStore::class)->all();
+      $this->assertStringStartsWith('off-', $pending['data'] ?? '', 'cache.data, switched off before the table existed, is recorded.');
       $this->rebuildContainer();
       $this->drupalGet('<front>');
       $this->assertSession()->statusCodeEquals(200);

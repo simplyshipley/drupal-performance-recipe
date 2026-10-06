@@ -97,6 +97,29 @@ final class DatabasePendingFlushStoreTest extends KernelTestBase {
   public function testMissingTableMeansNothingIsPending(): void {
     $this->container->get('database')->schema()->dropTable(DatabasePendingFlushStore::TABLE);
     $this->assertSame([], $this->store->all());
+    $this->assertTrue($this->store->clear('render', 'synthetic-token'), 'Nothing is left to clear.');
+  }
+
+  /**
+   * A record made before the table exists is written by hook_install().
+   *
+   * Core creates cache bins before it creates the module's table
+   * (ModuleInstaller::install() builds the route provider, which needs
+   * cache.data, before installSchema()), so a bin switched off, or a delete
+   * lost to an outage, in that moment cannot be written yet.
+   */
+  public function testRecordMadeBeforeTheTableExistsIsWrittenOnInstall(): void {
+    $this->container->get('database')->schema()->dropTable(DatabasePendingFlushStore::TABLE);
+    $this->store->record('data', 'off-');
+    $this->installSchema('perf_redis_failopen', [DatabasePendingFlushStore::TABLE]);
+    $before = $this->store->all();
+    $this->assertSame([], $before);
+
+    $this->container->get('module_handler')->loadInclude('perf_redis_failopen', 'install');
+    \perf_redis_failopen_install();
+    $all = $this->store->all();
+    $this->assertSame(['data'], array_keys($all));
+    $this->assertStringStartsWith('off-', $all['data']);
   }
 
 }

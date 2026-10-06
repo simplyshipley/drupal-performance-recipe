@@ -78,6 +78,7 @@ There is no upgrade path. Apply this recipe to a site that has not run an older 
    - Do not run `composer update <recipe> -W`: it pulled Twig 3.30.0 and broke every page.
 4. Include the settings file after `$databases` in `settings.php`, as the last include: [install.md](install.md#4-include-the-settings-file).
    - To switch purging or Redis off for one environment (local, QA, Prod), add the `$config[...]` lines in [install.md](install.md#8-turn-caching-off-per-environment) to its `settings.php`.
+   - Switching Redis later is a deploy step: change the line, deploy, `drush cr` ([install.md](install.md#8-turn-caching-off-per-environment)).
 5. Apply the recipe: `drush recipe ../recipes/drupal-performance-recipe`, then `drush cr` and `drush cron` (writes the Themed Fast 404 static page).
    Check: `drush cget azure_cdn_purge.settings` shows `endpoint_type: afdEndpoints`.
 6. Optional: purge deleted and renamed aliases and deleted files. Copy the module, then enable it: `cp -R recipes/drupal-performance-recipe/modules/perf_purge_deleted web/modules/custom/` and `drush en perf_purge_deleted -y` ([install.md](install.md#optional-purge-deleted-aliases-and-files)).
@@ -179,7 +180,7 @@ Proposed, not yet run on Azure. Use a non-production subscription. Each check mi
 5. Roll back:
    - Redis image: redeploy the Bicep with the previous `redisImage`. The cache holds no persistent data (`save ""`, `appendonly no`).
    - Purge: `$config['perf_purge_paths.settings']['enabled'] = FALSE;` in `settings.php` ([install.md](install.md#8-turn-caching-off-per-environment)).
-   - Redis off: `$config['perf_redis_failopen.settings']['enabled'] = FALSE;` (the bins use the database), or unset `REDIS_HOST`, then `drush cr` (untested: the no-Redis path was not run in the lab).
+   - Redis off: `$config['perf_redis_failopen.settings']['enabled'] = FALSE;` in `settings.php` (the bins use the database), deploy, then `drush cr` ([install.md](install.md#8-turn-caching-off-per-environment)). Unsetting `REDIS_HOST` instead is untested: the no-Redis path was not run in the lab.
    - Patches and recipe: revert the Composer change and redeploy.
 
 ## Phase 6: Open decisions and gaps

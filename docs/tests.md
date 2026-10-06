@@ -77,7 +77,7 @@ without the module stays green. Each one first checks that the URLs were cached 
 
 | Test | What it does | PASS means | Lab result |
 |---|---|---|---|
-| `sync_alias_delete` | Deletes only the `path_alias` entity of a SYNTHETIC node (the node stays), works the queue | `alias` and `alias/` go `TCP_HIT` → `TCP_MISS`. The status stays 200: Drupal's page cache still serves the alias ([cache-sync.md](cache-sync.md#open-decisions-for-bo)) | Module on: PASS. Module off: FINDING [V: tmp/lando-deleted-on.log, tmp/lando-deleted-off.log] |
+| `sync_alias_delete` | Deletes only the `path_alias` entity of a SYNTHETIC node (the node stays), works the queue | `alias` and `alias/` were `TCP_HIT` before; after, neither comes from the edge cache and each is fresh (`TCP_MISS`) or a 404 (Bo's ruling x, 2026-10-06). With the module Drupal answers 404 (`PRIVATE_NOSTORE/404`) | Module on: PASS. Module off: FINDING [V: tmp/lando-deleted-on.log, tmp/lando-deleted-off.log] |
 | `sync_file_delete` | Creates a SYNTHETIC public PNG file entity, caches the file and one image-style URL at the edge, deletes the entity, works the queue | Both URLs answer 404 and none is `TCP_HIT` | Module on: PASS. Module off: FINDING |
 | `sync_file_swap` | Creates a node with a SYNTHETIC image, caches the old file and its image-style URL, swaps the image for a second file, then deletes the old file entity (what cron does with an unused file) | Old URLs answer 404, none `TCP_HIT`; the new file answers 200 with the right bytes (md5) | Module on: PASS. Module off: FINDING |
 

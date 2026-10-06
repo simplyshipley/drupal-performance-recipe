@@ -844,6 +844,9 @@ deleted_mod() { php_eval 'print \Drupal::moduleHandler()->moduleExists("perf_pur
 hits() { grep -o 'TCP_HIT/200 ' <<<"$1" | grep -c .; }
 # gone <result> <n>: all n URLs answered 404 and none came from the edge cache.
 gone() { [[ "$1" != *TCP_HIT* && "$(grep -o '/404 ' <<<"$1" | grep -c .)" == "$2" ]]; }
+# fresh_or_404 <result> <n>: none of the n URLs came from the edge cache, and each
+# is fresh from the origin (TCP_MISS) or a 404.
+fresh_or_404() { [[ "$1" != *TCP_HIT* && "$(grep -oE '=(TCP_MISS/[0-9]+|[A-Z_]+/404) ' <<<"$1" | grep -c .)" == "$2" ]]; }
 # new_png <name>: a SYNTHETIC public PNG (unique bytes) as a permanent managed
 # file public://synthetic-sync-<name>.png; prints "<fid> <md5 of the bytes>".
 new_png() {
@@ -924,6 +927,9 @@ t_sync_delete() {
 # "route_match" for an alias, and Drupal's page cache entries do not expire, so
 # without the perf_purge_paths alias hook (which also invalidates the aliased
 # entity's tags) Drupal keeps answering 200 for the deleted alias.
+# Bo's ruling x (2026-10-06): "Pass when no URL is served from the edge cache and
+# each is fresh or a 404." The alias hook also makes Drupal answer 404 (not
+# cacheable at the edge), so "HIT -> MISS" was too narrow.
 t_sync_alias_delete() {
   local r nid a on pre res
   sync_begin; r=$(rnd); a="/synthetic-sync-adel-$r"; on=$(deleted_mod)
@@ -931,7 +937,7 @@ t_sync_alias_delete() {
   sphp "\$s = \Drupal::entityTypeManager()->getStorage('path_alias'); \$s->delete(\$s->loadByProperties(['alias' => '$a']));" >/dev/null
   sync_work; res=$(after "$a" "$a/"); sync_end
   if [[ "$(hits "$pre")" != 2 ]]; then say FAIL sync_alias_delete "alias and alias/ were not both cached at the edge before the delete, so this proves nothing: $pre"
-  elif all_miss "$res"; then say PASS sync_alias_delete "path_alias of node/$nid deleted: alias and alias/ purged at the edge (HIT -> MISS): $res (before: $pre; perf_purge_paths $on)"
+  elif fresh_or_404 "$res" 2; then say PASS sync_alias_delete "path_alias of node/$nid deleted: alias and alias/ no longer served from the edge cache, each fresh or a 404: $res (before: $pre; perf_purge_paths $on)"
   elif [[ "$res" == *TCP_HIT* && "$on" == off ]]; then say FINDING sync_alias_delete "deleted alias is still served from the edge until its TTL: $res. Fix: install the perf_purge_paths module (docs/cache-sync.md)"
   else say FAIL sync_alias_delete "perf_purge_paths $on: alias deleted, after queue-work: $res (before: $pre)"; fi
 }

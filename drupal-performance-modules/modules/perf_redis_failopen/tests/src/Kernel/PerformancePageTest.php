@@ -38,20 +38,25 @@ final class PerformancePageTest extends KernelTestBase {
   }
 
   /**
-   * The Performance page saves the switch, and the cache factory follows it.
+   * The Performance page shows the switch and never changes it.
+   *
+   * Bo's ruling ix (2026-10-06): "Switching Redis is a deploy step: set it per
+   * environment in settings.php, then empty both caches (Redis and database)
+   * with one command. On the Performance page the Redis switch shows its
+   * state; changes go through settings.php."
    */
-  public function testThePerformancePageSwitchesRedisOff(): void {
-    $section = $this->container->get('form_builder')->getForm(PerformanceForm::class)['perf_redis_failopen'];
-    $this->assertSame('perf_redis_failopen.settings:enabled', $section['perf_redis_failopen_settings_enabled']['#config_target']);
-    $this->assertTrue((bool) $section['perf_redis_failopen_settings_enabled']['#default_value']);
+  public function testThePerformancePageShowsTheSwitchAndDoesNotChangeIt(): void {
+    $checkbox = $this->container->get('form_builder')->getForm(PerformanceForm::class)['perf_redis_failopen']['perf_redis_failopen_settings_enabled'];
+    $this->assertTrue($checkbox['#checked']);
+    $this->assertTrue($checkbox['#disabled']);
 
     // NULL is how a programmatic submission leaves a checkbox unchecked.
     $form_state = (new FormState())->setValues(['perf_redis_failopen_settings_enabled' => NULL]);
     $this->container->get('form_builder')->submitForm(PerformanceForm::class, $form_state);
     $this->assertSame([], $form_state->getErrors());
-    $this->assertFalse($this->config('perf_redis_failopen.settings')->get('enabled'));
+    $this->assertTrue($this->config('perf_redis_failopen.settings')->get('enabled'));
     $this->container->set('perf_redis_failopen.cache_factory', NULL);
-    $this->assertFalse($this->container->get('perf_redis_failopen.cache_factory')->isRedisOn());
+    $this->assertTrue($this->container->get('perf_redis_failopen.cache_factory')->isRedisOn());
   }
 
   /**

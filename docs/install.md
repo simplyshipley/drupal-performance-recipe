@@ -134,9 +134,10 @@ See [azure.md](azure.md) for production and [ddev.md](ddev.md) / [lando.md](land
 
 ## 8. Turn caching off per environment
 
-Both custom modules have an on/off switch on the Performance page
+Both custom modules show an on/off switch on the Performance page
 (`admin/config/development/performance`). To switch one off for one environment, add its line
 to that environment's `settings.php`. The Performance page then shows that value, overridden and read-only.
+The Redis switch is always read-only there: switching Redis is a deploy step.
 
 ```php
 // Local (example): no Front Door purges, no Redis.
@@ -148,8 +149,21 @@ $config['perf_purge_paths.settings']['enabled'] = FALSE;
 ```
 
 - Purge off: no paths are queued. azure_cdn_purge's own node hook stays removed while the module is installed.
-- Redis off: the Redis bins use the database. Each switch, off or on, empties the bins once.
+- Redis off: the Redis bins use the database.
   `bootstrap`, `config` and `discovery` stay on Redis if `REDIS_BINS` lists them (Drupal reads them to load this setting).
+
+**Switch Redis off or on (deploy step):**
+
+1. Add or remove the Redis line in that environment's `settings.php`.
+2. Deploy.
+3. Run `drush cr`.
+
+- `drush cr` empties the bins where they live now: the database after switching off, Redis after switching on.
+- The module empties the other copy at the switch: the first request after it empties the database copy, or
+  Redis, once [V: tmp/jrock-build3/06-drush-cr-probe-ddev.log].
+- Short window: requests already running when the deploy goes live finish on the old setting. If one of them
+  saves content at that moment, the cache now in use can keep an old copy of it. `drush cr` removes it; run it
+  again after a minute if editors were saving during the deploy.
 
 ## Optional: remove dblog
 

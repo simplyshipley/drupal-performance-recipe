@@ -15,12 +15,12 @@ use Drupal\Core\Database\DatabaseExceptionWrapper;
  * - clear() deletes only when the stored token is still the one the flusher
  *   read, so a record written after the flush started survives and triggers
  *   another flush.
- * - all() and record() treat a missing table as "nothing pending" and
- *   "nothing to record". The decorator that uses this store is live for a
- *   moment before the table exists (module install: core creates cache.data
- *   before installSchema()) and after it is dropped (module uninstall), and a
- *   request in that moment must not fail. A bin switched off during the
- *   install is recorded by the next request.
+ * - A missing table is not an error. The decorator that uses this store is
+ *   live for a moment before the table exists (module install: core creates
+ *   cache.data before installSchema()) and after it is dropped (module
+ *   uninstall), and a request in that moment must not fail. all() and clear()
+ *   then find nothing; record() keeps the record, and hook_install() writes
+ *   it once the table exists (writeKept()).
  */
 final class DatabasePendingFlushStore {
 
@@ -28,6 +28,13 @@ final class DatabasePendingFlushStore {
    * The table created by perf_redis_failopen_schema().
    */
   public const TABLE = 'perf_redis_failopen_flush';
+
+  /**
+   * Records made while the table did not exist: token prefix by bin.
+   *
+   * @var array<string, string>
+   */
+  private array $kept = [];
 
   /**
    * Constructs a DatabasePendingFlushStore.
@@ -58,6 +65,18 @@ final class DatabasePendingFlushStore {
       if ($this->connection->schema()->tableExists(self::TABLE)) {
         throw $e;
       }
+      $this->kept[$bin] = $prefix;
+    }
+  }
+
+  /**
+   * Writes the records kept while the table did not exist (hook_install()).
+   */
+  public function writeKept(): void {
+    $kept = $this->kept;
+    $this->kept = [];
+    foreach ($kept as $bin => $prefix) {
+      $this->record($bin, $prefix);
     }
   }
 
@@ -86,13 +105,22 @@ final class DatabasePendingFlushStore {
    * Deletes the record for a bin only if it still carries $token.
    *
    * @return bool
-   *   TRUE if the record was deleted, FALSE if it changed meanwhile.
+   *   TRUE if the record was deleted (or the table is gone), FALSE if it
+   *   changed meanwhile.
    */
   public function clear(string $bin, string $token): bool {
-    return (bool) $this->connection->delete(self::TABLE)
-      ->condition('bin', $bin)
-      ->condition('token', $token)
-      ->execute();
+    try {
+      return (bool) $this->connection->delete(self::TABLE)
+        ->condition('bin', $bin)
+        ->condition('token', $token)
+        ->execute();
+    }
+    catch (DatabaseExceptionWrapper $e) {
+      if ($this->connection->schema()->tableExists(self::TABLE)) {
+        throw $e;
+      }
+      return TRUE;
+    }
   }
 
 }
