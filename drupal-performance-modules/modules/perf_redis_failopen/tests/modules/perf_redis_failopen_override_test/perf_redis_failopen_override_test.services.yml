@@ -1,0 +1,6 @@
+services:
+  perf_redis_failopen_override_test.config_override:
+    class: Drupal\perf_redis_failopen_override_test\CacheDataConfigOverride
+    arguments: ['@cache.data']
+    tags:
+      - { name: config.factory.override }

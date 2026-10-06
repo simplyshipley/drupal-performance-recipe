@@ -7,15 +7,12 @@ namespace Drupal\Tests\perf_redis_failopen\Kernel;
 use ColinODell\PsrTestLogger\TestLogger;
 use Drupal\Core\Cache\CacheBackendInterface;
 use Drupal\Core\Cache\CacheFactoryInterface;
-use Drupal\Core\Cache\DatabaseBackend;
 use Drupal\Core\Entity\EntityStorageInterface;
 use Drupal\Core\KeyValueStore\KeyValueStoreInterface;
 use Drupal\KernelTests\KernelTestBase;
-use Drupal\perf_redis_failopen\Cache\FailOpenCacheBackend;
 use Drupal\perf_redis_failopen\Cache\RedisHealth;
 use Drupal\perf_redis_failopen_test\FailingCacheBackend;
 use Drupal\perf_redis_failopen_test\FailingCacheFactory;
-use Drupal\redis\ClientFactory;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 
@@ -54,36 +51,42 @@ final class FailOpenCacheTest extends KernelTestBase {
    */
   protected function setUp(): void {
     parent::setUp();
-    if (function_exists('apcu_clear_cache')) {
-      apcu_clear_cache();
-    }
     $this->store = $this->container->get('keyvalue')->get('perf_redis_failopen');
     $this->logger = new TestLogger();
     $this->container->get('logger.channel.perf_redis_failopen')->addLogger($this->logger);
   }
 
   /**
-   * Resolves a fresh request's health tracker with the given retry interval.
+   * Starts a new request's health tracker, after the retry time has passed.
    */
-  private function health(int $retry = 30): RedisHealth {
-    $this->setSetting('perf_redis_failopen_retry_interval', $retry);
+  private function health(): RedisHealth {
+    if (function_exists('apcu_clear_cache')) {
+      apcu_clear_cache();
+    }
     $this->container->set(RedisHealth::class, NULL);
     return $this->container->get(RedisHealth::class);
   }
 
   /**
+   * Starts a new request's decorated cache.backend.redis factory.
+   */
+  private function redisFactory(): CacheFactoryInterface {
+    $this->health();
+    $this->container->set('cache.backend.redis', NULL);
+    $this->container->set('perf_redis_failopen.cache_factory', NULL);
+    return $this->container->get('cache.backend.redis');
+  }
+
+  /**
    * Resolves the decorated factory with a controlled external failure source.
    */
-  private function backend(?CacheBackendInterface $inner, int $retry = 30): CacheBackendInterface {
+  private function backend(?CacheBackendInterface $inner): CacheBackendInterface {
     $factory = $this->container->get(FailingCacheFactory::class);
     $factory->backend = $inner;
     $factory->fail = $inner === NULL;
     $factory->calls = 0;
     $this->failureFactory = $factory;
-    $this->health($retry);
-    $this->container->set('cache.backend.redis', NULL);
-    $this->container->set('perf_redis_failopen.cache_factory', NULL);
-    return $this->container->get('cache.backend.redis')->get('render');
+    return $this->redisFactory()->get('render');
   }
 
   /**
@@ -106,13 +109,13 @@ final class FailOpenCacheTest extends KernelTestBase {
    * Lost deletes are recorded and the bin is emptied on recovery.
    */
   public function testLostDeleteFlushesBinOnRecovery(): void {
-    $down = $this->backend(NULL, 0);
+    $down = $this->backend(NULL);
     $down->delete('a');
     $this->assertArrayHasKey('render', $this->store->getAll());
 
     $inner = new FailingCacheBackend($this->container->get('datetime.time'));
     $inner->set('a', 'synthetic stale value');
-    $up = $this->backend($inner, 0);
+    $up = $this->backend($inner);
     $this->assertFalse($up->get('a'));
     $this->assertSame([], $this->store->getAll());
     $this->assertSame(1, $inner->flushes);
@@ -188,79 +191,30 @@ final class FailOpenCacheTest extends KernelTestBase {
     $this->assertFalse($health->isDown());
     $health->markDown(new \RedisException('Connection refused'), 'render', 'get');
     $this->assertTrue($health->isDown());
-    $retryNow = $this->health(0);
-    $retryNow->markDown(new \RedisException('Connection refused'), 'render', 'get');
-    $this->assertFalse($retryNow->isDown(), 'With a retry interval of 0 the next call tries Redis again.');
-  }
-
-  /**
-   * Switched off by settings.php, a bin uses the database and never Redis.
-   *
-   * The next request keeps what the first one cached: the database copy is
-   * emptied once, not on every request. Removing the override switches Redis
-   * on again.
-   */
-  public function testSwitchedOffBinUsesTheDatabaseNotRedis(): void {
-    $inner = $this->container->get(FailingCacheFactory::class);
-    $backend = $this->overrideRedis(FALSE)->get('render');
-    $this->assertInstanceOf(DatabaseBackend::class, $backend);
-    $backend->set('synthetic_a', 'synthetic value');
-    $this->assertSame('synthetic value', $backend->get('synthetic_a')->data);
-    $this->assertSame('synthetic value', $this->overrideRedis(FALSE)->get('render')->get('synthetic_a')->data);
-    $this->assertSame(0, $inner->calls, 'The Redis factory was never asked.');
-    $this->assertInstanceOf(FailOpenCacheBackend::class, $this->overrideRedis(NULL)->get('render'));
-  }
-
-  /**
-   * Switching Redis on again empties each bin that was off, once.
-   *
-   * A delete made while Redis was off never reached it; the deleted entry must
-   * not come back from Redis. The next request with Redis on keeps what the
-   * first one cached.
-   */
-  public function testSwitchingRedisOnAgainEmptiesTheBinOnce(): void {
-    $inner = new FailingCacheBackend($this->container->get('datetime.time'));
-    $inner->set('a', 'synthetic stale value');
-    $this->container->get(FailingCacheFactory::class)->backend = $inner;
-    $this->overrideRedis(FALSE)->get('render')->delete('a');
-    $this->assertArrayHasKey('render', $this->store->getAll());
-    $on = $this->overrideRedis(NULL)->get('render');
-    $this->assertFalse($on->get('a'));
-    $this->assertSame(1, $inner->flushes);
-    $this->assertSame([], $this->store->getAll());
-
-    $on->set('b', 'synthetic new value');
-    $this->assertSame('synthetic new value', $this->overrideRedis(NULL)->get('render')->get('b')->data);
-    $this->assertSame(1, $inner->flushes);
   }
 
   /**
    * Off, on, off: an entity changed while Redis was on is not served stale.
    *
    * Saving an entity deletes its cache entry from the bin in use only
-   * (ContentEntityStorageBase::resetCache()), so the database copy still holds
-   * the old entity when Redis is switched off again. The same holds when the
-   * entity changed during an outage (the delete was recorded as lost).
-   *
-   * @dataProvider redisAnswers
+   * (ContentEntityStorageBase::resetCache()). The database copy from the first
+   * off period must be emptied when Redis takes over (drush cr), or the
+   * second off period serves the old entity.
    */
-  #[DataProvider('redisAnswers')]
-  public function testAnEntityChangedWhileRedisWasOnIsNotStaleWhenSwitchedOffAgain(bool $answers): void {
+  public function testAnEntityChangedWhileRedisWasOnIsNotStaleWhenSwitchedOffAgain(): void {
     $this->installEntitySchema('user');
-    $redis = $this->container->get(FailingCacheFactory::class);
-    $redis->backend = new FailingCacheBackend($this->container->get('datetime.time'));
+    $this->container->get(FailingCacheFactory::class)->backend = new FailingCacheBackend($this->container->get('datetime.time'));
     $users = $this->entityRequest(FALSE);
     $user = $users->create(['name' => 'synthetic-before', 'mail' => 'synthetic@example.com', 'status' => 1]);
     $user->save();
-    /** @var \Drupal\user\UserInterface $before */
-    $before = $users->load($user->id());
-    $this->assertSame('synthetic-before', $before->getAccountName());
+    $users->load($user->id());
 
-    $redis->fail = !$answers;
+    $users = $this->entityRequest(TRUE);
+    // The drush cr that goes with REDIS_ENABLED=1.
+    $this->container->get('cache.entity')->deleteAll();
     /** @var \Drupal\user\UserInterface $changed */
-    $changed = $this->entityRequest(NULL)->load($user->id());
+    $changed = $users->load($user->id());
     $changed->setUsername('synthetic-after')->save();
-    $redis->fail = FALSE;
 
     /** @var \Drupal\user\UserInterface $after */
     $after = $this->entityRequest(FALSE)->load($user->id());
@@ -268,102 +222,21 @@ final class FailOpenCacheTest extends KernelTestBase {
   }
 
   /**
-   * Whether Redis answers while it is switched on.
+   * Starts a new request for the user storage, its entity bin on Redis or not.
    *
-   * @return array<string, array{bool}>
-   *   One case with Redis answering, one with an outage.
-   */
-  public static function redisAnswers(): array {
-    return [
-      'Redis answers' => [TRUE],
-      'Redis is down' => [FALSE],
-    ];
-  }
-
-  /**
-   * Starts a new request for the user storage, with Redis switched as given.
-   *
-   * @param bool|null $enabled
-   *   The settings.php override, or NULL for none (Redis on).
+   * @param bool $redis
+   *   TRUE as with REDIS_ENABLED=1: the fail-open wrapper over the test
+   *   module's Redis stand-in. FALSE as with REDIS_ENABLED=0: the database.
    *
    * @return \Drupal\Core\Entity\EntityStorageInterface
-   *   A user storage whose persistent cache is the switched entity bin.
+   *   A user storage whose persistent cache is that entity bin.
    */
-  private function entityRequest(?bool $enabled): EntityStorageInterface {
-    $this->container->set('cache.entity', $this->overrideRedis($enabled)->get('entity'));
+  private function entityRequest(bool $redis): EntityStorageInterface {
+    $factory = $redis ? $this->redisFactory() : $this->container->get('cache.backend.database');
+    $this->container->set('cache.entity', $factory->get('entity'));
     $this->container->get('entity.memory_cache')->deleteAll();
     $this->container->get('entity_type.manager')->clearCachedDefinitions();
     return $this->container->get('entity_type.manager')->getStorage('user');
-  }
-
-  /**
-   * The bins Drupal reads to load config are never switched off.
-   */
-  public function testConfigBinsStayOnRedisWhenSwitchedOff(): void {
-    $factory = $this->overrideRedis(FALSE);
-    foreach (['bootstrap', 'config', 'discovery'] as $bin) {
-      $this->assertInstanceOf(FailOpenCacheBackend::class, $factory->get($bin), $bin);
-    }
-    $this->assertInstanceOf(DatabaseBackend::class, $factory->get('render'));
-  }
-
-  /**
-   * With the lab's real Redis: switched off, nothing connects to Redis.
-   */
-  public function testSwitchedOffNothingConnectsToTheRealRedis(): void {
-    $host = getenv('REDIS_HOST');
-    if (!$host) {
-      $this->markTestSkipped('Set REDIS_HOST to exercise a real Redis server.');
-    }
-    $this->setSetting('redis.connection', [
-      'interface' => 'PhpRedis',
-      'host' => $host,
-      'port' => (int) (getenv('REDIS_PORT') ?: 6379),
-    ]);
-    $this->setSetting('cache_prefix', 'synthetic_switch_' . bin2hex(random_bytes(8)));
-    $off = $this->overrideRedis(FALSE)->get('synthetic');
-    $off->set('synthetic_a', 'synthetic value');
-    $this->assertSame('synthetic value', $off->get('synthetic_a')->data);
-    $this->assertFalse(ClientFactory::hasClient(), 'Nothing connected to Redis.');
-    $on = $this->overrideRedis(NULL)->get('synthetic');
-    try {
-      $on->set('synthetic_b', 'synthetic value');
-      $this->assertTrue(ClientFactory::hasClient(), 'Redis is used again.');
-      $this->assertSame('synthetic value', $on->get('synthetic_b')->data);
-    }
-    finally {
-      $on->deleteAll();
-      foreach (['_clientInterface', '_client'] as $name) {
-        (new \ReflectionProperty(ClientFactory::class, $name))->setValue(NULL, NULL);
-      }
-    }
-  }
-
-  /**
-   * Sets or removes the settings.php override of the Redis switch.
-   *
-   * The same as the line an environment adds to its settings.php:
-   * $config['perf_redis_failopen.settings']['enabled'] = FALSE;
-   * The decorated factory is created again, as on the next request.
-   *
-   * @param bool|null $enabled
-   *   The overriding value, or NULL to remove the override.
-   *
-   * @return \Drupal\Core\Cache\CacheFactoryInterface
-   *   The new cache.backend.redis factory.
-   */
-  private function overrideRedis(?bool $enabled): CacheFactoryInterface {
-    if ($enabled === NULL) {
-      unset($GLOBALS['config']['perf_redis_failopen.settings']);
-    }
-    else {
-      $GLOBALS['config']['perf_redis_failopen.settings']['enabled'] = $enabled;
-    }
-    $this->container->get('config.factory')->reset('perf_redis_failopen.settings');
-    $this->health();
-    $this->container->set('cache.backend.redis', NULL);
-    $this->container->set('perf_redis_failopen.cache_factory', NULL);
-    return $this->container->get('cache.backend.redis');
   }
 
 }

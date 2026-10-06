@@ -94,23 +94,17 @@ final class RedisClientTest extends KernelTestBase {
   }
 
   /**
-   * Redis in use is OK and lists the bins.
+   * Redis in use is OK, lists the bins and names the environment variables.
    */
   public function testRedisInUseIsOk(): void {
-    $this->assertSame([0, 'Redis bins: render', ''], $this->entry(self::REDIS_SITE));
+    $this->assertSame([0, 'Redis bins: render', 'Set by the environment (REDIS_HOST, REDIS_ENABLED).'], $this->entry(self::REDIS_SITE));
   }
 
   /**
-   * Switching Redis off in settings.php is a warning that names the bins.
+   * REDIS_ENABLED=0 is a warning that says the environment set it.
    */
   public function testSwitchingRedisOffIsReported(): void {
-    $GLOBALS['config']['perf_redis_failopen.settings']['enabled'] = FALSE;
-    $this->container->get('config.factory')->reset('perf_redis_failopen.settings');
-    $this->container->set('perf_redis_failopen.cache_factory', NULL);
-    [$severity, $value, $description] = $this->entry(self::REDIS_SITE);
-    $this->assertSame(1, $severity);
-    $this->assertSame('Off (perf_redis_failopen.settings:enabled is FALSE)', $value);
-    $this->assertSame('The bins render use the database.', $description);
+    $this->assertSame([1, 'Off (REDIS_ENABLED=0)', 'Set by the environment. The cache bins use the database.'], $this->entry(['perf_redis_enabled' => FALSE]));
   }
 
 }

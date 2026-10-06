@@ -149,13 +149,13 @@ az webapp config appsettings set -g $RG -n <webapp> --settings \
 
 | Group | Variables | Default and rule |
 |---|---|---|
-| Redis | `REDIS_HOST`, `REDIS_PORT`, `REDIS_SCHEME`, `REDIS_PASSWORD`, `REDIS_PREFIX`, shared mode adds `REDIS_USERNAME` | Unset `REDIS_HOST` = no Redis. Prefix required on a shared Redis |
-| Perf tuning | `PERF_REDIS_RETRY_INTERVAL` (30), `PERF_FAST404` | Keep the defaults. Never set `REDIS_LOCK_FLOOD_TAGS` |
+| Redis | `REDIS_HOST`, `REDIS_ENABLED`, `REDIS_PORT`, `REDIS_SCHEME`, `REDIS_PASSWORD`, `REDIS_PREFIX` | Unset `REDIS_HOST` = no Redis. `REDIS_ENABLED=0` = the Redis bins use the database. Prefix required on a shared Redis |
+| Perf tuning | `PERF_FAST404` | Keep the default |
 | Purge credentials | `AZURE_CDN_TENANT_ID`, `AZURE_CDN_CLIENT_ID`, `AZURE_CDN_CLIENT_SECRET` (Key Vault), `AZURE_CDN_SUBSCRIPTION_ID`, `AZURE_CDN_RESOURCE_GROUP`, `AZURE_CDN_PROFILE`, `AZURE_CDN_ENDPOINT`, `AZURE_CDN_ENDPOINT_TYPE` (`afdEndpoints`), `AZURE_CLOUD` (`usgovernment`) | Leave `AZURE_CDN_SCOPE` unset and clear any stored scope ([azure.md](azure.md#azure-government-patched-azure_cdn_purge)) |
 | Proxy | `DRUPAL_TRUSTED_HOSTS`, `DRUPAL_REVERSE_PROXY`, `DRUPAL_REVERSE_PROXY_ADDRESSES` | [azure.md](azure.md#client-ip) |
 
 - Never set `PERF_MOCK_AFD_PROXY` or `PERF_EDGE_PROXY_HOST` outside a local lab.
-- After changing `REDIS_BINS` or `REDIS_LOCK_FLOOD_TAGS`, run `drush cr`.
+- After changing `REDIS_BINS`, run `drush cr`.
 
 ### 3.8 WAF and edge rules
 
@@ -166,8 +166,8 @@ Follow [hardening.md](hardening.md#edge-front-door-waf) (assumed). Start in Dete
 Proposed, not yet run on Azure. Use a non-production subscription. Each check mirrors a lab test in [tests.md](tests.md).
 
 1. `redis_in_use`: request two uncached pages. Pass: keys under `REDIS_PREFIX` grew (`redis-cli INFO keyspace`).
-2. `redis_down`: scale the Redis container app to zero; request home, a node, `/user/login`. Pass: all 200, one `perf_redis_failopen` warning. HTTP 500 means the wrapper is off or lock/flood tags are on ([troubleshooting.md](troubleshooting.md#redis-down-the-site-stays-up-fail-open)).
-3. `redis_recover`: start Redis, wait `PERF_REDIS_RETRY_INTERVAL` + 2 s, request a node twice. Pass: second request `X-Drupal-Cache: HIT`.
+2. `redis_down`: scale the Redis container app to zero; request home, a node, `/user/login`. Pass: all 200, one `perf_redis_failopen` warning. HTTP 500 means the perf_redis_failopen module is not installed ([troubleshooting.md](troubleshooting.md#redis-down-the-site-stays-up-fail-open)).
+3. `redis_recover`: start Redis, wait 32 s (the 30 s retry interval plus 2), request a node twice. Pass: second request `X-Drupal-Cache: HIT`.
 4. `purge_send`, `edge_purge_e2e`: `curl -sI <node url>` twice (expect `x-cache: TCP_HIT`), edit the node, run `drush p:queue-volume` and `drush p:queue-work --finish`, wait up to about 10 minutes, request again. Pass: new content served, `drush p:diagnostics` shows no new errors.
 5. `bot_challenge`: request a node with a Chrome user agent and no `Sec-Fetch-Mode` / `Accept-Language`. Pass: Detection logs it; Prevention gives a JS challenge. The `JSChallenge` action name is (assumed).
 
@@ -180,7 +180,7 @@ Proposed, not yet run on Azure. Use a non-production subscription. Each check mi
 5. Roll back:
    - Redis image: redeploy the Bicep with the previous `redisImage`. The cache holds no persistent data (`save ""`, `appendonly no`).
    - Purge: `$config['perf_purge_paths.settings']['enabled'] = FALSE;` in `settings.php` ([install.md](install.md#8-turn-caching-off-per-environment)).
-   - Redis off: `$config['perf_redis_failopen.settings']['enabled'] = FALSE;` in `settings.php` (the bins use the database), deploy, then `drush cr` ([install.md](install.md#8-turn-caching-off-per-environment)). Unsetting `REDIS_HOST` instead is untested: the no-Redis path was not run in the lab.
+   - Redis off: `REDIS_ENABLED=0` (no deploy, no `drush cr`); back on: `REDIS_ENABLED=1`, then `drush cr` ([install.md](install.md#8-turn-caching-off-per-environment)).
    - Patches and recipe: revert the Composer change and redeploy.
 
 ## Phase 6: Open decisions and gaps

@@ -32,11 +32,14 @@ final class FailOpenCacheBackend implements CacheBackendInterface {
    *   The redis module's cache factory; it creates the real backend lazily.
    * @param \Drupal\perf_redis_failopen\Cache\RedisHealth $health
    *   Shared outage state.
+   * @param \Drupal\Core\Cache\CacheFactoryInterface $database
+   *   Core's database cache factory: the bin's table to keep empty.
    */
   public function __construct(
     private readonly string $bin,
     private readonly CacheFactoryInterface $redisFactory,
     private readonly RedisHealth $health,
+    private readonly CacheFactoryInterface $database,
   ) {}
 
   /**
@@ -96,6 +99,10 @@ final class FailOpenCacheBackend implements CacheBackendInterface {
    * {@inheritdoc}
    */
   public function deleteAll() {
+    // The bin's database table stays empty while Redis serves the bin, so
+    // REDIS_ENABLED=0 starts from an empty cache, never a stale one. drush cr
+    // empties it here when Redis is switched on (ruling xviii).
+    $this->database->get($this->bin)->deleteAll();
     $this->run('deleteAll', static fn (CacheBackendInterface $b) => $b->deleteAll(), NULL, TRUE);
   }
 
@@ -135,19 +142,9 @@ final class FailOpenCacheBackend implements CacheBackendInterface {
   }
 
   /**
-   * Runs an operation against Redis, or returns $fallback during an outage.
+   * Runs an operation on Redis, or returns $fallback during an outage.
    *
-   * @param string $operation
-   *   Operation name for the log.
-   * @param callable $call
-   *   Receives the wrapped backend.
-   * @param mixed $fallback
-   *   Value returned while Redis is unavailable.
-   * @param bool $destructive
-   *   TRUE for deletes/invalidations, which must not be silently lost.
-   *
-   * @return mixed
-   *   The operation's result, or $fallback.
+   * $destructive marks deletes and invalidations, which must not be lost.
    */
   private function run(string $operation, callable $call, mixed $fallback, bool $destructive = FALSE): mixed {
     if ($this->health->isDown()) {
@@ -178,9 +175,6 @@ final class FailOpenCacheBackend implements CacheBackendInterface {
 
   /**
    * Returns the fallback, recording the lost write when it was destructive.
-   *
-   * @return mixed
-   *   The fallback value.
    */
   private function degrade(mixed $fallback, bool $destructive): mixed {
     if ($destructive) {

@@ -9,8 +9,6 @@ use Drupal\Core\Hook\Attribute\Hook;
 use Drupal\Core\Site\Settings;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\Core\StringTranslation\TranslationInterface;
-use Drupal\perf_redis_failopen\Cache\FailOpenCacheBackendFactory;
-use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 /**
  * The status report entry of the Redis fail-open module.
@@ -28,14 +26,10 @@ final class PerfRedisFailopenHooks {
    *   The site settings.
    * @param \Drupal\Core\StringTranslation\TranslationInterface $translation
    *   The string translation service.
-   * @param \Drupal\perf_redis_failopen\Cache\FailOpenCacheBackendFactory $factory
-   *   The decorating cache factory, which knows the config switch.
    */
   public function __construct(
     private readonly Settings $settings,
     TranslationInterface $translation,
-    #[Autowire(service: 'perf_redis_failopen.cache_factory')]
-    private readonly FailOpenCacheBackendFactory $factory,
   ) {
     $this->stringTranslation = $translation;
   }
@@ -43,22 +37,22 @@ final class PerfRedisFailopenHooks {
   /**
    * Implements hook_runtime_requirements().
    *
-   * Information when no bin uses Redis, a warning when Redis is switched off,
-   * otherwise the Redis bins. drupal/redis's own entry shows the connection.
+   * The state the environment sets: Redis bins, off (REDIS_ENABLED=0, a
+   * warning), or not configured. drupal/redis's own entry shows the connection.
    *
    * @return array<string, array<string, mixed>>
    *   The requirements for the status report.
    */
   #[Hook('runtime_requirements')]
   public function runtimeRequirements(): array {
+    if ($this->settings->get('perf_redis_enabled') === FALSE) {
+      return $this->requirement(1, $this->t('Off (REDIS_ENABLED=0)'), $this->t('Set by the environment. The cache bins use the database.'));
+    }
     $bins = $this->redisBins();
     if (!$bins) {
       return $this->requirement(-1, $this->t('No cache bin uses Redis'), '');
     }
-    if (!$this->factory->isRedisOn()) {
-      return $this->requirement(1, $this->t('Off (perf_redis_failopen.settings:enabled is FALSE)'), $this->t('The bins @bins use the database.', ['@bins' => implode(', ', $bins)]));
-    }
-    return $this->requirement(0, $this->t('Redis bins: @bins', ['@bins' => implode(', ', $bins)]), '');
+    return $this->requirement(0, $this->t('Redis bins: @bins', ['@bins' => implode(', ', $bins)]), $this->t('Set by the environment (REDIS_HOST, REDIS_ENABLED).'));
   }
 
   /**

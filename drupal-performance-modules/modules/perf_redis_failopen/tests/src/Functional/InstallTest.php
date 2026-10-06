@@ -6,8 +6,6 @@ namespace Drupal\Tests\perf_redis_failopen\Functional;
 
 use Drupal\Core\Cache\DatabaseBackend;
 use Drupal\Core\Site\Settings;
-use Drupal\perf_redis_failopen\Cache\FailOpenCacheBackend;
-use Drupal\perf_redis_failopen\Cache\FailOpenCacheBackendFactory;
 use Drupal\redis\Cache\CacheBackendFactory;
 use Drupal\redis\Cache\PhpRedis;
 use Drupal\Tests\BrowserTestBase;
@@ -30,41 +28,28 @@ final class InstallTest extends BrowserTestBase {
   protected $defaultTheme = 'stark';
 
   /**
-   * A site on Redis installs the module with the switch already off.
+   * A site on Redis installs the module while REDIS_ENABLED=0 (N6).
    *
-   * Core reads the switch before it creates the module's table
-   * (ModuleInstaller::install() builds the route provider, which needs
-   * cache.data, before installSchema()), and settings.php overrides apply to a
-   * config object that does not exist yet.
+   * The settings then point no bin at Redis, as the include does; the install
+   * and the next request use the database.
    */
   public function testInstallWithRedisSwitchedOffInSettingsPhp(): void {
     $this->configureRedisSite();
-    try {
-      $this->assertRedisCacheAndPage(FALSE);
-      $this->writeSettings([
-        'config' => [
-          'perf_redis_failopen.settings' => [
-            'enabled' => (object) ['value' => FALSE, 'required' => TRUE],
-          ],
-        ],
-      ]);
-      Settings::initialize(DRUPAL_ROOT, $this->siteDirectory, $this->classLoader);
-      $this->container->get('module_installer')->install(['perf_redis_failopen']);
-      // Recorded by the install request itself, before any other request.
-      $pending = \Drupal::keyValue('perf_redis_failopen')->getAll();
-      $this->assertStringStartsWith('off-', $pending['data'] ?? '', 'cache.data, switched off before the table existed, is recorded.');
-      $this->rebuildContainer();
-      $this->drupalGet('<front>');
-      $this->assertSession()->statusCodeEquals(200);
-      foreach (['data', 'render'] as $bin) {
-        $this->assertInstanceOf(DatabaseBackend::class, $this->container->get('cache.' . $bin), $bin);
-      }
-      $this->assertEqualsCanonicalizing(['data', 'render'], array_keys($this->container->get('keyvalue')->get('perf_redis_failopen')->getAll()), 'Both bins are emptied on Redis when it is switched on.');
-    }
-    finally {
-      $GLOBALS['config']['perf_redis_failopen.settings']['enabled'] = TRUE;
-      $this->rebuildContainer();
-      $this->clearSyntheticBins();
+    $this->assertRedisCacheAndPage();
+    $this->clearSyntheticBins();
+    $this->writeSettings([
+      'settings' => [
+        'cache' => (object) ['value' => [], 'required' => TRUE],
+        'perf_redis_enabled' => (object) ['value' => FALSE, 'required' => TRUE],
+      ],
+    ]);
+    Settings::initialize(DRUPAL_ROOT, $this->siteDirectory, $this->classLoader);
+    $this->container->get('module_installer')->install(['perf_redis_failopen']);
+    $this->rebuildContainer();
+    $this->drupalGet('<front>');
+    $this->assertSession()->statusCodeEquals(200);
+    foreach (['data', 'render'] as $bin) {
+      $this->assertInstanceOf(DatabaseBackend::class, $this->container->get('cache.' . $bin), $bin);
     }
   }
 
@@ -92,14 +77,14 @@ final class InstallTest extends BrowserTestBase {
   }
 
   /**
-   * Checks the factory, real cache round trips and an HTTP response.
+   * Checks the plain redis factory, real cache round trips and a response.
    */
-  private function assertRedisCacheAndPage(bool $decorated): void {
+  private function assertRedisCacheAndPage(): void {
     $factory = $this->container->get('cache.backend.redis');
-    $this->assertSame($decorated ? FailOpenCacheBackendFactory::class : CacheBackendFactory::class, $factory::class);
+    $this->assertInstanceOf(CacheBackendFactory::class, $factory);
     foreach (['data', 'render'] as $bin) {
       $backend = $this->container->get('cache.' . $bin);
-      $this->assertInstanceOf($decorated ? FailOpenCacheBackend::class : PhpRedis::class, $backend);
+      $this->assertInstanceOf(PhpRedis::class, $backend);
       $value = 'synthetic cache value ' . bin2hex(random_bytes(4));
       $backend->set('synthetic_lifecycle', $value);
       $item = $backend->get('synthetic_lifecycle');

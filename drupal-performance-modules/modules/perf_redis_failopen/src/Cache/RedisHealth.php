@@ -6,23 +6,23 @@ namespace Drupal\perf_redis_failopen\Cache;
 
 use Drupal\Core\KeyValueStore\KeyValueFactoryInterface;
 use Drupal\Core\KeyValueStore\KeyValueStoreInterface;
-use Drupal\Core\Site\Settings;
-use Psr\Log\LoggerInterface;
-use Symfony\Component\DependencyInjection\Attribute\Autowire;
+use Symfony\Component\DependencyInjection\Attribute\AutowireServiceClosure;
 
 /**
  * Tracks whether Redis is reachable and which bins must be emptied.
  *
- * - After a Redis error, Redis is skipped for the retry interval (setting
- *   perf_redis_failopen_retry_interval, default 30 s): in this object and,
- *   when APCu is available, for every PHP worker on the instance.
- * - A delete or invalidation that could not reach Redis leaves a note per bin
- *   in core's key_value store; the next request that reaches Redis empties
- *   the bin and removes the note. The notes are read once per request (on the
- *   first use of a Redis bin), not once per bin. A note written while another
- *   worker empties the same bin can be removed with it (rare; never seen).
+ * After a Redis error, Redis is skipped for RETRY seconds (shared via APCu).
+ * A delete that could not reach Redis leaves a key_value note per bin, read
+ * once per request, not once per bin; the next request that reaches Redis
+ * empties the bin. A note written while another worker empties that bin can
+ * go with it (rare; never seen).
  */
 final class RedisHealth {
+
+  /**
+   * Seconds Redis is skipped after an error.
+   */
+  private const RETRY = 30;
 
   /**
    * APCu key: the time until which Redis is skipped.
@@ -47,28 +47,21 @@ final class RedisHealth {
   private readonly KeyValueStoreInterface $notes;
 
   /**
-   * Seconds Redis is skipped after an error.
-   */
-  private readonly int $retryInterval;
-
-  /**
    * Constructs a RedisHealth.
    *
-   * @param \Psr\Log\LoggerInterface $logger
-   *   The perf_redis_failopen logger channel.
+   * @param \Closure $logger
+   *   Returns the perf_redis_failopen logger channel. Built only to log: a
+   *   logger can need config, and a config override can need a Redis bin, so
+   *   building it with the cache factory closes a service cycle (HTTP 500).
    * @param \Drupal\Core\KeyValueStore\KeyValueFactoryInterface $keyValue
    *   The key_value factory.
-   * @param \Drupal\Core\Site\Settings $settings
-   *   The site settings (the retry interval).
    */
   public function __construct(
-    #[Autowire(service: 'logger.channel.perf_redis_failopen')]
-    private readonly LoggerInterface $logger,
+    #[AutowireServiceClosure('logger.channel.perf_redis_failopen')]
+    private readonly \Closure $logger,
     KeyValueFactoryInterface $keyValue,
-    Settings $settings,
   ) {
     $this->notes = $keyValue->get('perf_redis_failopen');
-    $this->retryInterval = (int) $settings->get('perf_redis_failopen_retry_interval', 30);
   }
 
   /**
@@ -91,12 +84,12 @@ final class RedisHealth {
    * Records an outage and logs a warning.
    */
   public function markDown(\RedisException $e, string $bin, string $operation): void {
-    $this->downUntil = microtime(TRUE) + $this->retryInterval;
+    $this->downUntil = microtime(TRUE) + self::RETRY;
     if (self::apcu()) {
-      apcu_store(self::APCU_DOWN, $this->downUntil, $this->retryInterval);
+      apcu_store(self::APCU_DOWN, $this->downUntil, self::RETRY);
     }
-    $this->logger->warning('Redis unavailable, serving cache misses for @retry s (bin @bin, @op): @message', [
-      '@retry' => $this->retryInterval,
+    ($this->logger)()->warning('Redis unavailable, serving cache misses for @retry s (bin @bin, @op): @message', [
+      '@retry' => self::RETRY,
       '@bin' => $bin,
       '@op' => $operation,
       '@message' => $e->getMessage(),
@@ -105,14 +98,9 @@ final class RedisHealth {
 
   /**
    * Leaves a note that a bin must be emptied on Redis.
-   *
-   * @param string $bin
-   *   The cache bin.
-   * @param string $prefix
-   *   The note, so a reader can tell who wrote it.
    */
-  public function recordLostWrite(string $bin, string $prefix = ''): void {
-    $this->notes->set($bin, $prefix);
+  public function recordLostWrite(string $bin): void {
+    $this->notes->set($bin, '');
     // Read again, so this process empties the bin on its next use of Redis.
     $this->pending = NULL;
   }
@@ -131,7 +119,7 @@ final class RedisHealth {
   public function flushDone(string $bin): void {
     $this->notes->delete($bin);
     unset($this->pending[$bin]);
-    $this->logger->notice('Redis reachable again; emptied bin @bin because writes were lost during the outage.', ['@bin' => $bin]);
+    ($this->logger)()->notice('Redis reachable again; emptied bin @bin because writes were lost during the outage.', ['@bin' => $bin]);
   }
 
   /**

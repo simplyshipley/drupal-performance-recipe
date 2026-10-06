@@ -49,7 +49,7 @@ ddev restart
 ```
 
 - `config.perf.yaml` sets `REDIS_HOST=redis`, `REDIS_PREFIX=perflab`,
-  `PERF_FAST404=1`, `PERF_REDIS_RETRY_INTERVAL=5` (fast recovery test), `PERF_MOCK_AFD_PROXY=http://mock-afd:8080`, `THEMED_FAST404_BASE_URL=http://localhost`
+  `PERF_FAST404=1`, `PERF_MOCK_AFD_PROXY=http://mock-afd:8080`, `THEMED_FAST404_BASE_URL=http://localhost`
   and SYNTHETIC `AZURE_CDN_*` values.
 - `docker-compose.mock-afd.yaml` builds `mock-afd/` (python:3.12-alpine) as
   `ddev-<project>-mock-afd`, no host port, log in `.ddev/mock-afd-data/requests.jsonl` [V].

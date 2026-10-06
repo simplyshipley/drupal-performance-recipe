@@ -1,7 +1,7 @@
-# The settings include only ever names cache.backend.redis for the Redis bins.
-# This module DECORATES that service, so the fail-open wrapper exists exactly
-# while the module is installed; before and after, the bins run on the plain
-# Redis backend.
+# The settings include names cache.backend.redis for the Redis bins (unless
+# REDIS_ENABLED=0). This module DECORATES that service, so the fail-open wrapper
+# exists exactly while the module is installed; before and after, the bins run
+# on the plain Redis backend.
 services:
   _defaults:
     autowire: true

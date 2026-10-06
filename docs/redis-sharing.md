@@ -47,7 +47,7 @@ tmp/redis-image/test-image.log].
   - Cached render output contains site content, and for logged-in users possibly non-public data.
   - A shared instance puts several systems' data in one process and memory space, separated only by ACL. That must be documented in each system's SSP and boundary diagram.
   - If the sites are different FedRAMP systems or authorizations, a shared cache crosses boundaries and is likely not acceptable [ASSUMED: confirm with the ISSO].
-- **Drupal settings per site:**
+- **Drupal settings per site** (`REDIS_USERNAME` is no longer read by `settings.performance.php`: one Redis per site, ruling H4):
   ```
   # CPSC
   REDIS_HOST=shared-redis  REDIS_USERNAME=cpsc  REDIS_PASSWORD=<cpsc secret>  REDIS_PREFIX=cpsc

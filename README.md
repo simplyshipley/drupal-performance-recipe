@@ -34,7 +34,6 @@ matching Front Door paths. It needs the recipe's azure_cdn_purge patches applied
 recipe.yml, composer.json        the recipe (type drupal-recipe)
 config/                          purge.plugins + azure_cdn_purge.settings (no secrets)
 settings/settings.performance.php  env-driven settings include (Redis, proxy, Fast 404, purge credentials)
-settings/redis.services.yml      Redis lock / flood / cache-tag services
 modules/                         perf_purge_paths and perf_redis_failopen (registered by settings.performance.php, no install);
                                  perf_purge_deleted (optional: copy to web/modules/custom and enable, docs/install.md)
 mock-afd/                        mock Azure Front Door purge + token endpoint (Python, Docker)

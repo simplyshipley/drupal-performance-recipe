@@ -45,7 +45,7 @@ LANDO_PROXY=OFF lando rebuild -y
   mode off ([lando.perf.yml](../lando/lando.perf.yml), the `cache` service).
 - `mockafd`: `type: compose`, built from `mock-afd/`, command
   `python3 -u /opt/mock/mock_afd.py`, log in `.lando-mock-afd-data/`.
-- appserver environment: `REDIS_HOST=cache`, `PERF_FAST404=1`, `PERF_REDIS_RETRY_INTERVAL=5`, `PERF_MOCK_AFD_PROXY=http://mockafd:8080`,
+- appserver environment: `REDIS_HOST=cache`, `PERF_FAST404=1`, `PERF_MOCK_AFD_PROXY=http://mockafd:8080`,
   `THEMED_FAST404_BASE_URL=http://appserver_nginx`, SYNTHETIC `AZURE_CDN_*`.
 - the nginx vhost above, and tooling `lando perf-test-in` and `lando redis-cli`.
 

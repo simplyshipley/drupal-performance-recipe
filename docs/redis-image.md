@@ -74,11 +74,10 @@ until run in a non-production subscription]. The TCP probes are unchanged.
 | `REDIS_HOST` | `<prefix>-redis` (internal ingress FQDN of the container app) | same |
 | `REDIS_PORT` | `6379` (TLS: `6380` + `REDIS_SCHEME=tls`) | same |
 | `REDIS_PASSWORD` | the Key Vault secret | that site's app-user password |
-| `REDIS_USERNAME` | not set (`default` user) | the site's ACL user, e.g. `sitea` |
 | `REDIS_PREFIX` | the site name | **must equal** the ACL user name (`sitea`) |
 
-`REDIS_USERNAME` is new in `settings.performance.php`. With it set, phpredis authenticates with
-`[user, password]`.
+A shared instance with one ACL user per site needs a Redis user name, which
+`settings.performance.php` no longer reads (one Redis per site, ruling H4).
 
 ## Version and licence
 

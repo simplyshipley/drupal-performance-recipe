@@ -23,19 +23,14 @@
  *
  * Redis
  *   REDIS_HOST              Hostname. Unset = Redis is not used at all.
+ *   REDIS_ENABLED           1 (default) = the bins below use Redis. 0 = they
+ *                           use the database, no deploy or drush needed. To
+ *                           switch back: 1, then drush cr.
  *   REDIS_PORT              Default 6379. TLS: 6380 (Azure managed Redis: 6380
  *                           or 10000).
  *   REDIS_SCHEME            tcp (default) or tls. The server must speak the
  *                           same one.
- *   REDIS_TLS_CAFILE        With tls: PEM file of the CA that signed the server
- *                           certificate (a private CA). Default: PHP's own CA
- *                           bundle.
- *   REDIS_TLS_PEER_NAME     With tls: certificate name to expect when it is not
- *                           REDIS_HOST. Default: REDIS_HOST. Certificate and
- *                           name checks cannot be switched off.
  *   REDIS_PASSWORD          Access key / password.
- *   REDIS_USERNAME          ACL user (Redis 6+), e.g. one per site on a shared
- *                           instance (docs/redis-sharing.md).
  *   REDIS_DB                Database number (default: not selected = 0).
  *   REDIS_PREFIX            Key prefix, required when several sites share one
  *                           Redis. Sets $settings['cache_prefix'].
@@ -44,20 +39,8 @@
  *   REDIS_PERSISTENT        1 = persistent connections (default 0).
  *   REDIS_BINS              Bins stored in Redis, comma-separated. Default
  *                           render,page,dynamic_page_cache,data,entity,menu.
- *   PERF_REDIS_FAILOPEN     Default 1 (Redis outage = cache misses, needs the
- *                           perf_redis_failopen module, which decorates
- *                           cache.backend.redis). 0 = plain redis backend
- *                           (outage = HTTP 500); tests only.
- *   PERF_REDIS_RETRY_INTERVAL  Seconds Redis is skipped after an error
- *                           (default 30), then retried.
- *   PERF_REDIS_CONNECT_TIMEOUT  Connect timeout in seconds (default 1). 0 =
- *                           no timeout (drupal/redis default; a hung Redis then
- *                           stalls requests up to default_socket_timeout).
- *   PERF_REDIS_READ_TIMEOUT Read timeout in seconds (default 2).
- *   PERF_REDIS_LOG_INTERVAL Seconds between outage warnings (default 60).
- *   REDIS_LOCK_FLOOD_TAGS   1 = also move cache tag checksum, lock and flood
- *                           to Redis (settings/redis.services.yml). Default
- *                           off; they stay in the database.
+ *                           Cache tag checksum, lock and flood stay in the
+ *                           database.
  *
  * Front Door path purging (the perf_purge_paths module, docs/cache-sync.md)
  *   PERF_PURGE_LIST_PATHS   Paths purged when a *_list tag is invalidated
@@ -65,11 +48,9 @@
  *   PERF_PURGE_SITEWIDE_PATHS  Paths purged on menu / block changes (default
  *                           empty; "/*" purges everything).
  *
- * Per-environment off switches are module config, not environment variables
- * (shown on admin/config/development/performance). Set them in settings.php:
- *   $config['perf_purge_paths.settings']['enabled'] = FALSE;    queue no purges
- *   $config['perf_redis_failopen.settings']['enabled'] = FALSE; Redis bins use
- *                                                               the database
+ * Path purging can be switched off per environment in settings.php (shown on
+ * admin/config/development/performance):
+ *   $config['perf_purge_paths.settings']['enabled'] = FALSE;
  *
  * Reverse proxy / hosts
  *   DRUPAL_TRUSTED_HOSTS    Comma-separated host names, e.g.
@@ -171,11 +152,7 @@ if ($perf_env('REDIS_HOST') !== NULL
   $settings['redis.connection']['host'] = $perf_scheme === 'tls' ? 'tls://' . $perf_host : $perf_host;
   $settings['redis.connection']['port'] = (int) $perf_env('REDIS_PORT', $perf_scheme === 'tls' ? '6380' : '6379');
   if ($perf_env('REDIS_PASSWORD') !== NULL) {
-    // With REDIS_USERNAME (Redis 6+ ACL user, e.g. on a shared instance)
-    // phpredis authenticates with [user, password].
-    $settings['redis.connection']['password'] = $perf_env('REDIS_USERNAME') !== NULL
-      ? [$perf_env('REDIS_USERNAME'), $perf_env('REDIS_PASSWORD')]
-      : $perf_env('REDIS_PASSWORD');
+    $settings['redis.connection']['password'] = $perf_env('REDIS_PASSWORD');
   }
   if ($perf_env('REDIS_DB') !== NULL) {
     $settings['redis.connection']['base'] = (int) $perf_env('REDIS_DB');
@@ -192,29 +169,20 @@ if ($perf_env('REDIS_HOST') !== NULL
   // APCu via ChainedFastBackend): they are small, read on every request and
   // must survive a Redis outage. Override with REDIS_BINS (comma-separated).
   $perf_bins = array_filter(array_map('trim', explode(',', (string) $perf_env('REDIS_BINS', 'render,page,dynamic_page_cache,data,entity,menu'))));
-  // The bins always name cache.backend.redis. The perf_redis_failopen module
+  // REDIS_ENABLED=0 (an App Service setting, so no deploy; rulings ix-b and
+  // xviii) leaves these bins on the database. While Redis serves them their
+  // database tables stay empty (perf_redis_failopen empties them at drush cr),
+  // so switching off starts from an empty database cache, never a stale one.
+  $settings['perf_redis_enabled'] = $perf_env('REDIS_ENABLED', '1') !== '0';
+  // The bins name cache.backend.redis. The perf_redis_failopen module
   // (installed by the recipe) DECORATES that service, so a Redis outage becomes
   // cache misses instead of HTTP 500. Before the module is installed, while a
   // recipe is applied and after it is uninstalled the bins run on the plain
-  // backend, and no request depends on a service that does not exist yet.
-  // PERF_REDIS_FAILOPEN=0 switches the wrapper off while the module stays
-  // installed (only for tests of the failure mode).
-  $settings['perf_redis_failopen_enabled'] = $perf_env('PERF_REDIS_FAILOPEN', '1') !== '0';
-  $settings['perf_redis_failopen_retry_interval'] = (int) $perf_env('PERF_REDIS_RETRY_INTERVAL', '30');
-  // Bounded timeouts (seconds) for connecting to and reading from Redis;
-  // drupal/redis 1.11 sets none. 0 = the module's own client (no timeout).
-  $settings['perf_redis_connect_timeout'] = (float) $perf_env('PERF_REDIS_CONNECT_TIMEOUT', '1');
-  $settings['perf_redis_read_timeout'] = (float) $perf_env('PERF_REDIS_READ_TIMEOUT', '2');
-  $settings['perf_redis_failopen_log_interval'] = (int) $perf_env('PERF_REDIS_LOG_INTERVAL', '60');
-  // TLS (REDIS_SCHEME=tls) uses PHP's default certificate checks. These two
-  // options are off by default: a private CA file, and the certificate name to
-  // expect when it is not the host name. Verification is never switched off.
-  if ($perf_scheme === 'tls') {
-    $settings['perf_redis_tls_cafile'] = (string) $perf_env('REDIS_TLS_CAFILE', '');
-    $settings['perf_redis_tls_peer_name'] = (string) $perf_env('REDIS_TLS_PEER_NAME', '');
-  }
-  foreach ($perf_bins as $perf_bin) {
-    $settings['cache']['bins'][$perf_bin] = 'cache.backend.redis';
+  // backend.
+  if ($settings['perf_redis_enabled']) {
+    foreach ($perf_bins as $perf_bin) {
+      $settings['cache']['bins'][$perf_bin] = 'cache.backend.redis';
+    }
   }
   $settings['redis_compress_length'] = (int) $perf_env('REDIS_COMPRESS_LENGTH', '100');
   // Let Redis expire items; required for allkeys-lru to behave sensibly.
@@ -222,14 +190,10 @@ if ($perf_env('REDIS_HOST') !== NULL
 
   // The redis module's own services and classes, as its README documents, so
   // the bins work before the module is installed (for example while the recipe
-  // that installs it is applied). Nothing else is loaded from here.
+  // that installs it is applied). Loaded with REDIS_ENABLED=0 too: the list is
+  // part of the service container's cache key, so switching does not rebuild
+  // the container. Cache tag checksum, lock and flood stay in the database.
   $settings['container_yamls'][] = $perf_redis_dir . '/redis.services.yml';
-  // Cache tag checksum, lock and flood stay in the database: moving them to
-  // Redis makes every request depend on Redis (no fail-open for them).
-  // REDIS_LOCK_FLOOD_TAGS=1 moves them anyway (not recommended).
-  if ($perf_env('REDIS_LOCK_FLOOD_TAGS') === '1') {
-    $settings['container_yamls'][] = __DIR__ . '/redis.services.yml';
-  }
   $class_loader->addPsr4('Drupal\\redis\\', $perf_redis_dir . '/src');
 }
 

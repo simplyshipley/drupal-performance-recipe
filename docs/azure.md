@@ -10,8 +10,7 @@ your cloud before use (see the caching guide).
 > - **Only the heavy bins** go to Redis: `render`, `page`, `dynamic_page_cache`, `data`,
 >   `entity`, `menu` (override with `REDIS_BINS`). `bootstrap`, `config`, `discovery` and
 >   `container` stay on core's default (database behind APCu), and the cache-tag checksum,
->   lock and flood stay in the database (`settings/redis.services.yml` is now opt-in with
->   `REDIS_LOCK_FLOOD_TAGS=1`, not recommended). Why: those services are touched on every
+>   lock and flood stay in the database. Why: those services are touched on every
 >   request, including Drush, and cannot fail open; with them on Redis an outage was a site
 >   outage [V: earlier redis_down runs, HTTP 500].
 > - A **fail-open wrapper** (`modules/perf_redis_failopen`) turns Redis errors into cache
@@ -42,7 +41,7 @@ Put secrets in Key Vault references, not plain values [ASSUMED].
 | `REDIS_SCHEME` | `tcp` | Inside the VNet; see infra/azure/README.md for TLS |
 | `REDIS_PORT` | `6379` | Container Apps TCP ingress exposed port |
 | `REDIS_BINS` | leave unset | Default heavy bins only |
-| `PERF_REDIS_RETRY_INTERVAL` | `30` | Seconds Redis is skipped after an error |
+| `REDIS_ENABLED` | leave unset (`1`) | `0` = the Redis bins use the database, no deploy; back to `1`, then `drush cr` |
 | `REDIS_PASSWORD` | Key Vault reference | Access key |
 | `REDIS_PREFIX` | `oig-cpsc-prod` | Required if one Redis serves several sites. Optional otherwise (the redis module then uses its own default prefix); the test suite matches any prefix when it is unset |
 | `DRUPAL_TRUSTED_HOSTS` | `www.example.gov,example.gov` | Anchored and escaped by the settings file [V: code] |

@@ -52,15 +52,16 @@ If you use DDEV's `ddev/ddev-redis` add-on, it adds its own `settings.ddev.redis
 
 ## 4b. Redis fail-open wrapper
 
-Nothing to install: `settings.performance.php` registers `modules/perf_redis_failopen`'s
-service and classes through `container_yamls` and the class loader whenever `REDIS_HOST` is set,
-the same way the redis module's own services are registered before it is installed [V: both
-labs]. The heavy bins then use `cache.backend.redis_failopen`. After changing `REDIS_BINS` or
-`REDIS_LOCK_FLOOD_TAGS`, run `drush cr`.
+The recipe installs `perf_redis_failopen` (section 5). It decorates `cache.backend.redis`, so the
+Redis bins fail open while it is installed. `settings.performance.php` registers only drupal/redis's
+own services and classes (`container_yamls` and the class loader, as the redis README documents), so
+the bins work before the recipe installs the redis module. After changing `REDIS_BINS`, run
+`drush cr`.
 
 ## 5. Apply the recipe
 
 ```bash
+drush cr   # an existing site must see the newly required modules first
 drush recipe ../recipes/drupal-performance-recipe
 drush cr
 drush cron   # writes the Themed Fast 404 static page
@@ -136,33 +137,23 @@ See [azure.md](azure.md) for production and [ddev.md](ddev.md) / [lando.md](land
 The path purge module shows its on/off switch on the Performance page
 (`admin/config/development/performance`). To switch purging off for one environment, add its line
 to that environment's `settings.php`; the Performance page then says the value is overridden.
-The Redis switch is set in `settings.php` only.
 
 ```php
-// Local (example): no Front Door purges, no Redis.
+// Local or QA (example): no Front Door purges.
 $config['perf_purge_paths.settings']['enabled'] = FALSE;
-$config['perf_redis_failopen.settings']['enabled'] = FALSE;
-// QA (example): Redis on, no Front Door purges.
-$config['perf_purge_paths.settings']['enabled'] = FALSE;
-// Prod: add nothing. Both stay on.
+// Prod: add nothing.
 ```
 
 - Purge off: no paths are queued. azure_cdn_purge's own node hook stays removed while the module is installed.
-- Redis off: the Redis bins use the database.
-  `bootstrap`, `config` and `discovery` stay on Redis if `REDIS_BINS` lists them (Drupal reads them to load this setting).
 
-**Switch Redis off or on (deploy step):**
+**Switch Redis off or on (environment variable, no deploy):**
 
-1. Add or remove the Redis line in that environment's `settings.php`.
-2. Deploy.
-3. Run `drush cr`.
-
-- `drush cr` empties the bins where they live now: the database after switching off, Redis after switching on.
-- The module empties the other copy at the switch: the first request after it empties the database copy, or
-  Redis, once [V: tmp/jrock-build3/06-drush-cr-probe-ddev.log].
-- Short window: requests already running when the deploy goes live finish on the old setting. If one of them
-  saves content at that moment, the cache now in use can keep an old copy of it. `drush cr` removes it; run it
-  again after a minute if editors were saving during the deploy.
+- Off: set `REDIS_ENABLED=0` (an App Service setting or Key Vault reference). The Redis bins use the
+  database. No deploy and no `drush cr`: their database tables are kept empty while Redis is on, so the
+  site starts cold, never stale.
+- On: set `REDIS_ENABLED=1` (or remove it), then run `drush cr` once the app has restarted. It empties
+  Redis, which missed the deletes made while it was off, and the database tables of the Redis bins.
+- The status report shows the state the environment set.
 
 ## Optional: remove dblog
 

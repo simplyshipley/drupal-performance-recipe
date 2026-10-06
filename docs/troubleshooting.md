@@ -8,7 +8,7 @@ With the default settings a Redis outage is absorbed by `modules/perf_redis_fail
 - Log: `perf_redis_failopen` warning "Redis unavailable, serving cache misses for 30 s ..." once
   per outage detection, so about once per retry interval per instance (the APCu outage state)
   [V: redis_down, 1 warning, tmp/jrock-cut/13-ddev-suite.log].
-- Recovery: Redis is retried after `PERF_REDIS_RETRY_INTERVAL` (30 s; lab 5 s) and pages are
+- Recovery: Redis is retried after 30 s and pages are
   cached in Redis again [V: redis_recover]. If a delete or invalidation was lost during the
   outage, the first request after recovery empties that bin (notice "Redis reachable again;
   emptied bin ...") so no stale entry survives [V: unit test].
@@ -19,8 +19,8 @@ With the default settings a Redis outage is absorbed by `modules/perf_redis_fail
   timeout once per retry window per PHP-FPM instance [V: redis_hang 2.04 s,
   tmp/jrock-cut/13-ddev-suite.log].
 - If it still returns HTTP 500 with `RedisException`: check that the `perf_redis_failopen`
-  module is installed, that `REDIS_LOCK_FLOOD_TAGS` is not `1` (those services are not wrapped),
-  and run `drush cr` after changing it (the service container must be rebuilt).
+  module is installed. For a planned or long outage set `REDIS_ENABLED=0` (the bins use the
+  database, no deploy).
 - The redis module's own report page `/admin/reports/redis` talks to Redis directly and is not
   wrapped [ASSUMED: it may error while Redis is down; admin only]. The status report only
   shows "Not connected" [V: redis.install].
