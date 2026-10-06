@@ -108,7 +108,7 @@ memory (see troubleshooting).
 | Container restarts | Container Apps metric `RestartCount` | Any restart (Bicep `restartAlert`) |
 | Memory | Container Apps metric `WorkingSetBytes` | Above 90 percent of container memory (Bicep `memoryAlert`, threshold for 1 GiB) |
 | Evictions, hit rate | `redis-cli INFO stats` (no platform metric) | Scheduled check or exporter; alert on steady `evicted_keys` growth [ASSUMED approach] |
-| Connection errors seen by Drupal | Drupal syslog, channel `perf_redis_failopen` ("Redis unavailable, serving cache misses ...", at most one per 60 s per instance) | Log Analytics query on App Service logs for that text; any hit = Redis outage while the site stayed up |
+| Connection errors seen by Drupal | Drupal syslog, channel `perf_redis_failopen` ("Redis unavailable, serving cache misses ...", about one per 30 s per instance) | Log Analytics query on App Service logs for that text; any hit = Redis outage while the site stayed up. Down longer than 15 minutes: set `REDIS_ENABLED=0` and restart (stops the warnings; dblog keeps only 1,000 rows) |
 | Recovery flush | Drupal log notice "Redis reachable again; emptied bin ..." | Informational |
 
 Metric names are [ASSUMED]; confirm with

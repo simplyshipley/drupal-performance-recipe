@@ -109,6 +109,10 @@ $perf_env = static function (string $name, ?string $default = NULL): ?string {
 // Core cache tuning.
 // ---------------------------------------------------------------------------
 $settings['database_cache_max_rows']['default'] = (int) $perf_env('DRUPAL_DATABASE_CACHE_MAX_ROWS', '5000');
+// Used when these bins are in the database (REDIS_ENABLED=0 or Redis down).
+// OIG sitemap crawl, 580 pages: 579 page rows, 5,251 render rows.
+$settings['database_cache_max_rows']['bins']['page'] = 2000;
+$settings['database_cache_max_rows']['bins']['render'] = 10000;
 $settings['cache_ttl_4xx'] = (int) $perf_env('DRUPAL_CACHE_TTL_4XX', '3600');
 
 // ---------------------------------------------------------------------------

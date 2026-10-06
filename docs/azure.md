@@ -45,8 +45,8 @@ Put secrets in Key Vault references, not plain values [ASSUMED].
 | `REDIS_PASSWORD` | Key Vault reference | Access key |
 | `REDIS_PREFIX` | `oig-cpsc-prod` | Required if one Redis serves several sites. Optional otherwise (the redis module then uses its own default prefix); the test suite matches any prefix when it is unset |
 | `DRUPAL_TRUSTED_HOSTS` | `www.example.gov,example.gov` | Anchored and escaped by the settings file [V: code] |
-| `DRUPAL_REVERSE_PROXY` | `1` | Trust `X-Forwarded-*` |
-| `DRUPAL_REVERSE_PROXY_ADDRESSES` | App Service front-end ranges | Comma-separated IPs/CIDRs of the hop Drupal sees as `REMOTE_ADDR` |
+| `DRUPAL_REVERSE_PROXY` | leave unset | `1` = trust `X-Forwarded-*`. Set it only for Option A, after the [client IP test](#client-ip) fails. Unset keeps what the site does today |
+| `DRUPAL_REVERSE_PROXY_ADDRESSES` | App Service internal ranges + Front Door backend ranges | Only with `DRUPAL_REVERSE_PROXY=1`. Comma-separated IPs/CIDRs. Both hops are needed, see [Client IP](#client-ip) |
 | `DRUPAL_CACHE_TTL_4XX` | `3600` | Core default; see guide "Why 403s arrive in batches" |
 | `DRUPAL_DATABASE_CACHE_MAX_ROWS` | `5000` | Only matters for bins still in MySQL |
 | `PERF_FAST404` | `1` | Turns on the Fast 404 settings and the pre-boot static-file check. Unset = the settings file does nothing for Fast 404 |
@@ -120,10 +120,19 @@ Government.
 
 ## Service principal for purging
 
-Create an app registration with a client secret and grant it a role on the Front Door profile
-that allows `Microsoft.Cdn/profiles/afdEndpoints/purge/action` (for example "CDN Endpoint
-Contributor", or a custom role with only that action) [ASSUMED]. Test against a non-production
-profile first.
+Create an app registration with a client secret and give it a **custom role** with one action,
+`Microsoft.Cdn/profiles/afdEndpoints/purge/action`, assigned at the Front Door **endpoint**
+scope. Do not use the built-in roles: "CDN Endpoint Contributor" covers classic CDN endpoints,
+not Front Door, and "CDN Profile Contributor" would let a leaked secret change the origins.
+
+1. `az role definition create` with that one action and the endpoint as the assignable scope.
+2. `az role assignment create --assignee <app id> --role <role name> --scope <endpoint resource id>`.
+3. Keep the secret in Key Vault with a short lifetime (for example 90 days). To rotate: add a
+   new secret, update Key Vault, restart the app, delete the old secret.
+
+Go-live check: on a non-production profile, save a node and confirm the purge succeeds with only
+this role (failures log to the `azurecdn` channel). Until then, "one action is enough" is
+[ASSUMED].
 
 What the module sends [V: mock log, tmp/ddev/run3-final.log]:
 
@@ -167,9 +176,39 @@ what frees memory. One replica only: a second replica would be a separate cache.
 
 ## Client IP
 
-Unchanged from the caching guide. `settings.performance.php` implements Option A
-(`DRUPAL_REVERSE_PROXY*` variables). Option B (web server `real_ip_header X-Azure-ClientIP`)
-lives in the container image and is outside this package.
+Drupal must log the visitor's IP, not a Front Door or App Service address. Login flood
+control, IP bans and the audit log depend on it. Many sites already get this right in the
+container image, so test before changing anything.
+
+### Test (production or staging, 2 minutes)
+
+1. Look up your public IP (search "what is my IP").
+2. Log in at `/user/login` with a wrong password, once.
+3. Open `/admin/reports/dblog`, find "Login attempt failed", and read the Hostname.
+
+| Hostname | Meaning | Action |
+|---|---|---|
+| Your IP | Client IP already works | None. Leave `DRUPAL_REVERSE_PROXY` unset |
+| Private (`10.*`, `172.16-31.*`, `169.254.*`) | Drupal sees the App Service front end | Fix below |
+| Public, not yours | Drupal sees Front Door | Fix below |
+
+Repeat from a second network (a phone off Wi-Fi): the two entries must show two different IPs.
+
+### Fix (only if the test fails)
+
+Both options need the origin locked to your Front Door (service tag `AzureFrontDoor.Backend`
+plus the `X-Azure-FDID` check, see the caching guide), or anyone could send a fake client IP.
+
+- **Option B (preferred, no IP list to maintain):** in the container image, Apache
+  `mod_remoteip` with `RemoteIPHeader X-Azure-ClientIP`, trusting only the App Service
+  internal range. This is a change to the site's image, not this package.
+- **Option A (settings only):** set `DRUPAL_REVERSE_PROXY=1` and
+  `DRUPAL_REVERSE_PROXY_ADDRESSES` to the App Service internal ranges **and** the Front Door
+  backend ranges. Trusting only one hop stops at the other hop's IP. Front Door ranges change:
+  refresh them from Azure's published service tags file (Azure Government publishes its own).
+
+After either fix, run the test again and check that a page's canonical link still starts with
+`https://`.
 
 ## Themed Fast 404 on Azure
 
