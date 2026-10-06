@@ -70,9 +70,8 @@ through the settings.php line `$config['perf_purge_paths.settings']['enabled'] =
 settings.php sets it when `PERF_LAB_PURGE_OFF=1`). Every test that depends on the module then
 FAILS: 17; `sync_new_path_404` and `sync_wildcard` do not use it [V: tmp/jrock-build2/ddev-sync-negative.log].
 
-Three tests need the optional `perf_purge_deleted` module ([install.md](install.md#optional-purge-deleted-aliases-and-files)).
-With it, stale = FAIL. Without it, stale = FINDING, like `sync_delete`, so a suite on a site
-without the module stays green. Each one first checks that the URLs were cached at the edge
+Four tests (`sync_delete`, `sync_alias_delete`, `sync_file_delete`, `sync_file_swap`) need the delete hooks of
+`perf_purge_paths` (the former `perf_purge_deleted`). With them, stale = FAIL; without them, stale = FINDING. Each one first checks that the URLs were cached at the edge
 (`TCP_HIT`, 200) before the delete, so "never cached" cannot pass as "purged".
 
 | Test | What it does | PASS means | Lab result |

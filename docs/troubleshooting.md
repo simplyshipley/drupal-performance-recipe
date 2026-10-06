@@ -74,9 +74,20 @@ Before production, decide whether to patch the override to read the file from di
 
 ## Purge: only node updates are purged
 
-See [azure.md](azure.md#what-gets-purged-path-based-no-tags). `drush p:queue-volume` stays
-0 after saving a term, a menu or a new node [ASSUMED from the hook; only node updates were
-tested].
+`perf_purge_paths` is off or not installed: stock `azure_cdn_purge` queues only an updated
+node's alias. Check `perf_purge_paths.settings:enabled` and see
+[azure.md](azure.md#what-gets-purged-path-based-no-tags) for what the module queues.
+
+## Redis report page shows two warnings
+
+`/admin/reports/redis` shows both of these on a recipe site. Both are expected; do not "fix" them.
+
+- "Using an allkeys eviction policy may drop cache tag checksums ...": the checksums are in the
+  database, not Redis (`azure.md` ruling), so an evicted key is only a cache miss.
+- "No cache tags found, make sure that the redis cache tag checksum service is used": same
+  reason. Moving the checksum service to Redis made a Redis outage a site outage (HTTP 500).
+
+[V: redis 8.x-1.11 `ReportController.php`; OIG copy: `maxmemory_policy:allkeys-lru`, 0 cache-tag keys in Redis]
 
 ## Purge items fail
 

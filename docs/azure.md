@@ -143,20 +143,27 @@ What the module sends [V: mock log, tmp/ddev/run3-final.log]:
 
 ## What gets purged (path-based, no tags)
 
-Front Door has no cache tags, so only paths are purged. In this module that means:
+Front Door has no cache tags, so only paths are purged. `perf_purge_paths` (on by default) turns
+Drupal's cache tag invalidations into paths [V: `PathMapper.php`, `PerfPurgePathsHooks.php`]:
 
-- On **node update only**, `hook_node_update` queues the node's alias (or `/node/N`)
-  [V: azure_cdn_purge.module; queue item `path:node/1` in the lab]. New nodes, deletes, taxonomy
-  terms, media, menus and listing pages are **not** queued.
-- The core tags queuer (`purge_queuer_coretags`) is installed and enabled, but it queues
-  nothing, because no enabled purger supports the `tag` type (it catches
-  `TypeUnsupportedException` and returns) [V: CacheTagsQueuer.php; lab queue held only the
-  path item after a node save].
-- Listing pages, the front page and views rely on a short HTML lifetime (900 s here) or a
-  manual purge (`az afd endpoint purge`, or the Purge UI block).
-- `wildcardpath` invalidations are marked SUCCEEDED without any request being sent, because
-  the purger only handles the batch when the first item is type `path` [V: code read,
-  AzurePurger.php purgeChunk]. Do not rely on wildcard purges.
+| Change | Paths queued |
+|---|---|
+| Node or taxonomy term saved or deleted (`node:N`, `taxonomy_term:N`) | `/node/N` or `/taxonomy/term/N` and its alias |
+| Listings (`node_list`, `taxonomy_term_list`) | `PERF_PURGE_LIST_PATHS` (operator setting) |
+| Blocks and menus | `PERF_PURGE_SITEWIDE_PATHS` (operator setting, for example `/*`) |
+| Alias renamed, retargeted or deleted | the old alias; both pages' tags are invalidated |
+| File replaced at the same URL or deleted | the file URL and its image-style URLs |
+
+- Only the operator settings may contain `*`; a content-derived path with `*` is dropped and
+  logged (security F1).
+- Pages not covered (views on other paths, the front page unless listed) rely on the HTML
+  lifetime (900 s) or a manual purge (`az afd endpoint purge`, or the Purge UI block).
+- Without the module, stock `azure_cdn_purge` queues only the alias of an updated node, and the
+  core tags queuer queues nothing because the purger does not support the `tag` type [V:
+  azure_cdn_purge.module, CacheTagsQueuer.php].
+- Unpatched `azure_cdn_purge` marks `wildcardpath` items SUCCEEDED without sending them [V:
+  AzurePurger.php purgeChunk]. The recipe's `azure_cdn_purge-wildcardpath-purged.patch` fixes
+  that; without the patch, do not rely on wildcard paths.
 
 ## Front Door
 

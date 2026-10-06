@@ -18,33 +18,48 @@ Run commands through your environment wrapper (`ddev composer`, `lando drush`, a
 composer config --json extra.installer-paths.recipes/{\$name} '["type:drupal-recipe"]'
 ```
 
-## 3. Add the package repository and require the recipe
+## 3. Require the recipe
 
-From a private Git repository:
+The recipe is two Composer packages:
+
+- `simplyshipley/drupal-performance-recipe`: this repo's root (recipe, config, patches, infra).
+- `simplyshipley/drupal-performance-modules`: the `drupal-performance-modules/` folder (the two
+  modules and the settings include). The recipe requires it.
+
+Composer reads `composer.json` only at a repository's root, so a `vcs` repository on this GitHub
+repo cannot supply the modules package [ASSUMED: Composer behaviour, not tested].
+
+**Today (labs and the OIG test copy):** path repositories to a checkout of this repo [V: OIG copy
+`composer.json`]:
 
 ```bash
-composer config repositories.perf-recipe '{"type":"vcs","url":"git@github.com:simplyshipley/drupal-performance-recipe.git"}'
-composer require simplyshipley/drupal-performance-recipe:dev-main
+composer config repositories.perf-modules '{"type":"path","url":"/path/to/repo/drupal-performance-modules","options":{"symlink":false,"versions":{"simplyshipley/drupal-performance-modules":"1.0.x-dev"}}}'
+composer config repositories.perf-recipe '{"type":"path","url":"/path/to/repo","options":{"symlink":false,"versions":{"simplyshipley/drupal-performance-recipe":"1.0.x-dev"}}}'
+composer require simplyshipley/drupal-performance-recipe:1.0.x-dev simplyshipley/drupal-performance-modules:1.0.x-dev
 ```
 
-The repo is private on GitHub, so Composer needs GitHub access (SSH key or token). Installing from it is untested: the labs used a path repository instead (see
-[ddev.md](ddev.md)). Composer installs the recipe at `recipes/drupal-performance-recipe` and
-the five contrib projects into `web/modules/contrib` [V].
+**For production (not done yet):** move `drupal-performance-modules/` to its own repository, tag
+both repos (`1.0.0`), and serve them from a registry the sites already use (for OIG,
+`oig-packages.bitbucket.io`) or as two `vcs` repositories. Then:
+`composer require simplyshipley/drupal-performance-recipe:^1.0`.
+
+Composer installs the recipe at `recipes/drupal-performance-recipe`, the modules package at
+`web/modules/custom/drupal-performance-modules`, and the contrib projects into
+`web/modules/contrib` [V].
 
 ## 4. Include the settings file
 
-Append to `web/sites/default/settings.php`, **after** `$databases` is defined:
+Append to `web/sites/default/settings.php`, **after** `$databases` is defined. Use `require`, not
+a `file_exists` check, so a missing package fails loudly instead of silently dropping the Redis,
+proxy and trusted-host settings:
 
 ```php
 // Performance recipe settings (Redis, reverse proxy, Fast 404, Azure purge).
-$perf = $app_root . '/../recipes/drupal-performance-recipe/settings/settings.performance.php';
-if (file_exists($perf)) {
-  include $perf;
-}
+require $app_root . '/modules/custom/drupal-performance-modules/settings/settings.performance.php';
 ```
 
 Every block is controlled by environment variables and does nothing when they are unset. The
-full list is at the top of `settings/settings.performance.php`. Redis is used only when
+full list is at the top of `settings.performance.php`. Redis is used only when
 `REDIS_HOST` is set [ASSUMED: code guard at settings.performance.php "Redis cache backend" block; the no-Redis path was not run in the lab].
 
 If you use DDEV's `ddev/ddev-redis` add-on, it adds its own `settings.ddev.redis.php`; retire it
@@ -64,8 +79,13 @@ the bins work before the recipe installs the redis module. After changing `REDIS
 drush cr   # an existing site must see the newly required modules first
 drush recipe ../recipes/drupal-performance-recipe
 drush cr
-drush cron   # writes the Themed Fast 404 static page
+drush php:eval "\Drupal::service('themed_fast_404.manager')->buildStatic404();"   # the Themed Fast 404 static page
 ```
+
+Do not run a full `drush cron` here: it runs every module's cron job. On the OIG test copy it ran
+`block_inactive_users`, which disabled three accounts, and tried to send email
+[V: tmp/codex-oig/sitemap/cron-A.log]. The `php:eval` line runs only the 404 page build, the same
+call as `themed_fast_404_cron()` [V: OIG copy, file `page-not-found-en.html` rewritten].
 
 Result: 13 modules installed (big_pipe, syslog, redis, purge, purge_ui, purge_processor_cron,
 purge_queuer_coretags, purge_drush, azure_cdn_purge, fast404, themed_fast_404, page_cache,
@@ -183,23 +203,11 @@ terms, files and old aliases would stay stale at Front Door ([cache-sync.md](cac
 - **Queue volume:** about 6–10 items per node save, and more with `PERF_PURGE_LIST_PATHS`/`PERF_PURGE_SITEWIDE_PATHS`. See the numbers in cache-sync.md.
 - **Turn it off:** see [section 8](#8-turn-caching-off-per-environment). azure_cdn_purge's own node hook stays removed while the module is installed; uninstall the module to get it back.
 
-## Optional: purge deleted aliases and files
+## Deleted and renamed aliases and deleted files
 
-Closes the delete and rename gaps (open decision 1 in [cache-sync.md](cache-sync.md#open-decisions-for-bo)):
-a deleted or renamed alias and a deleted file stay cached at Front Door without it. Drupal only
-finds modules under `web/modules`, so copy it from the recipe:
-
-```bash
-mkdir -p web/modules/custom
-cp -R recipes/drupal-performance-recipe/modules/perf_purge_deleted web/modules/custom/
-drush en perf_purge_deleted -y
-```
-
-- **Needs** `settings.performance.php` included and path purging on ([section 8](#8-turn-caching-off-per-environment)). Otherwise it does nothing.
-- **Not in `recipe.yml`:** the recipe must still apply on a site without it.
-- **Update it with the recipe:** copy it again, because it calls methods added to `perf_purge_paths`. An old queuer fails safe: a warning in dblog, and the delete still goes through [V: tmp/lando-probe-old-queuer-failsafe.log].
-- **Remove it:** `drush pmu perf_purge_deleted -y`.
-- **Tested in the labs** [V: tmp/lando-deleted-on.log, tmp/lando-deleted-off.log].
+Nothing to install. `perf_purge_paths` purges a deleted, renamed or retargeted alias and a deleted
+file itself (`PerfPurgePathsHooks.php`). The former optional `perf_purge_deleted` module was merged
+into it and is retired (`modules/__ARCHIVED_perf_purge_deleted`).
 
 ## Optional: remove the Generator meta tag
 
