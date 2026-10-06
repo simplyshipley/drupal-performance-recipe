@@ -157,8 +157,8 @@ Use these Front Door reference IDs to find the requests in WAF and access logs.
 
 | Time (UTC) | URL | Status | `x-azure-ref` |
 | --- | --- | --- | --- |
-| 20261006 17:52:44 via proxy | `https://www.uspsoig.gov/` | 200 | `20261006T175244Z-176d9fff4ff5q8pchS1PHXz0zw00000018bg00000000as8p` |
-| 20261006 17:52:46 via proxy | `https://www.uspsoig.gov/sites/default/files/css/css_QG8CaVXJ0ySg4BiCF5ZSqBf0tvqQqgm48c6dY6AT8Rk.css` | 200 | `20261006T175246Z-176d9fff4ff5q8pchS1PHXz0zw00000018bg00000000asbg` |
-| 20261006 17:52:48 via proxy | `https://www.uspsoig.gov/themes/custom/usps_subtheme/assets/img/alert-flag.png` | 200 | `20261006T175248Z-176d9fff4ff5q8pchS1PHXz0zw00000018bg00000000ase1` |
+| 2026-10-06 17:52:44 (proxy) | `https://www.uspsoig.gov/` | 200 | `20261006T175244Z-176d9fff4ff5q8pchS1PHXz0zw00000018bg00000000as8p` |
+| 2026-10-06 17:52:46 (proxy) | `https://www.uspsoig.gov/sites/default/files/css/css_QG8CaVXJ0ySg4BiCF5ZSqBf0tvqQqgm48c6dY6AT8Rk.css` | 200 | `20261006T175246Z-176d9fff4ff5q8pchS1PHXz0zw00000018bg00000000asbg` |
+| 2026-10-06 17:52:48 (proxy) | `https://www.uspsoig.gov/themes/custom/usps_subtheme/assets/img/alert-flag.png` | 200 | `20261006T175248Z-176d9fff4ff5q8pchS1PHXz0zw00000018bg00000000ase1` |
 | 2026-09-29 20:31:20 | `https://www.uspsoig.gov/` | 200 | `20260929T203120Z-15df8c46995jwckchS1SNRvmcs0000000z80000000005tab` |
 | 2026-09-29 20:31:05 | `https://www.uspsoig.gov/` | 200 | `20260929T203105Z-15df8c46995p2vjzhS1SNRc6m80000000z2000000000bk14` |
