@@ -19,9 +19,10 @@ final class AliasAndFileHooksTest extends PurgePathsKernelTestBase {
    * Stores a cache entry tagged with the node's tag and returns its id.
    */
   private function cacheEntryTaggedWithNode(int|string $nid): string {
-    \Drupal::cache()->set('synthetic_probe', 'cached page', Cache::PERMANENT, ['node:' . $nid]);
-    $this->assertNotFalse(\Drupal::cache()->get('synthetic_probe'), 'The probe entry is cached.');
-    return 'synthetic_probe';
+    $cid = 'synthetic_probe:' . $nid;
+    \Drupal::cache()->set($cid, 'cached page', Cache::PERMANENT, ['node:' . $nid]);
+    $this->assertNotFalse(\Drupal::cache()->get($cid), 'The probe entry is cached.');
+    return $cid;
   }
 
   /**
@@ -53,6 +54,33 @@ final class AliasAndFileHooksTest extends PurgePathsKernelTestBase {
     $cid = $this->cacheEntryTaggedWithNode($node->id());
     $this->loadAlias('/synthetic-old')->setAlias('/synthetic-new')->save();
     $this->assertFalse(\Drupal::cache()->get($cid));
+  }
+
+  /**
+   * Pointing an alias at another node, same text, queues the alias itself.
+   *
+   * The admin "URL aliases" form can do this. The other node has a newer alias
+   * of its own, so mapping its tag does not queue the retargeted alias.
+   */
+  public function testRetargetingAnAliasQueuesTheAlias(): void {
+    $this->createNode('/synthetic-news');
+    $new = $this->createNode('/synthetic-other');
+    $this->loadAlias('/synthetic-news')->setPath('/node/' . $new->id())->save();
+    $this->assertContains('/synthetic-news', $this->queuedPaths());
+    $this->assertContains('/synthetic-news/', $this->queuedPaths());
+  }
+
+  /**
+   * Retargeting an alias invalidates the cache tags of both nodes.
+   */
+  public function testRetargetingAnAliasInvalidatesBothNodesCacheTags(): void {
+    $old = $this->createNode('/synthetic-news');
+    $new = $this->createNode('/synthetic-other');
+    $cids = [$this->cacheEntryTaggedWithNode($old->id()), $this->cacheEntryTaggedWithNode($new->id())];
+    $this->loadAlias('/synthetic-news')->setPath('/node/' . $new->id())->save();
+    foreach ($cids as $cid) {
+      $this->assertFalse(\Drupal::cache()->get($cid), "$cid was invalidated.");
+    }
   }
 
   /**

@@ -131,12 +131,17 @@ final class PerfPurgePathsHooks {
   /**
    * Implements hook_path_alias_update().
    *
-   * Queues the old alias when the alias text changed.
+   * When the alias text or its system path changed, queues the old alias (the
+   * alias itself when only the path changed) and invalidates the tags of both
+   * system paths.
    */
   #[Hook('path_alias_update')]
   public function pathAliasUpdate(PathAliasInterface $alias): void {
     $original = $this->original($alias);
-    if (!$original instanceof PathAliasInterface || $original->getAlias() === $alias->getAlias()) {
+    if (!$original instanceof PathAliasInterface) {
+      return;
+    }
+    if ($original->getAlias() === $alias->getAlias() && $original->getPath() === $alias->getPath()) {
       return;
     }
     $this->invalidateEntityTags((string) $original->getPath(), (string) $alias->getPath());
