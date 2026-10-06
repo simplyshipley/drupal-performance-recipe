@@ -91,9 +91,9 @@ Nothing here has run on Azure. Confirm each service is in FedRAMP scope first ([
 
 ### 3.1 Build, test, scan and push the Redis image
 
-Follow [redis-image.md](redis-image.md#build-and-test-locally): `docker build`, `bash test-image.sh` (expect 5 PASS), Trivy (expect 0 HIGH/CRITICAL), then push to the Azure Government registry.
+Follow [redis-image.md](redis-image.md#build-and-test-locally): `docker build`, `bash test-image.sh` (expect 5 PASS), Trivy (expect 0 HIGH/CRITICAL), then push with `bash infra/redis-image/push.sh 1` (OIG sites: `./bin/docker-redis 1`), which runs the tests, builds for linux/amd64 and pushes.
 - Tag `perf-redis:valkey-9.1.2-1`, server and version plus revision, never `latest`.
-- Check the push: `az acr repository show-tags --name <registry-name> --repository perf-redis -o tsv` (assumed)
+- Check the push: `az acr repository show-tags --name <registry-name> --repository services/perf-redis -o tsv` (assumed)
 
 ### 3.2 Deploy the Container App
 

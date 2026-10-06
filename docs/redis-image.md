@@ -36,17 +36,22 @@ every rebuild, and rebuild when the base tag gets fixes.
 
 ## Push to Azure Government ACR
 
-`<registry-name>` is a placeholder.
-
 ```
 az cloud set --name AzureUSGovernment
 az login
-az acr login --name <registry-name>                       # login server <registry-name>.azurecr.us
-docker tag perf-redis:valkey-9.1.2-1 <registry-name>.azurecr.us/perf-redis:valkey-9.1.2-1
-docker push <registry-name>.azurecr.us/perf-redis:valkey-9.1.2-1
-# or build in Azure (no local Docker needed):
-az acr build --registry <registry-name> --image perf-redis:valkey-9.1.2-1 infra/redis-image
+bash infra/redis-image/push.sh 1      # on OIG sites: ./bin/docker-redis 1
 ```
+
+`push.sh` runs `test-image.sh`, builds for `linux/amd64` (Container Apps; a Mac with Apple
+silicon builds arm64 otherwise), logs in like the OIG `bin/docker-auth`, and pushes
+`acrcigie.azurecr.us/services/perf-redis:valkey-<version>-<revision>`. The Valkey version comes
+from the Dockerfile `FROM` line. It refuses a tag that already exists. Settings: `ACR_NAME`
+(default `acrcigie`), `REPO` (`services/perf-redis`), `SKIP_TESTS=1`. Tested end to end against
+a local registry (`LOGIN_SERVER=localhost:5055`; image arch linux/amd64) [V:
+tmp/redis-image/push-local-test.log]; the Azure login and tag-exists check are not yet run
+against the real registry.
+
+Without local Docker: `az acr build --registry <registry-name> --image services/perf-redis:valkey-9.1.2-1 infra/redis-image`.
 
 **Tags:** server and version plus the image revision (`valkey-9.1.2-1`, `valkey-9.1.2-2`, …). Never deploy `latest`.
 
@@ -60,7 +65,7 @@ user-assigned identity that has **AcrPull**:
 ```
 az deployment group create -g <rg> -f infra/azure/redis-containerapp.bicep \
   -p namePrefix=<site>-prod infrastructureSubnetId=<subnet-id> logAnalyticsWorkspaceId=<law-id> \
-     redisPassword=<from Key Vault> redisImage=<registry-name>.azurecr.us/perf-redis:valkey-9.1.2-1 \
+     redisPassword=<from Key Vault> redisImage=<registry-name>.azurecr.us/services/perf-redis:valkey-9.1.2-1 \
      acrServer=<registry-name>.azurecr.us acrPullIdentityId=<uami-resource-id> maxmemory=768mb
 ```
 

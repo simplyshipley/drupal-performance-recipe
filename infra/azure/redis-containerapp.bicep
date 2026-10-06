@@ -33,7 +33,7 @@ param logAnalyticsWorkspaceId string
 param redisPassword string
 
 @description('Container image built from infra/redis-image (docs/redis-image.md), pinned by tag. Placeholder registry name.')
-param redisImage string = '<registry-name>.azurecr.us/perf-redis:valkey-9.1.2-1'
+param redisImage string = '<registry-name>.azurecr.us/services/perf-redis:valkey-9.1.2-1'
 
 @description('ACR login server to pull from, e.g. <registry-name>.azurecr.us. Empty = public image, no registry auth.')
 param acrServer string = ''
