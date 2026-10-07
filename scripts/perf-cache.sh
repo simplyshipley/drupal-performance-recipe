@@ -88,7 +88,7 @@ status() {
       printf("bin %-19s %s\n", $b, $cls);
     }
     $t = $c->getParameter("twig.config");
-    printf("twig debug=%s auto_reload=%s cache=%s\n", var_export($t["debug"], TRUE), var_export($t["auto_reload"], TRUE), var_export($t["cache"], TRUE));
+    printf("twig debug=%s auto_reload=%s cache=%s\n", var_export($t["debug"] ?? NULL, TRUE), var_export($t["auto_reload"] ?? NULL, TRUE), var_export($t["cache"] ?? NULL, TRUE));
     $tw = $c->get("twig");
     printf("twig service: isDebug=%s cache=%s\n", var_export($tw->isDebug(), TRUE), $tw->getCache() ? "on" : "off");
     $p = \Drupal::config("system.performance");
