@@ -51,7 +51,6 @@ The steps use `oig-americorps` as the site. Use your site's folder name.
 ```bash
 cd ~/sites
 git clone https://github.com/simplyshipley/drupal-performance-recipe.git
-git -C drupal-performance-recipe switch perf-modules-needed   # until it is merged to main
 
 cd oig-americorps
 mkdir -p recipes/drupal-performance-recipe docroot/modules/custom
