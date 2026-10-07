@@ -6,10 +6,24 @@ For developers reading or running the recipe's test suite. Look up a test by nam
 - Each check prints `PASS`, `FAIL` or `INFO`, then `# summary`.
 - Exit status = number of FAILs.
 - `--list` prints the names.
-- All content it creates is SYNTHETIC (titles start "SYNTHETIC").
+- All content it creates is SYNTHETIC (titles start "SYNTHETIC"). Tests that edit content share one SYNTHETIC node per run and delete it at the end, also on Ctrl-C. No real content is touched.
+
+## Settings file (perf-test.env)
+
+- **Where:** the site root (in Lando `/app/perf-test.env`). Copy `recipes/drupal-performance-recipe/scripts/perf-test.env.example`.
+- **Format:** `KEY=VALUE` lines, no quotes; `#` lines are comments. No secrets.
+- **Keys:**
+  - `BASE_URL`: `https://<project>.lndo.site` (`<project>` = the Lando app name).
+  - `PERF_TEST_PATH`: default `/`. Avoid pages with webforms or registration/password forms: Honeypot's time limit disables page caching there.
+  - `PERF_EDGE`: `1` also runs the edge tests, `0` skips them.
+- **Order:** a variable on the command line wins over the file.
+- **Fallback** when nothing is set: `http://appserver_nginx` (Lando's internal web server).
+- **Certificate error on https** on a machine: use `http://<project>.lndo.site`.
+- Source: Our choice (ruling 2026-10-07).
 
 Environment variables:
-- `BASE_URL`: DDEV `http://localhost`, Lando `http://appserver_nginx`.
+- `BASE_URL`: DDEV `http://localhost`; Lando `https://<project>.lndo.site` (fallback when nothing is set: `http://appserver_nginx`). Usually set in `perf-test.env` below.
+- `PERF_TEST_PATH`: page the read-only tests fetch (default `/`).
 - `PERF_MOCK_URL`.
 - The same `REDIS_*` variables the site uses. `REDIS_PREFIX` is optional: without it the Redis checks match any prefix, which is only accurate if no other site shares the Redis.
 - `DRUSH` (default `vendor/bin/drush`).
@@ -23,15 +37,15 @@ Results below are from the final lab runs [V: tmp/ddev/run9.log, tmp/lando-run7.
 | `drush_cr` | Warms a node page (HIT), counts keys (total, render, page), runs `drush cr`, counts again, requests the page | The page bin's `_redis_last_delete_all` key changed and the page went HIT -> MISS. The INFO line records key counts | PASS both; key count did **not** drop (DDEV 488 -> 512, Lando 469 -> 493; the counts include keys written by the cr itself) |
 | `tag_invalidation` | HIT a node page, change its title in PHP, request again | HIT -> MISS with the new title -> HIT | PASS both |
 | `eviction` | Sets `maxmemory` to used memory + 400 KB and `volatile-lfu` at runtime, requests every published node, reads `evicted_keys`, restores the settings (also on exit/interrupt via a trap) | `evicted_keys` rose and the home page still returns 200 | PASS both with `allkeys-lru` (DDEV 0 -> 2551, Lando 0 -> 922); policy changed to `volatile-lfu` 2026-10-07, not re-run on the labs |
-| `redis_down` | Run by the wrappers after `docker stop` of this project's Redis only; requests home, node/1 and /user/login, runs `drush status`, counts `perf_redis_failopen` warnings in dblog | All three pages 200 and at least one warning logged | PASS both (1 warning). Fail-proof: with perf_redis_failopen uninstalled the same test FAILS with HTTP 500 [V: tmp/jrock-cut/18-lando-failopen-uninstall-proof.log] |
+| `redis_down` | Run by the wrappers after `docker stop` of this project's Redis only; requests home, `PERF_TEST_PATH` and /user/login, runs `drush status`, counts `perf_redis_failopen` warnings in dblog | All three pages 200 and at least one warning logged | PASS both (1 warning). Fail-proof: with perf_redis_failopen uninstalled the same test FAILS with HTTP 500 [V: tmp/jrock-cut/18-lando-failopen-uninstall-proof.log] |
 | `redis_hang` | Run by the wrappers with this project's Redis container `docker pause`d (TCP accepted, no answers); three page requests | All 200; first under 5 s, the next two under 1 s | PASS both (first 2.1 s, then 0.03-0.05 s). Fail-proof: `PERF_REDIS_CONNECT_TIMEOUT=0` -> first request 60.8 s, FAIL [V: run9.log] |
 | `redis_recover` | After Redis is started again, waits the retry interval + 2 s, requests node/2 twice | Redis key count grew and node/2 is `X-Drupal-Cache: HIT` | PASS both |
-| `purge_queue_fills` | Empties the purge queue, saves a node, reads `p:queue-volume` and the queue rows | Volume increased | PASS both: 0 -> 1, item `path:node/1` |
-| `purge_send` | Resets the mock, saves a node, `drush p:queue-work --finish`, reads the mock log | Mock got a token request and `POST /subscriptions/.../afdEndpoints/ep-synthetic/purge` with the node's path in `contentPaths`; queue empty | PASS both: `contentPaths=["/node/1"]` |
+| `purge_queue_fills` | Empties the purge queue, saves the run's SYNTHETIC node, reads `p:queue-volume` and the queue rows | Volume increased | PASS both: 0 -> 1, item `path:node/1` |
+| `purge_send` | Resets the mock, saves the run's SYNTHETIC node, `drush p:queue-work --finish`, reads the mock log | Mock got a token request and `POST /subscriptions/.../afdEndpoints/ep-synthetic/purge` with the node's path in `contentPaths`; queue empty | PASS both: `contentPaths=["/node/1"]` |
 | `purge_retry` | Tells the mock to fail once (500), saves a node, works the queue twice | First run 500 and the item stays queued, second run 202 and queue empty | PASS both |
 | `core_404_static` | Requests a missing `sites/default/files/*.png` twice | `404 MISS` then `404 HIT`, and the body holds the `<title>` of core's `system.performance` `fast_404.html` page (core's plain page, page-cached) | Mutation-proven on the OIG copy (a one-line change turns it red) per commit 6449272; measured MISS 38 ms then HIT 6.6 ms [V: tmp/drop-fast404-20261007/04-measure-core-fast404.log] |
 | `core_404_page` | Requests an unknown page twice | `404 MISS` then `404 HIT`, and the body title starts with `Page not found` (the theme's 404; a site with its own 404 page differs) | Same proof; MISS 430 ms then HIT 7 ms [V: same log]. Replaces `fast404_static`, `fast404_path` and `themed_404` (2026-10-07) |
-| `headers_anon` | Requests a node page anonymously twice | Second response `X-Drupal-Cache: HIT` and `Cache-Control` contains `public` and `max-age=900` | PASS both |
+| `headers_anon` | Requests `PERF_TEST_PATH` (default `/`) anonymously twice | HTTP 200 and second response `X-Drupal-Cache: HIT` and `Cache-Control` contains `public` and `max-age=900` | PASS both |
 | `headers_auth` | Logs in with `drush uli`, requests a node page twice | `X-Drupal-Cache` absent or `UNCACHEABLE (request policy)`, `X-Drupal-Dynamic-Cache: HIT`, `Cache-Control` private/no-cache | PASS both: `must-revalidate, no-cache, private` |
 | `cache_4xx` | Creates an unpublished node, requests it anonymously twice, saves a different node, requests again | 403 cached (second HIT), MISS after the other node's save | PASS both; Redis TTL of the cached 403 = 7200 s (`cache_ttl_4xx` 3600 + `redis_ttl_offset` 3600) |
 | `cache_mode_dev` | `perf-cache.sh dev`, requests a node twice, switches back to prod-like ([cache-modes.md](cache-modes.md)) | render bin `NullBackend`, second request not HIT, `Cache-Control` no-cache, Twig debug comments, no aggregated CSS | PASS both (52 THEME DEBUG comments). Fail-proof `CACHE_MODE_NEGATIVE=1` FAILS [V: tmp/ddev/cache-mode-failproof.log, tmp/lando-cache-mode-failproof.log] |

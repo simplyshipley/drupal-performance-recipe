@@ -7,10 +7,12 @@ Followed on the SYNTHETIC lab `perflab106lando` (Lando 3.26.9, drupal10 recipe, 
 <a id="footguns-on-this-mac-from-the-2026-09-16-lando-lab"></a>
 ## If DDEV is also installed: Lando footguns
 
-- **Ports:** DDEV's router owns host ports 80/443/8025-8026/8080-8081. On any machine with DDEV, start Lando with the proxy off. Either:
-  - `export LANDO_PROXY=OFF` in the shell, or
-  - prefix every `lando` command with `LANDO_PROXY=OFF` [V].
-- **Random ports are fine:** none of the recipe's services publishes a host port. Lando's own `appserver_nginx` and `database` bind random 127.0.0.1 high ports (for example 32814, 32813) [V: `docker ps`]. They do not collide with DDEV.
+- **Ports:** DDEV's router owns host ports 80/443/8025-8026/8080-8081, and Lando's proxy wants the same ports.
+  - Only if DDEV is also installed, pick one:
+    - stop DDEV while you use Lando: `ddev poweroff`, or
+    - run Lando with the proxy off: `export LANDO_PROXY=OFF`. Then `.lndo.site` addresses do not work and the tests fall back to `http://appserver_nginx`.
+  - Our choice (ruling 2026-10-07): the proxy stays on by default; tests use `https://<project>.lndo.site`.
+- **Random ports are fine:** none of the recipe's services publishes a host port. Lando's own web server and `database` bind random 127.0.0.1 high ports (for example 32814, 32813) [V: `docker ps`]. They do not collide with DDEV.
 - **`node` tooling:** Lando 3.26.9 rewrites a tooling `cmd` that starts with `node` (lando/lando#3460). The recipe's tooling uses `bash -c` / `redis-cli`, not `node`.
 - **Missing static files:** Lando's default drupal10 nginx vhost answers missing `.js/.css/.png/...` files itself, so Drupal's Fast 404 never sees them [V: first Lando run, the old `fast404_static` test was answered by nginx; the replacement is `core_404_static`].
   - The recipe's snippet swaps in `lando/nginx-fast404.conf.tpl` (the file name is unchanged; it also gives aggregates and image styles a lifetime for the edge) (Lando's template plus `try_files $uri @rewrite;` in that block).
@@ -36,7 +38,6 @@ services:
 ```
 
 ```bash
-export LANDO_PROXY=OFF   # once per terminal (see "If DDEV is also installed")
 lando rebuild -y
 ```
 
@@ -68,7 +69,7 @@ require $app_root . '/modules/custom/drupal-performance-modules/settings/setting
 ```bash
 cp recipes/drupal-performance-recipe/lando/lando.perf.yml .lando.local.yml
 mkdir -p .lando-mock-afd-data
-LANDO_PROXY=OFF lando rebuild -y
+lando rebuild -y
 ```
 
 `lando.perf.yml` adds:
@@ -83,10 +84,12 @@ To use one file instead, paste the same keys into `.lando.yml`.
 ## 3. Apply the recipe
 
 ```bash
-LANDO_PROXY=OFF lando drush recipe ../recipes/drupal-performance-recipe
-LANDO_PROXY=OFF lando drush cr
-LANDO_PROXY=OFF lando drush cron
+lando drush recipe ../recipes/drupal-performance-recipe
+lando drush cr
 ```
+
+> [!WARNING]
+> Don't run a full `lando drush cron` on a copy of a real site. It runs every module's cron job and, on the OIG test copy, disabled three user accounts. The lab here is SYNTHETIC, so it was safe there.
 
 The lab first installed the site and generated 60 SYNTHETIC articles with devel_generate:
 
@@ -107,8 +110,10 @@ lando drush si standard --db-url=mysql://drupal10:drupal10@database/drupal10
 ```bash
 bash recipes/drupal-performance-recipe/scripts/lando-test.sh           # all + Redis-down
 bash recipes/drupal-performance-recipe/scripts/lando-test.sh purge_send  # named tests
-LANDO_PROXY=OFF lando perf-test-in headers_anon                          # in-container only
+lando perf-test-in headers_anon                          # in-container only
 ```
+
+Tests read the site address from `perf-test.env` (see [tests.md](tests.md#settings-file-perf-testenv)). Default: `BASE_URL=https://<project>.lndo.site`, where `<project>` is the Lando app name. Verified on the lab: `https://perflab106lando.lndo.site` works from inside the appserver container with a trusted certificate [V: tmp/lando-proxy-on-20261007/ logs 04b, 08]. If https fails with a certificate error on a machine, use `http://<project>.lndo.site`.
 
 `lando-test.sh` runs from the host, because the Redis-down test needs `docker stop`/`start`. It finds this app's `cache` container by its compose labels and writes `perf-test-lando.log` (or `$PERF_OUT`).
 

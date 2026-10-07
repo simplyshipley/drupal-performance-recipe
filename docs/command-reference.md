@@ -6,7 +6,8 @@ Symptom to cause: [troubleshooting-commands.md](troubleshooting-commands.md). Th
 - **Protected system?** Each command says what good output looks like, so you don't need to share output.
 - **Secrets:** none of these print secrets. Three to avoid are marked **[SECRET]** in section 7.
 - **Tested** on the Lando lab (Lando 3.26.9, an older recipe version) on 2026-10-07: sections 1 to 5 and the `--list` of section 6. The lab has `allkeys-lru` and an older Purge setup; that is expected. Not run: anything marked `[not run in this project]`.
-- Local commands use Lando on the WSL2 VM. Run `export LANDO_PROXY=OFF` first if DDEV is also installed.
+- Local commands use Lando on the WSL2 VM. Only if DDEV is also installed: `ddev poweroff` while you use Lando (or run Lando with `LANDO_PROXY=OFF`; then use `http://appserver_nginx` below).
+- In the curl examples, `https://<project>.lndo.site` is your site's address (`BASE_URL`); replace `<project>` with the Lando app name.
 
 **Contents**
 
@@ -85,7 +86,7 @@ Source: `scripts/perf-cache.sh` (header comment), [cache-modes.md](cache-modes.m
 Use `lando exec appserver -- curl ...`, not `lando ssh -c` (it mangles quotes and pipes; checked 2026-10-07). The `grep` runs on your machine.
 
 ```bash
-for i in 1 2; do lando exec appserver -- curl -sI http://appserver_nginx/ | grep -i -E '^HTTP|x-drupal|cache-control|set-cookie'; echo; done
+for i in 1 2; do lando exec appserver -- curl -sI https://<project>.lndo.site/ | grep -i -E '^HTTP|x-drupal|cache-control|set-cookie'; echo; done
 # good: 2nd request  X-Drupal-Cache: HIT, Cache-Control: max-age=900, public, no Set-Cookie
 ```
 
@@ -93,7 +94,7 @@ A node page (OIG sites redirect `/node/N` to its alias; a `301` here is normal):
 
 ```bash
 N=$(lando drush sqlq "SELECT nid FROM node_field_data WHERE status=1 ORDER BY nid LIMIT 1" | tr -d '\r[:space:]')
-lando exec appserver -- curl -sI "http://appserver_nginx/node/$N" | grep -i -E '^HTTP|x-drupal|cache-control|location'
+lando exec appserver -- curl -sI "https://<project>.lndo.site/node/$N" | grep -i -E '^HTTP|x-drupal|cache-control|location'
 # good: 200 with HIT on the 2nd request, or 301 with a Location: line (then repeat on that path)
 ```
 
@@ -113,7 +114,7 @@ lando exec appserver -- curl -sI "http://appserver_nginx/node/$N" | grep -i -E '
 404 pages (core Fast 404; both should be `404`, 2nd request `HIT`):
 
 ```bash
-for i in 1 2; do lando exec appserver -- curl -sI http://appserver_nginx/no-such-page-xyz | grep -i -E '^HTTP|x-drupal-cache|cache-control'; done
+for i in 1 2; do lando exec appserver -- curl -sI https://<project>.lndo.site/no-such-page-xyz | grep -i -E '^HTTP|x-drupal-cache|cache-control'; done
 # good: HTTP/1.1 404, then X-Drupal-Cache: HIT on the 2nd
 lando drush cget system.performance fast_404   # good: enabled: true, with a paths pattern
 ```
@@ -197,11 +198,14 @@ bash recipes/drupal-performance-recipe/scripts/lando-test.sh   # full run incl. 
   - **Cache sync:** `sync_*` ([cache-sync.md](cache-sync.md))
   - **Wrappers only:** `redis_down sync_redis_down redis_recover redis_hang`
 
+Settings file: the scripts read `perf-test.env` at the site root (copy `recipes/drupal-performance-recipe/scripts/perf-test.env.example`). Keys: `BASE_URL`, `PERF_TEST_PATH`, `PERF_EDGE`. Details: [tests.md](tests.md#settings-file-perf-testenv).
+
 Environment variables the scripts read:
 
 | Variable | What it does |
 |---|---|
-| `BASE_URL` | Site URL; `lando perf-test-in` sets `http://appserver_nginx` |
+| `BASE_URL` | Site address, e.g. `https://<project>.lndo.site`. Set in `perf-test.env`; a variable on the command line wins. Fallback with nothing set: `http://appserver_nginx` |
+| `PERF_TEST_PATH` | Page the read-only tests fetch (default `/`) |
 | `DRUSH` | Drush path (default `vendor/bin/drush`) |
 | `PERF_EDGE=0` | Skip the edge/WAF/sync tests (site without the edge) |
 | `PERF_CACHE_AUTO=0` | Don't switch to `prod-like` for the run (the wrapper does it once) |

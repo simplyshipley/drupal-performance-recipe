@@ -54,7 +54,7 @@ objects, while one purge clears the matching path on all of them.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `EDGE_ORIGIN` | `http://web:80` | Origin URL. Lando uses `http://appserver_nginx:80`. |
+| `EDGE_ORIGIN` | `http://web:80` | Origin URL. Lando uses the internal web server, `http://appserver_nginx:80` (an internal container address, not the site address). |
 | `EDGE_FDID` | `00000000-0000-0000-0000-0000000fd1d0` | Synthetic Front Door ID sent as `X-Azure-FDID` |
 | `EDGE_QS_MODE` | `use` | `ignore`, `use`, `ignore-specified` or `include-specified`. Front Door's portal default is Ignore; Drupal needs `use` because of pagers and views filters. |
 | `EDGE_QS_IGNORE_PARAMS` | utm_*, fbclid, gclid | Parameters dropped from the key in `ignore-specified` mode |
@@ -121,7 +121,7 @@ aggregates a one-year lifetime, as production does.
 ## Setup: Lando
 
 1. Copy `recipes/drupal-performance-recipe/lando/lando.perf.yml` to `.lando.local.yml`. It adds the `edge` service, the `mockafd` purge forwarding and the appserver variables.
-2. Run `LANDO_PROXY=OFF lando rebuild -y`.
+2. Run `lando rebuild -y`. (Only if DDEV is also installed: `ddev poweroff` first, or see [lando.md](lando.md#footguns-on-this-mac-from-the-2026-09-16-lando-lab).)
 3. Reach the edge from the appserver: `lando ssh -s appserver -c "curl -sI http://edge:8080/"`.
 
 The vhost template now sends `expires max` for `sites/*/files/{css,js,styles}`, as Drupal's
@@ -141,7 +141,7 @@ The edge publishes no host port by design. Options:
 
 Run these in the web container (`ddev ssh` or `lando ssh`). Replace `EDGE` with `http://edge:8080`.
 
-1. **Find the asset URLs.** Take the aggregate URLs from the front page (Lando: use `http://appserver_nginx/`). Do the same for `files/js/js_`.
+1. **Find the asset URLs.** Take the aggregate URLs from the front page (Lando: use your site's address, `BASE_URL`, e.g. `https://<project>.lndo.site/`). Do the same for `files/js/js_`.
    ```bash
    curl -s http://localhost/ | grep -o '/sites/default/files/css/css_[^"]*' | head -1 | sed 's/&amp;/\&/g'
    ```

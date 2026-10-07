@@ -89,23 +89,19 @@ b. Look at the headers of two requests to the same page:
 
 ```bash
 N=$(lando drush sqlq "SELECT nid FROM node_field_data WHERE status=1 ORDER BY nid LIMIT 1" | tr -d '\r[:space:]')
-for i in 1 2; do lando exec appserver -- curl -sI "http://appserver_nginx/node/$N" | grep -i -E '^HTTP|x-drupal|cache-control|set-cookie|location'; echo; done
+for i in 1 2; do lando exec appserver -- curl -sI "https://<project>.lndo.site/node/$N" | grep -i -E '^HTTP|x-drupal|cache-control|set-cookie|location'; echo; done
 ```
 
 c. Same check on the home page (not a redirect):
 
 ```bash
-for i in 1 2; do lando exec appserver -- curl -sI http://appserver_nginx/ | grep -i -E '^HTTP|x-drupal|cache-control|set-cookie'; echo; done
+for i in 1 2; do lando exec appserver -- curl -sI https://<project>.lndo.site/ | grep -i -E '^HTTP|x-drupal|cache-control|set-cookie'; echo; done
 ```
 
 - **Why `lando exec`:** `lando ssh -c` mangles nested quotes and pipes. `lando exec` runs one command in the container, and the `grep` runs on your machine.
 
 - **Good:** the second request shows `X-Drupal-Cache: HIT` and `Cache-Control: max-age=900, public`.
-- **Which page `headers_anon` tests:** `/node/<id>` of the **lowest-numbered published node**, whatever its type (`first_node()` in `scripts/test-local.sh`). See which one it is:
-
-  ```bash
-  lando drush sqlq "SELECT nid, type, title FROM node_field_data WHERE status=1 ORDER BY nid LIMIT 1"
-  ```
+- **Which page `headers_anon` tests:** `PERF_TEST_PATH` from `perf-test.env` (default `/`). It also requires HTTP 200, so a mistyped path cannot pass on a cached 404. Pick a page without webforms or registration/password forms: Honeypot's time limit turns page caching off there.
 
 - **Where `UNCACHEABLE` comes from:** Drupal core's page cache (`core/modules/page_cache/src/StackMiddleware/PageCache.php`). It sets `X-Drupal-Cache: UNCACHEABLE (reason)` and has exactly three reasons: `request policy`, `no cacheability`, `response policy`. `poor cacheability` only appears on `X-Drupal-Dynamic-Cache` (core's dynamic page cache).
 
@@ -247,8 +243,8 @@ lando drush p:queue-browse
 lando drush cget system.performance fast_404
 for p in /sites/default/files/no-such-file.png /no-such-page-xyz; do
   for i in 1 2; do
-    echo "$p: $(lando exec appserver -- curl -s -o /dev/null -w '%{http_code} %{time_total}s' "http://appserver_nginx$p")"
-    lando exec appserver -- curl -sI "http://appserver_nginx$p" | grep -i -E 'x-drupal-cache|cache-control'
+    echo "$p: $(lando exec appserver -- curl -s -o /dev/null -w '%{http_code} %{time_total}s' "https://<project>.lndo.site$p")"
+    lando exec appserver -- curl -sI "https://<project>.lndo.site$p" | grep -i -E 'x-drupal-cache|cache-control'
   done
 done
 ```
@@ -312,7 +308,7 @@ lando list
 docker ps --format '{{.Names}}\t{{.Status}}'
 ```
 
-- **DDEV also installed on this machine:** run `export LANDO_PROXY=OFF` in every terminal before Lando commands.
+- **DDEV also installed on this machine:** run `ddev poweroff` while you use Lando, or run Lando with `LANDO_PROXY=OFF` (then `.lndo.site` addresses do not work; use `http://appserver_nginx`).
 - **A service won't start:** `lando logs -s <service>` (`appserver`, `cache`, `mockafd`, `edge`).
 - **WSL2:** keep the site under `~/`, not `/mnt/c/`.
 

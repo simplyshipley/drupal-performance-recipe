@@ -42,15 +42,33 @@ The recipe no longer installs `drupal/fast_404` or `drupal/themed_fast_404` (Our
    lando drush pm:uninstall themed_fast_404 fast404
    ```
 
-2. Remove the packages:
+2. Clear the stale container. A container built before the uninstall still referenced fast404 [V: tmp/lando-proxy-on-20261007/ log 09]:
 
    ```bash
-   lando composer remove drupal/themed_fast_404 drupal/fast_404
+   lando drush php:eval "\Drupal::service('kernel')->invalidateContainer();"
+   lando drush cr
    ```
 
-3. Delete the cron-written pages `public://page-not-found-*.html`.
-4. Drop the env vars `PERF_FAST404`, `FAST404_RESPECT_REDIRECT` and `THEMED_FAST404_BASE_URL`.
-5. Export the config:
+3. Remove the packages. **Do NOT run plain `composer remove`.**
+   - It updates other packages by default. On the lab it tried 18 updates, including Twig 3.28 to 3.30, which broke pages before.
+   - `lando composer` uses the site's own `vendor/bin/composer`, which crashed mid-run and left `vendor` broken [V: log 01-dogfood-update.log].
+   - **Preview first** and go on only if the two modules are the only changes:
+
+     ```bash
+     lando composer remove drupal/themed_fast_404 drupal/fast_404 --no-update-with-dependencies --dry-run
+     ```
+
+   - Then run the same command without `--dry-run` [not run in this project].
+   - **Sites that install the recipe as a Composer package:** the dry run showed only the 2 removals [V: log 01]:
+
+     ```bash
+     lando composer update simplyshipley/drupal-performance-recipe simplyshipley/drupal-performance-modules
+     ```
+
+4. Delete the cron-written pages `public://page-not-found-*.html`.
+5. Drop the env vars `PERF_FAST404`, `FAST404_RESPECT_REDIRECT` and `THEMED_FAST404_BASE_URL` from `.lando.yml`, then `lando rebuild -y`.
+6. Refresh `.lando/redis.conf` and `.lando/nginx-fast404.conf.tpl` from `recipes/drupal-performance-recipe/lando/` and re-check `.lando.yml` against `lando/lando.perf.yml` ([quickstart-lando.md](quickstart-lando.md#updating-to-a-newer-recipe-version)).
+7. Export the config:
 
    ```bash
    lando drush cex

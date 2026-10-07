@@ -29,7 +29,7 @@ Everything is committed to the **site repo**, so your team and the Docker build 
 - **Docker:** Docker Desktop with WSL integration, or Docker Engine inside WSL.
 - **Lando:** installed inside WSL.
 - **Work inside WSL:** keep code under `~/sites/`, not `/mnt/c/`.
-- **DDEV on the same machine?** `export LANDO_PROXY=OFF` in every terminal.
+- **DDEV on the same machine?** Only then: run `ddev poweroff` while you use Lando, or run Lando with `LANDO_PROXY=OFF` (tests then fall back to `http://appserver_nginx`).
 - **GitHub access** to `simplyshipley/drupal-performance-recipe` (only the person adding it needs this).
 
 The steps use `oig-americorps` as the site. Use your site's folder name.
@@ -190,7 +190,7 @@ lando rebuild -y
   - **One file:** copy the recipe's template over `.lando/nginx.conf.tpl` and point `vhosts:` at that. Check first that nobody depends on the old one.
 - **The site's own nginx rules stopped working.** The `vhosts:` line replaces Lando's nginx config with this template (Lando's own plus one line that lets missing files reach Drupal). Add the site's rules to `.lando/nginx-fast404.conf.tpl`, or leave the `vhosts:` line out. Without it nginx answers missing image/CSS files itself, so core's Fast 404 never sees them, which is harmless locally.
 - **After a Lando upgrade, nginx acts oddly.** The template is a copy of Lando 3.26.9's drupal10 vhost. Compare it with the new Lando version's template and update the `.lando/` copy.
-- **Port or proxy errors with DDEV running.** `export LANDO_PROXY=OFF`, then rebuild.
+- **Port or proxy errors with DDEV running.** `ddev poweroff`, then `lando rebuild -y`. Or `export LANDO_PROXY=OFF` and rebuild (then `.lndo.site` addresses do not work).
 
 </details>
 
@@ -328,12 +328,16 @@ lando drush cr
 ## 8. Run the full test suite (optional)
 
 > [!WARNING]
-> For **lab or throwaway copies only**. It creates SYNTHETIC nodes on the front page, empties the
+> For **lab or throwaway copies only**. It creates one SYNTHETIC node per run (deleted at the end), empties the
 > purge queue and sends purges. Back up first: `lando db-export before-tests.sql.gz`.
 
 ```bash
+cp recipes/drupal-performance-recipe/scripts/perf-test.env.example perf-test.env
+# edit perf-test.env: BASE_URL=https://<project>.lndo.site
 bash recipes/drupal-performance-recipe/scripts/lando-test.sh
 ```
+
+- **Settings file:** copy `perf-test.env.example` to `perf-test.env` at the site root and set `BASE_URL` to `https://<project>.lndo.site` (`<project>` = the Lando app name). Details: [tests.md](tests.md#settings-file-perf-testenv).
 
 - **Expected:** `PASS` lines and `0 FAIL`. `FINDING` lines are known open items, not failures.
 - **What each test does:** [tests.md](tests.md).
@@ -356,7 +360,27 @@ bash recipes/drupal-performance-recipe/scripts/lando-test.sh
 3. Repeat step 1 (`archive` and `mv`), then `lando drush cr`.
 4. Compare the new settings file with the site's copy, and bring over any changes you want:
    `diff docroot/modules/custom/drupal-performance-modules/settings/settings.performance.php docroot/sites/default/settings.performance.php`
-5. Review `git diff`, test, and commit.
+5. Refresh the Lando files from `recipes/drupal-performance-recipe/lando/`:
+
+   ```bash
+   cp recipes/drupal-performance-recipe/lando/redis.conf .lando/redis.conf
+   cp recipes/drupal-performance-recipe/lando/nginx-fast404.conf.tpl .lando/nginx-fast404.conf.tpl
+   ```
+
+   Then re-check the entries in `.lando.yml` against `recipes/drupal-performance-recipe/lando/lando.perf.yml`.
+6. If you removed environment variables from `.lando.yml`, or changed the Lando files, run `lando rebuild -y`.
+7. Review `git diff`, test, and commit.
+
+**Is my copy current?** Four checks (expected result after each):
+
+```bash
+grep -c 'fast404' docroot/sites/default/settings.performance.php          # 0
+grep 'maxmemory-policy' .lando/redis.conf                                 # maxmemory-policy volatile-lfu
+grep -c 'path_alias_insert' docroot/modules/custom/drupal-performance-modules/modules/perf_purge_paths/perf_purge_paths.module   # 1
+lando drush pm:list --status=enabled | grep -E 'fast404|themed_fast_404'  # no output
+```
+
+**Coming from a version with `fast_404` / `themed_fast_404`:** follow [troubleshooting.md](troubleshooting.md#upgrading-a-site-that-already-applied-the-recipe). Sources: the recipe's own checks above; the removal is Our choice (ruling 2026-10-07).
 
 - Don't re-apply the recipe on a site that already has it. There is no upgrade path. Config changes come through `drush cex`/`cim`.
 

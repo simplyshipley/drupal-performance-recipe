@@ -15,11 +15,11 @@ Not yet tested on WSL2.
 - Enable nested virtualization on the host hypervisor; WSL2 and Docker need it.
 - Use Docker Desktop with WSL integration, or Docker Engine inside WSL.
 - `.gitattributes` keeps scripts on Unix line endings; clone inside WSL anyway.
-- `LANDO_PROXY=OFF` is only needed when DDEV is also installed on the same machine (DDEV holds ports 80/443).
+- Only if DDEV is also installed on the same machine (DDEV holds ports 80/443): run `ddev poweroff` while you use Lando, or run Lando with `LANDO_PROXY=OFF` (then tests fall back to `http://appserver_nginx`).
 
 ## Phase 0: Prerequisites
 
-1. Install Docker, DDEV and/or Lando, Composer, Git. When DDEV is also installed, start Lando with `LANDO_PROXY=OFF` ([lando.md](lando.md#footguns-on-this-mac-from-the-2026-09-16-lando-lab)).
+1. Install Docker, DDEV and/or Lando, Composer, Git. When DDEV is also installed, stop it (`ddev poweroff`) while you use Lando ([lando.md](lando.md#footguns-on-this-mac-from-the-2026-09-16-lando-lab)).
 2. Phase 3 only: install Azure CLI with Bicep, then `az cloud set --name AzureUSGovernment` and `az login`.
    Check: `az cloud show --query name -o tsv`
 3. Create before phase 3 (assumed: none were created in the lab):
@@ -38,7 +38,9 @@ Do DDEV, Lando or both. Both run the same tests.
 
 ### 1.0 Lab site
 
-The tests use `node/1` and `node/2` on SYNTHETIC content.
+The tests need no particular content.
+- Read-only tests fetch `PERF_TEST_PATH` (default `/`) from `perf-test.env` ([tests.md](tests.md#settings-file-perf-testenv)).
+- Tests that edit content create one SYNTHETIC node per run and delete it at the end, also on Ctrl-C. No real content is touched.
 
 1. Create a Drupal 10.6 project (`drupal/recommended-project:^10.6`, PHP 8.3, MySQL 8.0).
    - DDEV: `ddev config --project-type=drupal10 --php-version=8.3 --database=mysql:8.0`
@@ -71,7 +73,7 @@ The tests use `node/1` and `node/2` on SYNTHETIC content.
 2. Add the services: [lando.md](lando.md#2-add-the-services). Check: `lando ssh -s appserver -c "curl -sI http://edge:8080/"`
 3. Apply the recipe ([lando.md](lando.md#3-apply-the-recipe)):
    ```bash
-   LANDO_PROXY=OFF lando drush recipe ../recipes/drupal-performance-recipe
+   lando drush recipe ../recipes/drupal-performance-recipe
    ```
 
 ### 1c. Run the tests
