@@ -1,7 +1,7 @@
 # Troubleshooting commands (Lando)
 
 Copy-paste checks for a site running the recipe on Lando. Each section: the commands, what good output looks like, and **"If you see"** cases with what to do.
-For causes and fixes in more depth, see [troubleshooting.md](troubleshooting.md).
+For causes and fixes in more depth, see [troubleshooting.md](troubleshooting.md). The full command list is in [command-reference.md](command-reference.md).
 
 - **On a protected system?** You don't need to share output. Match what you see to a case and report the case letter (for example "3-A").
 - **Secrets:** none of these commands print passwords or client secrets. Don't add `--include-overridden` to `drush cget azure_cdn_purge.settings`: it prints the client secret.

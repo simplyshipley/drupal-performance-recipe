@@ -374,3 +374,4 @@ bash recipes/drupal-performance-recipe/scripts/lando-test.sh
 - **Azure (QA, Prod):** [azure.md](azure.md), then [setup-guide.md](setup-guide.md) phases 3 to 5.
 - **Push the Redis image:** [redis-image.md](redis-image.md).
 - **Something wrong:** [troubleshooting-commands.md](troubleshooting-commands.md) (copy-paste checks), then [troubleshooting.md](troubleshooting.md).
+- **All the commands:** [command-reference.md](command-reference.md) (checks, tests, Redis, Purge, Azure).
