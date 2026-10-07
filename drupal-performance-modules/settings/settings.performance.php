@@ -146,6 +146,8 @@ if ($perf_patterns) {
 // ---------------------------------------------------------------------------
 // Redis cache backend. No-op when REDIS_HOST is unset, the phpredis extension
 // is missing, the module code is absent, or Drupal is being installed.
+// Source: redis README "Drupal Redis settings" and settings.redis.example.php
+// (the same installer and extension check).
 // ---------------------------------------------------------------------------
 $perf_redis_dir = $app_root . '/modules/contrib/redis';
 if ($perf_env('REDIS_HOST') !== NULL
@@ -155,7 +157,9 @@ if ($perf_env('REDIS_HOST') !== NULL
 
   $perf_scheme = strtolower((string) $perf_env('REDIS_SCHEME', 'tcp'));
   $perf_host = (string) $perf_env('REDIS_HOST');
-  // PhpRedis accepts "tls://host" for TLS connections.
+  // Connection: redis README "Redis clients" (interface), "Common
+  // configuration" (host, port) and its persistent, database and password
+  // sections. PhpRedis accepts "tls://host" for TLS connections.
   $settings['redis.connection']['interface'] = 'PhpRedis';
   $settings['redis.connection']['host'] = $perf_scheme === 'tls' ? 'tls://' . $perf_host : $perf_host;
   $settings['redis.connection']['port'] = (int) $perf_env('REDIS_PORT', $perf_scheme === 'tls' ? '6380' : '6379');
@@ -168,30 +172,34 @@ if ($perf_env('REDIS_HOST') !== NULL
   if ($perf_env('REDIS_PERSISTENT') === '1') {
     $settings['redis.connection']['persistent'] = TRUE;
   }
+  // The redis README recommends an explicit prefix ("Prefixing site cache
+  // entries"); without REDIS_PREFIX the module's long fallback prefix is used.
   if ($perf_env('REDIS_PREFIX') !== NULL) {
     $settings['cache_prefix'] = $perf_env('REDIS_PREFIX');
   }
 
-  // Only the heavy, high-churn bins go to Redis (Bo, 2026-09-25). bootstrap,
-  // config, discovery and container keep core's default (database behind
-  // APCu via ChainedFastBackend): they are small, read on every request and
-  // must survive a Redis outage. Override with REDIS_BINS (comma-separated).
+  // Our choice (Bo ruling 2026-09-25; the redis README puts every bin on
+  // Redis): only the heavy, high-churn bins go to Redis. bootstrap, config,
+  // discovery and container keep core's default (database behind APCu via
+  // ChainedFastBackend): they are small, read on every request and must
+  // survive a Redis outage. Override with REDIS_BINS (comma-separated).
   $perf_bins = array_filter(array_map('trim', explode(',', (string) $perf_env('REDIS_BINS', 'render,page,dynamic_page_cache,data,entity,menu'))));
   // REDIS_ENABLED=0 (an App Service setting, so no deploy; rulings ix-b and
   // xviii) leaves these bins on the database. While Redis serves them their
   // database tables stay empty (perf_redis_failopen empties them at drush cr),
   // so switching off starts from an empty database cache, never a stale one.
   $settings['perf_redis_enabled'] = $perf_env('REDIS_ENABLED', '1') !== '0';
-  // The bins name cache.backend.redis. The perf_redis_failopen module
-  // (installed by the recipe) DECORATES that service, so a Redis outage becomes
-  // cache misses instead of HTTP 500. Before the module is installed, while a
-  // recipe is applied and after it is uninstalled the bins run on the plain
-  // backend.
+  // The bins name cache.backend.redis. Our perf_redis_failopen module (Bo
+  // ruling 2026-09-25: fail open when Redis is down; installed by the recipe)
+  // DECORATES that service, so a Redis outage becomes cache misses instead of
+  // HTTP 500. Before the module is installed, while a recipe is applied and
+  // after it is uninstalled the bins run on the plain backend.
   if ($settings['perf_redis_enabled']) {
     foreach ($perf_bins as $perf_bin) {
       $settings['cache']['bins'][$perf_bin] = 'cache.backend.redis';
     }
   }
+  // Source: redis README "Common configuration" / settings.redis.example.php.
   $settings['redis_compress_length'] = (int) $perf_env('REDIS_COMPRESS_LENGTH', '100');
   // Expired items can still be requested for up to one hour, then Redis drops
   // the key. Source: redis README "Expiration of cache items" /
@@ -202,18 +210,21 @@ if ($perf_env('REDIS_HOST') !== NULL
   // ("Additional optimizations").
   $settings['redis_invalidate_all_as_delete'] = TRUE;
 
-  // The redis module's own services and classes, as its README documents, so
-  // the bins work before the module is installed (for example while the recipe
-  // that installs it is applied). Loaded with REDIS_ENABLED=0 too: the list is
-  // part of the service container's cache key, so switching does not rebuild
-  // the container. Cache tag checksum, lock and flood stay in the database.
+  // The redis module's own services and classes (redis README "Common
+  // configuration" / settings.redis.example.php), so the bins work before the
+  // module is installed (for example while the recipe that installs it is
+  // applied). Loaded with REDIS_ENABLED=0 too: the list is part of the service
+  // container's cache key, so switching does not rebuild the container.
+  // Our choice (Bo ruling 2026-09-25): cache tag checksum, lock and flood stay
+  // in the database, so example.services.yml from the README is not included.
   $settings['container_yamls'][] = $perf_redis_dir . '/redis.services.yml';
   $class_loader->addPsr4('Drupal\\redis\\', $perf_redis_dir . '/src');
 }
 
 // ---------------------------------------------------------------------------
 // Azure CDN / Front Door purge credentials from the environment. These
-// override config at runtime and are never exported by `drush cex`.
+// override config at runtime and are never exported by `drush cex`. Our
+// choice: the azure_cdn_purge README has them entered on its settings form.
 // ---------------------------------------------------------------------------
 $perf_azure_map = [
   'AZURE_CDN_TENANT_ID' => 'tenant_id',
@@ -227,7 +238,8 @@ $perf_azure_map = [
   'AZURE_CDN_API_VERSION' => 'api_version',
   'AZURE_CDN_ENDPOINT_TYPE' => 'endpoint_type',
 ];
-// Cloud: AZURE_CLOUD=usgovernment|public (needs the patch in patches/).
+// Cloud: AZURE_CLOUD=usgovernment|public (needs the patch in patches/: OIG
+// sites are in Azure Government, Bo 2026-09-25; drupal.org #3427718 MR !6).
 $perf_cloud = strtolower((string) $perf_env('AZURE_CLOUD', ''));
 $perf_clouds = [
   'public' => 'azureCloud',
@@ -260,34 +272,43 @@ foreach ($perf_azure_map as $perf_var => $perf_key) {
 }
 
 // Themed Fast 404: the URL cron uses to fetch the 404 page it saves as static
-// HTML. Must be reachable from the app container itself.
+// HTML. Must be reachable from the app container itself. Source:
+// themed_fast_404 README "Configuration page" ("It is recommended to set it").
 if ($perf_env('THEMED_FAST404_BASE_URL') !== NULL) {
   $config['themed_fast_404.settings']['base_url'] = $perf_env('THEMED_FAST404_BASE_URL');
 }
 
 // ---------------------------------------------------------------------------
 // Fast 404 (drupal/fast_404, module name fast404) + Themed Fast 404.
-// Only when PERF_FAST404=1. Without it this file sets no fast404 settings (the
-// installed module then uses its own defaults).
+// Only when PERF_FAST404=1 (our switch). Without it this file sets no fast404
+// settings (the installed module then uses its own defaults). Source:
+// fast_404 README.txt and example.settings.fast404.php.
 // ---------------------------------------------------------------------------
 if ($perf_env('PERF_FAST404') === '1') {
-  // Static-file extensions that should never reach a full Drupal bootstrap.
+  // Static-file extensions that should never reach a full Drupal bootstrap:
+  // the example's default list plus webp, svg, map, aspx, php, env, bak, sql,
+  // zip and gz (README.txt #3: keep an eye on the list).
   $settings['fast404_exts'] = '/^(?!\/robots)^(?!\/system\/files).*\.(txt|png|gif|jpe?g|webp|svg|css|js|map|ico|swf|flv|cgi|bat|pl|dll|exe|asp|aspx|php[0-9]?|env|bak|sql|zip|gz)$/i';
+  // Defaults from example.settings.fast404.php (the whitelist is its example
+  // list); the string whitelist is ours.
   $settings['fast404_allow_anon_imagecache'] = TRUE;
   $settings['fast404_url_whitelisting'] = FALSE;
   $settings['fast404_whitelist'] = ['index.php', 'rss.xml', 'install.php', 'cron.php', 'update.php', 'xmlrpc.php'];
   $settings['fast404_string_whitelisting'] = ['/admin', '/user', '/system/files', '/batch'];
   // Unknown router paths are checked by the module's event subscriber (needs
-  // the module installed; it queries the router and alias tables).
+  // the module installed; it queries the router and alias tables). Source:
+  // README.txt #2 "Enable Drupal path checking".
   $settings['fast404_path_check'] = TRUE;
   $settings['fast404_not_found_exception'] = FALSE;
   // Only with the Redirect module installed: Fast 404 then queries the
   // {redirect} table and lets redirected paths through. Without the module the
   // table is missing and every unknown path returns HTTP 500 (verified in the
-  // lab), so this is opt-in.
+  // lab), so this is opt-in (FALSE is the module's default).
   $settings['fast404_respect_redirect'] = $perf_env('FAST404_RESPECT_REDIRECT') === '1';
+  // FastCGI header when PHP runs under FPM (example.settings.fast404.php).
   $settings['fast404_HTTP_status_method'] = PHP_SAPI === 'fpm-fcgi' ? 'FastCGI' : 'mod_php';
-  // Serve the static page Themed Fast 404 writes on cron, when it exists.
+  // Serve the static page Themed Fast 404 writes on cron, when it exists
+  // (example.settings.fast404.php; themed_fast_404 README "How it works").
   $perf_public = $settings['file_public_path'] ?? 'sites/default/files';
   $perf_404_pages = [];
   foreach (glob($app_root . '/' . $perf_public . '/page-not-found-*.html') ?: [] as $perf_file) {
@@ -306,7 +327,8 @@ if ($perf_env('PERF_FAST404') === '1') {
 // ---------------------------------------------------------------------------
 // Front Door path purging: the path settings of the perf_purge_paths module
 // (an installed module; the recipe installs it). Its on/off switch is the
-// config perf_purge_paths.settings:enabled (see the top of this file).
+// config perf_purge_paths.settings:enabled (see the top of this file). Our
+// module, no contrib README (docs/cache-sync.md).
 // ---------------------------------------------------------------------------
 $settings['perf_purge_list_paths'] = (string) $perf_env('PERF_PURGE_LIST_PATHS', '/,/node,/rss.xml');
 $settings['perf_purge_sitewide_paths'] = (string) $perf_env('PERF_PURGE_SITEWIDE_PATHS', '');
