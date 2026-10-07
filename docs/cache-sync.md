@@ -53,6 +53,7 @@ The fixes (small and in scope):
    | Hook | Queues |
    |---|---|
    | `hook_path_alias_delete` | The alias and `alias/`, also when its node is deleted |
+   | `hook_path_alias_insert` | The new alias and `alias/`, so a 404 the edge cached before the page existed is purged when the page is published (Bo ruling 2026-10-07) |
    | `hook_path_alias_update` | The old alias and `old/`, when the alias text or its system path changed (a retarget queues the alias itself) |
    | `hook_file_delete` | The file URL and every image-style URL of the file |
 
@@ -86,7 +87,7 @@ These counts were measured with azure_cdn_purge's node hook removed by perf_purg
 | Image swapped, old file cleaned up | `sync_file_swap` | FINDING: old file and its image-style URL stay `TCP_HIT` | **PASS** with the module: old URLs purged (404), new file served with the right bytes. FINDING without it. |
 | Alias renamed on its own (admin "URL aliases" form) | probe only, no suite test | Old alias stays `TCP_HIT` (nothing is queued) | Old alias purged (HIT → MISS) with the module [V: tmp/lando-probe-alias-rename.log, module on and off] |
 | Unpublish (403) then publish | `sync_publish_cycle` | PASS (the node update queues the alias) | PASS |
-| 404 at a path that later gets content | `sync_new_path_404` | PASS | PASS: Drupal sends 404s as `must-revalidate, no-cache, private`, so the edge and Front Door never store them (`PRIVATE_NOSTORE`). The cached 403 of an unpublished node is purged on publish, as above. |
+| 404 at a path that later gets content | `sync_new_path_404` | PASS | **PASS since 2026-10-07**, with `hook_path_alias_insert`. Core's 404s are public now (`Cache-Control: max-age=900, public`), so Front Door can store them. Edge `TCP_HIT`/404 became `TCP_MISS`/200 after the purge; without the hook it stayed `TCP_HIT`/404 [V: tmp/drop-fast404-20261007/16-probe-published-new-path.log]. The old claim (404s are `PRIVATE_NOSTORE`) was true for the removed fast_404 module's response path, not for core's. The cached 403 of an unpublished node is purged on publish, as above. |
 | Revision revert | `sync_revert` | PASS (a node update) | PASS |
 | Taxonomy term | `sync_other_entities` | FAIL: stale | **PASS** |
 | User edit | `sync_other_entities` | – | Nothing to purge: `/user/*` is bypassed at the edge |
@@ -118,6 +119,8 @@ These counts were measured with azure_cdn_purge's node hook removed by perf_purg
    - **`path_alias:N` never fires.** Core invalidates only `route_match` for an alias (`PathAlias.php:41` and `:168-170`) [V: core read; tags recorded in the lab for a rename and for a delete: tmp/lando-probe-alias-tags.log]. So the mapping row for `path_alias:N` is dead on stock core, and a rename in the admin "URL aliases" form leaves the old alias cached. `hook_path_alias_update` is what covers it [V: tmp/lando-probe-alias-rename.log: nothing queued and `TCP_HIT` without the module; old alias queued and purged with it].
    - **Drupal's page cache outlives the alias.** After deleting only the alias entity, Drupal still answers the old alias with `200` from its page cache; a query-string variant or `drush cr` gives 404 [V: tmp/lando-probe-alias-only-delete-origin.log]. The purge is correct, but the edge refetches that 200 and keeps it for the HTML TTL. A node delete does not have this problem, because `node:N` clears the page cache. Fixed since: both alias hooks invalidate the cache tags of the entity the alias points to (`PerfPurgePathsHooks.php`).
    - **Covered:** an alias pointed at a different system path with the same text. The alias is queued and the tags of both system paths are invalidated [V: Kernel tests `AliasAndFileHooksTest::testRetargetingAnAlias*`, failing before the fix and passing after: tmp/jrock-alias-retarget/; not run in the lab].
+   - **Open gap, needs Bo's ruling:** an alias added on its own (admin URL aliases form) is purged at the edge, but Drupal's own cached 404 is cleared only by entity saves (the `4xx-response` tag). The edge can refetch that cached 404 for up to `cache_ttl_4xx` (3600 s) [V: tmp/drop-fast404-20261007/17 log].
+   - **Queue volume:** an import that creates N aliased nodes queues about 2N extra paths (the alias and `alias/` for each).
    - **Not covered** [INFERRED from the hook code, not run]: aliases of other languages (no language prefix is queued).
    - **Queue volume per deleted file:** the file URL plus one URL per image style, whatever the file type or scheme (private, temporary, PDFs). `PathsQueuer::pathsForFile()` does not filter, and the tag mapping is unchanged [V: code; a deleted PNG queued 1 + 4 paths in the Lando lab]. A cleanup that deletes many files queues that many times (1 + number of styles).
 2. **Menus and blocks (site-wide changes).**

@@ -29,9 +29,8 @@ Results below are from the final lab runs [V: tmp/ddev/run9.log, tmp/lando-run7.
 | `purge_queue_fills` | Empties the purge queue, saves a node, reads `p:queue-volume` and the queue rows | Volume increased | PASS both: 0 -> 1, item `path:node/1` |
 | `purge_send` | Resets the mock, saves a node, `drush p:queue-work --finish`, reads the mock log | Mock got a token request and `POST /subscriptions/.../afdEndpoints/ep-synthetic/purge` with the node's path in `contentPaths`; queue empty | PASS both: `contentPaths=["/node/1"]` |
 | `purge_retry` | Tells the mock to fail once (500), saves a node, works the queue twice | First run 500 and the item stays queued, second run 202 and queue empty | PASS both |
-| `fast404_static` | Requests a missing `sites/default/files/*.png` | 404 with `X-Drupal-Cache: UNCACHEABLE (no cacheability)` (the Fast 404 module's plain response; Drupal's own 404 would be page-cached), not nginx's own 404 page | PASS on the OIG DDEV copy, 2026-10-07 [V: tmp/readme-defaults-20261007/]: 26-66 ms. The old pre-boot answer took 1.5-3.7 ms; preboot was removed (README says not ready). Not re-run on the labs. With the module not answering `.png` the test fails [V: mutation proof 14-fast404-static-mutation-proof.log] |
-| `fast404_path` | Requests an unknown path | 404 whose body is the static fast 404 page | PASS both: 9-16 ms vs 27-50 ms |
-| `themed_404` | Runs cron, checks `public://page-not-found-en.html`, requests a missing `.css` | The file was written and the missing-file response is byte-identical to it (a normal Drupal 404 fails; shown in the DDEV run5 log) | PASS both (about 14 KB themed page) |
+| `core_404_static` | Requests a missing `sites/default/files/*.png` twice | `404 MISS` then `404 HIT`, and the body holds the `<title>` of core's `system.performance` `fast_404.html` page (core's plain page, page-cached) | Mutation-proven on the OIG copy (a one-line change turns it red) per commit 6449272; measured MISS 38 ms then HIT 6.6 ms [V: tmp/drop-fast404-20261007/04-measure-core-fast404.log] |
+| `core_404_page` | Requests an unknown page twice | `404 MISS` then `404 HIT`, and the body title starts with `Page not found` (the theme's 404; a site with its own 404 page differs) | Same proof; MISS 430 ms then HIT 7 ms [V: same log]. Replaces `fast404_static`, `fast404_path` and `themed_404` (2026-10-07) |
 | `headers_anon` | Requests a node page anonymously twice | Second response `X-Drupal-Cache: HIT` and `Cache-Control` contains `public` and `max-age=900` | PASS both |
 | `headers_auth` | Logs in with `drush uli`, requests a node page twice | `X-Drupal-Cache` absent or `UNCACHEABLE (request policy)`, `X-Drupal-Dynamic-Cache: HIT`, `Cache-Control` private/no-cache | PASS both: `must-revalidate, no-cache, private` |
 | `cache_4xx` | Creates an unpublished node, requests it anonymously twice, saves a different node, requests again | 403 cached (second HIT), MISS after the other node's save | PASS both; Redis TTL of the cached 403 = 7200 s (`cache_ttl_4xx` 3600 + `redis_ttl_offset` 3600) |
@@ -71,6 +70,7 @@ The suite switches to `prod-like` for its run and restores the previous cache mo
 17 `sync_*` tests (alias, single save, listing, alias change, delete, alias delete, publish cycle, revert, 404-then-create, term/user, menu, same-URL file, file delete, file swap, bulk/chunking, cron processor, wildcard) plus `sync_redis_down` (wrappers, Redis stopped). Results and before/after table: [cache-sync.md](cache-sync.md).
 
 - **`FINDING`:** a third status for known gaps left as open decisions. It does not count as FAIL.
+- **Kernel test for the new-alias hook:** `AliasAndFileHooksTest::testCreatingNodeQueuesItsNewAlias` (commit 223d6ba). Mutation-proven: it fails without the hook attribute and without the `queuePaths()` call [V: tmp/drop-fast404-20261007/ log 20]. Edge proof: `TCP_HIT`/404 became `TCP_MISS`/200 after the purge, and without the hook stayed `TCP_HIT`/404 [V: tmp/drop-fast404-20261007/16-probe-published-new-path.log]. `sync_new_path_404` is the suite test for this case.
 - **Fail-proof:** `SYNC_NEGATIVE=1` switches path purging off through the settings.php line `$config['perf_purge_paths.settings']['enabled'] = FALSE;`. The lab settings.php sets it when `PERF_LAB_PURGE_OFF=1`. Every test that depends on the module then FAILS: 17. `sync_new_path_404` and `sync_wildcard` do not use it [V: tmp/jrock-build2/ddev-sync-negative.log].
 
 Four tests (`sync_delete`, `sync_alias_delete`, `sync_file_delete`, `sync_file_swap`) need the delete hooks of `perf_purge_paths` (the former `perf_purge_deleted`).
@@ -101,7 +101,7 @@ How the lab ran them: PHPUnit 10.5 installed in `/tmp/pu` inside the web contain
 ## Not covered
 
 - Memory per fast 404 request was not measured (no per-request memory metric in the stock
-  web containers). The caching guide's "under 1 MB per 404" remains [ASSUMED].
+  web containers). The caching guide's old "under 1 MB per 404" came from the removed fast_404 module and was never measured.
 - Playwright header checks and a simulated `X-Azure-ClientIP` (caching guide test plan item 5)
   are not in this suite.
 - Valkey 9.1.2: DDEV and Lando 49 PASS / 0 FAIL / 2 FINDING on 2026-10-05 [V: tmp/ddev/run18-valkey.log, tmp/lando-run16-valkey.log; server: tmp/valkey-server-evidence-20261005.txt].

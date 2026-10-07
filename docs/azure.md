@@ -48,8 +48,6 @@ Put secrets in Key Vault references, not plain values [ASSUMED].
 | `DRUPAL_REVERSE_PROXY_ADDRESSES` | App Service internal ranges + Front Door backend ranges | Only with `DRUPAL_REVERSE_PROXY=1`. Comma-separated IPs/CIDRs. Both hops are needed, see [Client IP](#client-ip) |
 | `DRUPAL_CACHE_TTL_4XX` | `3600` | Core default; see guide "Why 403s arrive in batches" |
 | `DRUPAL_DATABASE_CACHE_MAX_ROWS` | `5000` | Only matters for bins still in MySQL |
-| `PERF_FAST404` | `1` | Turns on the Fast 404 settings. Unset = the settings file does nothing for Fast 404 |
-| `THEMED_FAST404_BASE_URL` | `http://localhost` (whatever reaches the site from inside the container) | See the self-request warning below |
 | `AZURE_CDN_TENANT_ID` | tenant GUID | Service principal's tenant |
 | `AZURE_CDN_CLIENT_ID` | app GUID | Service principal |
 | `AZURE_CDN_CLIENT_SECRET` | Key Vault reference | Never in config |
@@ -242,14 +240,10 @@ plus the `X-Azure-FDID` check, see the caching guide), or anyone could send a fa
 After either fix, run the test again and check that a page's canonical link still starts with
 `https://`.
 
-## Themed Fast 404 on Azure
+## 404 pages on Azure
 
-- Cron fetches `/page-not-found` over HTTP from `THEMED_FAST404_BASE_URL` (or the module's
-  `base_url`) and saves it to `public://page-not-found-{lang}.html` [V: ThemedFast404Manager].
-- The module's config override then reads that file **over HTTP by its absolute public URL** on
-  every request that is not a page-cache hit. Behind Front Door the URL is the public host, so
-  each request goes out through Front Door and back [ASSUMED].
-- Read the troubleshooting entry before enabling it in production.
-
-Evidence: 20 non-cached requests produced 20 extra GETs of the file in the DDEV nginx access
-log [V: tmp/ddev/themed404-self-requests.txt].
+- Sites use Drupal core's Fast 404 (Our choice, Bo ruling 2026-10-07; why: [sources.md](sources.md#404-pages-core-fast-404)).
+- No self-request: core's 404 is built by Drupal and cached like any page, so nothing calls the public host from inside the container.
+- Set it in `docroot/sites/default/settings.config.php` (`system.performance`: `fast_404.paths`, `fast_404.exclude_paths`, `fast_404.html`).
+- Cacheable 404s: `Cache-Control: max-age=900, public` [V: tmp/drop-fast404-20261007/04-measure-core-fast404.log].
+- Removed modules: `drupal/fast_404` and `drupal/themed_fast_404`. Upgrade steps: [troubleshooting.md](troubleshooting.md#upgrading-a-site-that-already-applied-the-recipe).

@@ -60,12 +60,12 @@ Composer installs the recipe at `recipes/drupal-performance-recipe`, the modules
 
 ## 4. Include the settings file
 
-Append to the **end** of `web/sites/default/settings.php` (after `$databases` is defined). Source: fast_404 README.txt line 34, "Keep this code block at the end of this file to take full effect". Use `require`, not
+Append to the **end** of `web/sites/default/settings.php` (after `$databases` is defined). Our choice (Bo ruling 2026-10-07): the end of `settings.php` means no later line overrides these settings. Its first source, the fast_404 README ("Keep this code block at the end of this file to take full effect"), is gone with that module. Use `require`, not
 a `file_exists` check: a missing package then fails loudly instead of silently dropping the Redis,
 proxy and trusted-host settings.
 
 ```php
-// Performance recipe settings (Redis, reverse proxy, Fast 404, Azure purge).
+// Performance recipe settings (Redis, reverse proxy, Azure purge).
 require $app_root . '/modules/custom/drupal-performance-modules/settings/settings.performance.php';
 ```
 
@@ -89,16 +89,14 @@ the bins work before the recipe installs the redis module. After changing `REDIS
 drush cr   # an existing site must see the newly required modules first
 drush recipe ../recipes/drupal-performance-recipe
 drush cr
-drush php:eval "\Drupal::service('themed_fast_404.manager')->buildStatic404();"   # the Themed Fast 404 static page
 ```
 
 Do not run a full `drush cron` here: it runs every module's cron job. On the OIG test copy it ran
 `block_inactive_users`, which disabled three accounts, and tried to send email
-[V: tmp/codex-oig/sitemap/cron-A.log]. The `php:eval` line runs only the 404 page build, the same
-call as `themed_fast_404_cron()` [V: OIG copy, file `page-not-found-en.html` rewritten].
+[V: tmp/codex-oig/sitemap/cron-A.log]. The recipe no longer needs a cron run (the Themed Fast 404 page build is gone).
 
 Result:
-- 13 modules installed: big_pipe, syslog, redis, purge, purge_ui, purge_processor_cron, purge_queuer_coretags, purge_drush, azure_cdn_purge, fast404, themed_fast_404, page_cache, dynamic_page_cache.
+- 11 modules installed: big_pipe, syslog, redis, purge, purge_ui, purge_processor_cron, purge_queuer_coretags, purge_drush, azure_cdn_purge, page_cache, dynamic_page_cache.
 - `system.performance`: page max-age 900, CSS/JS aggregation on.
 - `purge.plugins` with the Azure purger.
 - `azure_cdn_purge.settings`: `endpoint_type: afdEndpoints`, `chunk_size: 50`, empty credentials.

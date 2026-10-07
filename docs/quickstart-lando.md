@@ -1,6 +1,6 @@
 # Quick start: add the recipe to an OIG Lando site
 
-Redis caching, Front Door purging and Fast 404 on an existing OIG Lando site.
+Redis caching and Front Door purging on an existing OIG Lando site.
 Everything is committed to the **site repo**, so your team and the Docker build get it from a normal
 `git pull` and `composer install`. For the full reference, see [setup-guide.md](setup-guide.md).
 
@@ -15,9 +15,9 @@ Everything is committed to the **site repo**, so your team and the Docker build 
 |---|---|
 | `docroot/modules/custom/drupal-performance-modules/` | The two modules |
 | `recipes/drupal-performance-recipe/` | The recipe, its config, patches, local test services and docs |
-| `composer.json`, `composer.lock` | The contrib modules (redis, purge, azure_cdn_purge, fast_404, themed_fast_404) |
+| `composer.json`, `composer.lock` | The contrib modules (redis, purge, azure_cdn_purge) |
 | `.lando.yml` | Local Redis, mock Front Door and edge services |
-| `docroot/sites/default/settings.performance.php` | The recipe's settings (Redis, purge credentials, Fast 404), owned by the site |
+| `docroot/sites/default/settings.performance.php` | The recipe's settings (Redis, purge credentials), owned by the site |
 | `docroot/sites/default/settings.php` | One `require` line |
 | `config/sync/` | The config the recipe creates |
 
@@ -77,7 +77,7 @@ mv recipes/drupal-performance-recipe/drupal-performance-modules docroot/modules/
 a. Require the contrib modules:
 
 ```bash
-lando composer require drupal/redis:^1.11 drupal/purge:^3.7 drupal/azure_cdn_purge:1.0.4 drupal/fast_404:^3.7 drupal/themed_fast_404:^1.0
+lando composer require drupal/redis:^1.11 drupal/purge:^3.7 drupal/azure_cdn_purge:1.0.4
 ```
 
 - These are the versions the recipe needs (from its `composer.json` files).
@@ -188,7 +188,7 @@ lando rebuild -y
 - **The site already has `.lando/nginx.conf.tpl`.** americorps has one committed, but no Lando file points to it, so it isn't used today. It differs from the recipe's template in three places: an older Drupal 7 style `rewrite`, no `expires max` on CSS/JS aggregates, and its own `try_files` for static files. Options:
   - **Keep both (default):** use `.lando/nginx-fast404.conf.tpl` as above, and leave the old file alone.
   - **One file:** copy the recipe's template over `.lando/nginx.conf.tpl` and point `vhosts:` at that. Check first that nobody depends on the old one.
-- **The site's own nginx rules stopped working.** The `vhosts:` line replaces Lando's nginx config with this template (Lando's own plus one Fast 404 line). Add the site's rules to `.lando/nginx-fast404.conf.tpl`, or leave the `vhosts:` line out. Without it Fast 404 won't see missing image/CSS files, which is harmless locally.
+- **The site's own nginx rules stopped working.** The `vhosts:` line replaces Lando's nginx config with this template (Lando's own plus one line that lets missing files reach Drupal). Add the site's rules to `.lando/nginx-fast404.conf.tpl`, or leave the `vhosts:` line out. Without it nginx answers missing image/CSS files itself, so core's Fast 404 never sees them, which is harmless locally.
 - **After a Lando upgrade, nginx acts oddly.** The template is a copy of Lando 3.26.9's drupal10 vhost. Compare it with the new Lando version's template and update the `.lando/` copy.
 - **Port or proxy errors with DDEV running.** `export LANDO_PROXY=OFF`, then rebuild.
 
@@ -210,7 +210,7 @@ require __DIR__ . '/settings.performance.php';
 ```
 
 - **It's the site's own settings file now,** like `settings.php`. It runs on every environment, Prod included. Every feature in it switches on only when its environment variable is set.
-- **Why the end:** the fast_404 README says "Keep this code block at the end of this file to take full effect" (README.txt line 34). On OIG sites the end is still after `settings.base.php`, so nothing in `settings.config.php`, `settings.{env}.php` or `settings.global.php` is lost.
+- **Why the end:** Our choice (Bo ruling 2026-10-07). Its first source, the fast_404 README, is gone with that module. On OIG sites the end is still after `settings.base.php`, so nothing in `settings.config.php`, `settings.{env}.php` or `settings.global.php` is lost.
 - **It's a `require`,** so a missing file stops the site loudly instead of silently running without Redis.
 - **Never include `example.settings.local-lab.php`** (same folder in the modules package) outside a local lab. It sends outbound requests to the mock Front Door.
 
@@ -241,7 +241,6 @@ require __DIR__ . '/settings.performance.php';
 lando drush cr
 lando drush recipe ../recipes/drupal-performance-recipe
 lando drush cr
-lando drush php:eval "\Drupal::service('themed_fast_404.manager')->buildStatic404();"
 ```
 
 > [!WARNING]
@@ -253,9 +252,17 @@ lando drush php:eval "\Drupal::service('themed_fast_404.manager')->buildStatic40
 
 - **`Recipe not found`.** Use the full path: `lando drush recipe /app/recipes/drupal-performance-recipe`.
 - **A module isn't found.** Run `lando drush cr` again, then the recipe.
-- **The site already has Purge or Azure CDN settings.** The recipe only creates `purge.plugins` and `azure_cdn_purge.settings` if they don't exist. Check: `lando drush cget purge.plugins`.
+- **`PHP Fatal error: Cannot redeclare config_is_exported()` (previously declared in `.../settings.base.php:6`).**
+  - **Cause:** drush boots Drupal, then core's `RecipeCommand` boots it again and re-reads `settings.php` (`core/lib/Drupal/Core/Command/BootableCommandTrait.php` calls `Settings::initialize()`).
+  - **Fix:** in the site's `settings.php` use `include_once __DIR__ . "/settings.base.php";` (americorps already does).
+  - **Upstream fix:** a `function_exists()` guard in oig-distro-assets' `settings.base.php`.
+- **`The configuration 'purge.plugins' exists already and does not match the recipe's configuration`.**
+  - **Cause:** recipes are strict by default (core `Recipe/ConfigConfigurator.php`, `strict` defaults to TRUE). The site already has `purge.plugins`, from an earlier partial run or because it already uses Purge.
+  - **Not automatic:** the recipe does not handle this. A recipe change (strict mode off for these two configs) is pending Bo's ruling.
+  - **Check committed config first:** `git log -- config/sync/purge.plugins.yml`.
+  - **Site never used Purge:** `lando drush config:delete purge.plugins` (and `azure_cdn_purge.settings` if it reports that too), `lando drush cr`, then rerun the recipe.
+  - **Site already uses Purge:** don't delete. Compare `lando drush cget purge.plugins` with the recipe's `config/purge.plugins.yml`, then add the azurecdn purger and `path_queuer`.
 - **HTTP 500 after applying.** Run `lando drush cr`. If it stays: `lando drush watchdog:show --severity=Error --count=5`, then [troubleshooting.md](troubleshooting.md).
-- **The 404 page build fails.** It fetches `/page-not-found` from `THEMED_FAST404_BASE_URL` (`http://appserver_nginx`). Check the site loads, and `lando drush php:eval "print getenv('THEMED_FAST404_BASE_URL');"`.
 
 </details>
 
@@ -287,7 +294,7 @@ lando drush cex -y
 git add docroot/modules/custom/drupal-performance-modules recipes/drupal-performance-recipe \
   composer.json composer.lock .lando.yml .gitignore docroot/sites/default/settings.php \
   docroot/sites/default/settings.performance.php config/sync
-git commit -m "Add the Drupal performance recipe (Redis, Front Door purge, Fast 404)"
+git commit -m "Add the Drupal performance recipe (Redis, Front Door purge)"
 ```
 
 - **Credentials aren't in the export.** Azure values come from environment variables, so the exported `azure_cdn_purge.settings` has empty credentials.

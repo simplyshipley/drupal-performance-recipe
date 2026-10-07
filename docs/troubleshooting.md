@@ -1,6 +1,6 @@
 # Troubleshooting and known module issues
 
-Symptoms, causes and fixes for the recipe's Redis, Fast 404 and purge pieces. For developers and DevOps on a site that misbehaves.
+Symptoms, causes and fixes for the recipe's Redis, 404 and purge pieces. For developers and DevOps on a site that misbehaves.
 
 ## Redis down: the site stays up (fail-open)
 
@@ -29,33 +29,71 @@ Consequences:
 - `$settings['redis_invalidate_all_as_delete'] = TRUE` is set (2026-10-07). It makes `invalidateAll()` act as `deleteAll()` [V: CacheBase.php line 476]. The suite's `drush_cr` test passes with it [V].
 - Source: redis `settings.redis.example.php`, "Additional optimizations".
 
-## Unknown paths return HTTP 500 with `Table 'db.redirect' doesn't exist`
+## Upgrading a site that already applied the recipe
 
-- **Cause:** Fast 404's `fast404_respect_redirect = TRUE` queries the `{redirect}` table without checking that the Redirect module is installed [V: lab error, Fast404.php line 234].
-- **Fix:** the settings include makes it opt-in. Set `FAST404_RESPECT_REDIRECT=1` only on sites with the Redirect module.
+The recipe no longer installs `drupal/fast_404` or `drupal/themed_fast_404` (Our choice, Bo ruling 2026-10-07; reasons in [sources.md](sources.md#404-pages-core-fast-404)). On a site that already has them:
 
-## PHP log: `ServiceUnavailableHttpException::__construct(): Argument #3 ($previous) must be of type ?Throwable, array given`
+1. Uninstall the modules BEFORE composer removes their code:
 
-- **Gone since 2026-10-07:** it came from the `fast404_preboot()` call in `settings.php`, which was removed. Missing static files are now answered by the module inside Drupal. Not re-checked in the PHP log after the removal [ASSUMED].
-- **What happened:** logged once per missing static file answered by the pre-boot check [V: DDEV web log]. The 404 had already been sent, so visitors saw a correct 404, but the PHP error log filled with one TypeError per request.
-- **Upstream:** https://www.drupal.org/project/fast_404/issues/3194034 ("Argument 3 passed to ServiceUnavailableHttpException::__construct() must be an instance of Exception or null, array given"). Still present in 3.7.0 (Fast404.php line 302) [V: code].
-- **Fix taken:** dropped the pre-boot call and let the module's event subscriber handle static files after bootstrap (slower, 26-66 ms vs 1.5-3.7 ms with preboot). Source: fast_404 README.txt lines 48-49 ("not fully implemented and not ready for to use"), [#2961512](https://www.drupal.org/project/fast_404/issues/2961512).
-- **Status:** closed; the upstream bug is still open.
+   ```bash
+   lando drush pm:uninstall themed_fast_404 fast404
+   ```
 
-## Themed Fast 404 makes an HTTP request to itself on most requests
+2. Remove the packages:
 
-Its config override (`ConfigOverrider::loadOverrides()`) calls
-`file_get_contents()` on the static page's **absolute URL** whenever `system.performance` is
-loaded [V: code]. In the lab, 20 requests that were not page-cache hits produced 20 GETs of
-`/sites/default/files/page-not-found-en.html` in the nginx access log; page-cache hits
-produced none [V: tmp/ddev/themed404-self-requests.txt]. Logged-in traffic, cache misses and
-every 404 therefore cost an extra HTTP round trip, which on Azure goes to the public host
-[ASSUMED]. The override also sets core's `fast_404.paths` to `/\.*$/i` (all paths).
+   ```bash
+   lando composer remove drupal/themed_fast_404 drupal/fast_404
+   ```
 
-This recipe still installs it (MANIFEST decision: Themed Fast 404 `^1.0`). Fast 404
-(contrib) and Themed Fast 404 do work together: the settings include points
-`fast404_HTML_error_page` at the file cron writes, so the module's static-file and path checks both serve the themed page [V: fast404_static, fast404_path, themed_404].
-Before production, decide whether to patch the override to read the file from disk.
+3. Delete the cron-written pages `public://page-not-found-*.html`.
+4. Drop the env vars `PERF_FAST404`, `FAST404_RESPECT_REDIRECT` and `THEMED_FAST404_BASE_URL`.
+5. Export the config:
+
+   ```bash
+   lando drush cex
+   ```
+
+Core's Fast 404 is set in `docroot/sites/default/settings.config.php` (`system.performance`: `fast_404.paths`, `fast_404.exclude_paths`, `fast_404.html`).
+
+## 404 pages: what visitors get
+
+- **Page URLs:** Drupal's normal themed 404. Customise it under Configuration → Basic site settings → Error pages.
+- **Missing files** (such as a `.png`): core's plain page.
+- **Both are cacheable:** `Cache-Control: max-age=900, public` [V: tmp/drop-fast404-20261007/04-measure-core-fast404.log: missing `.png` MISS 38 ms then HIT 6.6 ms; unknown page MISS 430 ms then HIT 7 ms].
+- **Page not found shows after a page is published:** Front Door cached the 404 before the page existed. `perf_purge_paths` purges it when the alias is created. Open gap (needs Bo's ruling): an alias added on its own leaves Drupal's cached 404 for up to `cache_ttl_4xx` (3600 s) ([cache-sync.md](cache-sync.md)).
+
+## `PHP Fatal error: Cannot redeclare config_is_exported()` during `lando drush recipe`
+
+- **Message:** `Cannot redeclare config_is_exported() (previously declared in .../settings.base.php:6)`.
+- **Cause:** drush boots Drupal, then core's `RecipeCommand` boots it again and re-reads `settings.php` (`core/lib/Drupal/Core/Command/BootableCommandTrait.php` calls `Settings::initialize()`). `settings.base.php` is included a second time, so the function is declared again [V: Bo's Lando run, 2026-10-07].
+- **Fix:** in the site's `settings.php` use `include_once`:
+
+  ```php
+  include_once __DIR__ . "/settings.base.php";
+  ```
+
+  americorps already does.
+- **Proper upstream fix:** a `function_exists()` guard in oig-distro-assets' `settings.base.php`.
+
+## `The configuration 'purge.plugins' exists already and does not match the recipe's configuration`
+
+- **Cause:** recipes are strict by default (`strict` defaults to TRUE in core `Recipe/ConfigConfigurator.php`). The site already has `purge.plugins`, from an earlier partial run or because it already uses Purge.
+- **Not automatic:** the recipe does not handle this. The comment in `recipe.yml` ("created only if the site has none yet") is wrong. A recipe change (strict mode off for these two configs) is pending Bo's ruling.
+- **Step 1, check committed config:**
+
+  ```bash
+  git log -- config/sync/purge.plugins.yml
+  ```
+
+- **Step 2a, the site never used Purge:** delete the config and rerun. Do the same for `azure_cdn_purge.settings` if the error names it.
+
+  ```bash
+  lando drush config:delete purge.plugins
+  lando drush cr
+  lando drush recipe ../recipes/drupal-performance-recipe
+  ```
+
+- **Step 2b, the site already uses Purge:** do not delete. Compare `lando drush cget purge.plugins` with the recipe's `config/purge.plugins.yml`, then add the azurecdn purger and `path_queuer` by hand.
 
 ## Purge: only node updates are purged
 

@@ -12,8 +12,8 @@ Followed on the SYNTHETIC lab `perflab106lando` (Lando 3.26.9, drupal10 recipe, 
   - prefix every `lando` command with `LANDO_PROXY=OFF` [V].
 - **Random ports are fine:** none of the recipe's services publishes a host port. Lando's own `appserver_nginx` and `database` bind random 127.0.0.1 high ports (for example 32814, 32813) [V: `docker ps`]. They do not collide with DDEV.
 - **`node` tooling:** Lando 3.26.9 rewrites a tooling `cmd` that starts with `node` (lando/lando#3460). The recipe's tooling uses `bash -c` / `redis-cli`, not `node`.
-- **Missing static files:** Lando's default drupal10 nginx vhost answers missing `.js/.css/.png/...` files itself, so Fast 404 never sees them [V: first Lando run, `fast404_static` answered by nginx].
-  - The recipe's snippet swaps in `lando/nginx-fast404.conf.tpl` (Lando's template plus `try_files $uri @rewrite;` in that block).
+- **Missing static files:** Lando's default drupal10 nginx vhost answers missing `.js/.css/.png/...` files itself, so Drupal's Fast 404 never sees them [V: first Lando run, the old `fast404_static` test was answered by nginx; the replacement is `core_404_static`].
+  - The recipe's snippet swaps in `lando/nginx-fast404.conf.tpl` (the file name is unchanged; it also gives aggregates and image styles a lifetime for the edge) (Lando's template plus `try_files $uri @rewrite;` in that block).
   - Set it under `services.appserver.config.vhosts`. A top-level `config.vhosts` in `.lando.local.yml` was ignored [V].
   - Vhost changes need `lando rebuild`.
 - **Relative paths** in `.lando.yml` resolve from the app root. DDEV's compose files resolve from `.ddev/`.
@@ -75,7 +75,7 @@ LANDO_PROXY=OFF lando rebuild -y
 
 - `cache`: Valkey 9.1.2 as a `type: compose` service (Lando has no Valkey type), loading `lando/redis.conf` (256 MB, volatile-lfu, no persistence). Lab only: no password, protected mode off ([lando.perf.yml](../lando/lando.perf.yml), the `cache` service).
 - `mockafd`: `type: compose`, built from `mock-afd/`, command `python3 -u /opt/mock/mock_afd.py`, log in `.lando-mock-afd-data/`.
-- appserver environment: `REDIS_HOST=cache`, `PERF_FAST404=1`, `PERF_MOCK_AFD_PROXY=http://mockafd:8080`, `THEMED_FAST404_BASE_URL=http://appserver_nginx`, SYNTHETIC `AZURE_CDN_*`.
+- appserver environment: `REDIS_HOST=cache`, `PERF_MOCK_AFD_PROXY=http://mockafd:8080`, SYNTHETIC `AZURE_CDN_*`.
 - the nginx vhost above, and tooling `lando perf-test-in` and `lando redis-cli`.
 
 To use one file instead, paste the same keys into `.lando.yml`.

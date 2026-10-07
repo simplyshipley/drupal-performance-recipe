@@ -1,4 +1,4 @@
-# Drupal performance recipe (Redis, Purge for Azure Front Door, Fast 404)
+# Drupal performance recipe (Redis, Purge for Azure Front Door)
 
 A Drupal recipe plus a settings include for Drupal 10.6+ / 11 sites on Azure App Service behind Azure Front Door, with local DDEV and Lando test harnesses (including a mock Front Door purge endpoint) and a scripted test suite.
 For Drupal developers installing it.
@@ -25,8 +25,6 @@ Evidence labels used in every doc:
 | `drupal/redis` | Cache backend (PhpRedis) | 1.11.0, core `^9.3 \|\| ^10 \|\| ^11` [V: composer show] |
 | `drupal/purge` + `purge_ui`, `purge_processor_cron`, `purge_queuer_coretags`, `purge_drush` | Purge queue and processors | 3.7.0, core `^9.5 \|\| ^10 \|\| ^11` [V: composer show] |
 | `drupal/azure_cdn_purge` | Azure CDN / Front Door purger (path based), `endpoint_type: afdEndpoints` | 1.0.4, core `^10 \|\| ^11` [V: composer show; installs on 10.6.17] |
-| `drupal/fast_404` (module name **`fast404`**) | Fast 404 | 3.7.0, core `^10 \|\| ^11` [V] |
-| `drupal/themed_fast_404` | Static themed 404 page written by cron | 1.0.7, core `^10 \|\| ^11` [V] |
 | core | `page_cache`, `dynamic_page_cache`, `big_pipe`, `syslog`; page max-age 900 s; CSS/JS aggregation on | [V: recipe-apply.log] |
 
 `dblog` is **not** uninstalled by the recipe. Removing it is optional; see
@@ -38,7 +36,7 @@ Evidence labels used in every doc:
 recipe.yml, composer.json        the recipe (type drupal-recipe)
 config/                          purge.plugins + azure_cdn_purge.settings (no secrets)
 drupal-performance-modules/      second Composer package: modules/perf_purge_paths, modules/perf_redis_failopen,
-                                 settings/settings.performance.php (env-driven include: Redis, proxy, Fast 404, purge credentials)
+                                 settings/settings.performance.php (env-driven include: Redis, proxy, purge credentials)
 infra/                           Redis (Valkey) image + push.sh, Azure Bicep
 bin/docker-redis                 site wrapper for infra/redis-image/push.sh (copy into a site's bin/)
 mock-afd/                        mock Azure Front Door purge + token endpoint (Python, Docker)

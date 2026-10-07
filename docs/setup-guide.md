@@ -100,12 +100,11 @@ There is no upgrade path. Apply this recipe to a site that has not run an older 
 4. Include the settings file after `$databases` in `settings.php`, as the last include: [install.md](install.md#4-include-the-settings-file).
    - To switch purging or Redis off for one environment (local, QA, Prod), add the `$config[...]` lines in [install.md](install.md#8-turn-caching-off-per-environment) to its `settings.php`.
    - Switching Redis later needs no deploy: set `REDIS_ENABLED=0`; back on with `REDIS_ENABLED=1`, then `drush cr` ([install.md](install.md#8-turn-caching-off-per-environment)).
-5. Apply the recipe, then build the Themed Fast 404 static page. Not a full `drush cron`: it runs every module's cron job ([install.md](install.md#5-apply-the-recipe)).
+5. Apply the recipe. Not a full `drush cron`: it runs every module's cron job ([install.md](install.md#5-apply-the-recipe)).
    ```bash
    drush cr
    drush recipe ../recipes/drupal-performance-recipe
    drush cr
-   drush php:eval "\Drupal::service('themed_fast_404.manager')->buildStatic404();"
    ```
    Check: `drush cget azure_cdn_purge.settings` shows `endpoint_type: afdEndpoints`.
 6. Deleted, renamed and retargeted aliases and deleted files: nothing to install, `perf_purge_paths` purges them ([install.md](install.md#deleted-and-renamed-aliases-and-deleted-files)).
@@ -169,13 +168,12 @@ Secrets go in as Key Vault references ([azure.md](azure.md#app-service-applicati
 az webapp config appsettings set -g $RG -n <webapp> --settings \
   REDIS_HOST=<redisHost output> REDIS_PORT=6379 REDIS_SCHEME=tcp \
   REDIS_PASSWORD='@Microsoft.KeyVault(SecretUri=https://<kv>.vault.usgovcloudapi.net/secrets/redis-password/)' \
-  REDIS_PREFIX=<site> PERF_FAST404=1 AZURE_CLOUD=usgovernment
+  REDIS_PREFIX=<site> AZURE_CLOUD=usgovernment
 ```
 
 | Group | Variables | Default and rule |
 |---|---|---|
 | Redis | `REDIS_HOST`, `REDIS_ENABLED`, `REDIS_PORT`, `REDIS_SCHEME`, `REDIS_PASSWORD`, `REDIS_PREFIX` | Unset `REDIS_HOST` = no Redis. `REDIS_ENABLED=0` = the Redis bins use the database. Prefix required on a shared Redis |
-| Perf tuning | `PERF_FAST404` | Keep the default |
 | Purge credentials | `AZURE_CDN_TENANT_ID`, `AZURE_CDN_CLIENT_ID`, `AZURE_CDN_CLIENT_SECRET` (Key Vault), `AZURE_CDN_SUBSCRIPTION_ID`, `AZURE_CDN_RESOURCE_GROUP`, `AZURE_CDN_PROFILE`, `AZURE_CDN_ENDPOINT`, `AZURE_CDN_ENDPOINT_TYPE` (`afdEndpoints`), `AZURE_CLOUD` (`usgovernment`) | Leave `AZURE_CDN_SCOPE` unset and clear any stored scope ([azure.md](azure.md#azure-government-patched-azure_cdn_purge)) |
 | Proxy | `DRUPAL_TRUSTED_HOSTS`, `DRUPAL_REVERSE_PROXY`, `DRUPAL_REVERSE_PROXY_ADDRESSES` | [azure.md](azure.md#client-ip) |
 
@@ -221,4 +219,4 @@ Gaps:
 - Bicep never deployed; TLS to Redis not supported as shipped (3.4); FedRAMP scope of Container Apps, Log Analytics and alerts not confirmed.
 - `api-version 2024-02-01` and the patched purger: not tested on Azure Government ([azure.md](azure.md#azure-government-patched-azure_cdn_purge)).
 - `JSChallenge` action name: assumed ([hardening.md](hardening.md#header-consistency-rule-browser-ua-without-browser-headers)).
-- Themed Fast 404 requests itself over HTTP ([troubleshooting.md](troubleshooting.md)).
+- Fast 404 is core's, configured per site in `settings.config.php` ([sources.md](sources.md#404-pages-core-fast-404)). An alias added on its own can leave Drupal's cached 404 for up to 3600 s: needs Bo's ruling ([cache-sync.md](cache-sync.md)).

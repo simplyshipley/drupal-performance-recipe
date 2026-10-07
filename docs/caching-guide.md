@@ -212,12 +212,12 @@ A SYNTHETIC local site reproduces the problems and proves each fix before it rea
 
 ## Error pages and 403 load
 
-Use Fast 404 plus Themed Fast 404 for 404s, and reduce 403s at the source. Module facts come from drupal.org project pages read on 2026-09-25.
+Use Drupal core's Fast 404 for 404s, and reduce 403s at the source (Our choice, Bo ruling 2026-10-07: the `fast_404` and `themed_fast_404` modules were dropped, see [sources.md](sources.md#404-pages-core-fast-404)). Module facts come from drupal.org project pages read on 2026-09-25.
 
 | Module | Decision | Latest release | Why |
 | --- | --- | --- | --- |
-| Fast 404 (`fast_404`) | Use `^3.7` | 8.x-3.7, 14 January 2026, Drupal 10/11 | 13,500+ installs, 7 maintainers; runs from `settings.php` with under 1 MB per 404. Redirect conflict (#2838359) fixed in 3.0-alpha1 |
-| Themed Fast 404 (`themed_fast_404`) | Use `^1.0`, pending lab test | 1.0.7, Drupal 10/11 | Cron writes the themed 404 as static HTML. Compatibility with contrib Fast 404 (not just core's) is untested |
+| Fast 404 (`fast_404`) | **Removed 2026-10-07** (was `^3.7`) | 8.x-3.7, 14 January 2026, Drupal 10/11 | Its `fast404_preboot()` is broken upstream ([#2961512](https://www.drupal.org/project/fast_404/issues/2961512), open since 2018), so its 404 was not page-cacheable (26-66 ms every time) while core's is (repeat about 7 ms) [V: tmp/drop-fast404-20261007/04-measure-core-fast404.log] |
+| Themed Fast 404 (`themed_fast_404`) | **Removed 2026-10-07** (was `^1.0`) | 1.0.7, Drupal 10/11 | Overrides core's `fast_404.paths` with a match-everything regex and makes an HTTP request to the site on every uncached request; Bo saw a 404 page printed on top of a normal page |
 | Fast Error Pages (`fast_error_pages`) | Skip for now | 1.0.2, November 2025 | 213 installs, created October 2025; its cache follows tags that every content save clears, and a miss makes an internal HTTP request |
 | Redirect 403 to User Login (`r4032login`) | Editor-facing sites only | 2.2.3, January 2025 | Confirms protected pages exist to scanners |
 | Error Custom Pages (`error_page`) | Pilot only | 2.1.0-beta1 for Drupal 10/11 | Friendly 500 pages, but beta has no security coverage |
@@ -225,7 +225,7 @@ Use Fast 404 plus Themed Fast 404 for 404s, and reduce 403s at the source. Modul
 
 ### Why 403s arrive in batches
 
-Every save of any entity with a URL (node, term, user, media) invalidates the `4xx-response` tag, which clears every cached 403 and 404 site-wide. \[V: `core/lib/Drupal/Core/Entity/EntityBase.php` lines 564-566, Drupal 11.4 lab; ASSUMED same in 10.6\] Cached 4xx pages otherwise last `$settings['cache_ttl_4xx']`, default 3600 seconds. Heavy unpublishing keeps that cache empty, so each wave of bot requests needs a full page load.
+Every save of any entity with a URL (node, term, user, media) invalidates the `4xx-response` tag, which clears every cached 403 and 404 site-wide. Only entity saves do this; adding a URL alias on its own does not (open gap, see [cache-sync.md](cache-sync.md)). \[V: `core/lib/Drupal/Core/Entity/EntityBase.php` lines 564-566, Drupal 11.4 lab; ASSUMED same in 10.6\] Cached 4xx pages otherwise last `$settings['cache_ttl_4xx']`, default 3600 seconds. Heavy unpublishing keeps that cache empty, so each wave of bot requests needs a full page load.
 
 ### Reducing 403 load
 
@@ -238,7 +238,7 @@ Every save of any entity with a URL (node, term, user, media) invalidates the `4
 
 ### Other error cases
 
-- **Core 403 and 404 pages:** Point Basic site settings at nodes so they render themed and cacheable.
+- **Core 403 and 404 pages:** Visitors get a themed 404 for page URLs (Drupal's normal 404, customisable under Configuration → Basic site settings → Error pages); missing files get core's plain page. Core's 404 is cacheable (`Cache-Control: max-age=900, public`).
 - **PHP or container down:** Static `error_page 502 503 504` in the container web server, or App Service custom error pages.
 - **Maintenance mode:** Theme `maintenance-page.html.twig`.
 
@@ -246,9 +246,9 @@ Every save of any entity with a URL (node, term, user, media) invalidates the `4
 
 A Composer `drupal-recipe` package plus a settings include file, because recipes can't write `settings.php`. Not built yet.
 
-- **Recipe modules:** `redis`, `purge`, `purge_ui`, `purge_processor_cron`, `purge_queuer_coretags`, `purge_drush`, `azure_cdn_purge`, `fast_404`, `themed_fast_404`.
+- **Recipe modules:** `redis`, `purge`, `purge_ui`, `purge_processor_cron`, `purge_queuer_coretags`, `purge_drush`, `azure_cdn_purge`.
 - **Recipe configuration:** Page cache max age, CSS and JavaScript aggregation, BigPipe, `syslog` instead of `dblog`, core 403/404 pages, purge processors.
-- **`settings.performance.php`:** Redis connection and bins from environment variables, Fast 404 settings, reverse proxy and trusted hosts, `database_cache_max_rows`, `cache_ttl_4xx`. Azure purge credentials come from App Service settings, never exported config.
+- **`settings.performance.php`:** Redis connection and bins from environment variables, reverse proxy and trusted hosts, `database_cache_max_rows`, `cache_ttl_4xx`. Azure purge credentials come from App Service settings, never exported config.
 - **Local:** DDEV and Lando snippets for Redis or Valkey and a mock Front Door endpoint, plus a test script and Playwright checks.
 - **Open decisions:** Where the package lives, Redis or Valkey, 404 or 410 for unpublished content, and anything to leave out.
 

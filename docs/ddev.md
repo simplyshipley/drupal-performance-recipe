@@ -95,7 +95,7 @@ ddev restart
 
 What you get:
 
-- `config.perf.yaml` sets `REDIS_HOST=redis`, `REDIS_PREFIX=perflab`, `PERF_FAST404=1`, `PERF_MOCK_AFD_PROXY=http://mock-afd:8080`, `THEMED_FAST404_BASE_URL=http://localhost` and SYNTHETIC `AZURE_CDN_*` values.
+- `config.perf.yaml` sets `REDIS_HOST=redis`, `REDIS_PREFIX=perflab`, `PERF_MOCK_AFD_PROXY=http://mock-afd:8080`, and SYNTHETIC `AZURE_CDN_*` values.
 - `docker-compose.mock-afd.yaml` builds `mock-afd/` (python:3.12-alpine) as `ddev-<project>-mock-afd`. It has no host port. Its log is `.ddev/mock-afd-data/requests.jsonl` [V].
 
 ### How the mock is wired (and why)
@@ -103,7 +103,7 @@ What you get:
 - `azure_cdn_purge` hard-codes `login.microsoftonline.com` and `management.azure.com` [V: AzurePurger.php lines 145, 165]. No module setting can point it elsewhere.
 - So the lab sets core's `http_client_config` (via `PERF_MOCK_AFD_PROXY`). Guzzle then sends every outbound request as an HTTP proxy `CONNECT` to the mock.
 - The mock answers the tunnel itself with a self-signed certificate (verification is off in the lab only). It never opens an outbound connection, so nothing can reach Azure.
-- Side effect: every other outbound Drupal HTTP call in the lab also hits the mock (update checks, the Themed Fast 404 cron fetch of a public URL). Localhost is excluded.
+- Side effect: every other outbound Drupal HTTP call in the lab also hits the mock (for example update checks). Localhost is excluded.
 
 Evidence: the mock log shows `connect` to `login.microsoftonline.com:443` / `management.azure.com:443`, then `token` and `purge` entries.
 

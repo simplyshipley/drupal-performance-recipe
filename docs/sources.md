@@ -27,18 +27,21 @@ For developers changing a setting: check here before you change it.
 | Fail-open wrapper | `perf_redis_failopen` turns Redis errors into cache misses | Not in the README | Our choice (Bo, 2026-09-25). Redis down must not mean the site is down |
 | Queue backend | Not set | README "Queue Backend" (lines 485-504) | Not applicable: the purge queue uses the database |
 
-## Fast 404 and Themed Fast 404
+## 404 pages: core Fast 404
 
-| Setting | What we do | Source | Follows / Our choice |
+Our choice (Bo ruling 2026-10-07): no Fast 404 contrib modules. Sites use Drupal core's Fast 404.
+
+- **Where:** `docroot/sites/default/settings.config.php` on OIG sites, `system.performance` keys `fast_404.paths`, `fast_404.exclude_paths`, `fast_404.html`.
+- **What visitors get:** a themed 404 for page URLs (Configuration → Basic site settings → Error pages); core's plain page for missing files.
+- **Cacheable:** `Cache-Control: max-age=900, public`. Missing `.png` MISS 38 ms then HIT 6.6 ms; unknown page MISS 430 ms then HIT 7 ms [V: tmp/drop-fast404-20261007/04-measure-core-fast404.log].
+
+| Item | Status | Source | Why |
 |---|---|---|---|
-| Where `settings.performance.php` is required | Last line of `settings.php` | fast_404 README.txt line 34: "Keep this code block at the end of this file to take full effect" | Follows (ruling 2026-10-07). On OIG sites the end is still after `settings.base.php` |
-| `fast404_preboot()` | Not called | fast_404 README.txt lines 48-49: "This is not fully implemented and not ready for to use"; [#2961512](https://www.drupal.org/project/fast_404/issues/2961512) | Follows (ruling 2026-10-07). Missing static files cost 26-66 ms instead of 1.5-3.7 ms |
-| Path check | On, done by the module's request subscriber | fast_404 README.txt, "Enable Drupal path checking" | Follows |
-| Static-file extensions | The example list plus `webp`, `svg`, `map`, `aspx`, `php`, `env`, `bak`, `sql`, `zip`, `gz` | README.txt: keep the list under review | Follows, list extended by us |
-| Whitelists, `fast404_allow_anon_imagecache`, `not_found_exception` | The example file's values | `example.settings.fast404.php` | Follows |
-| `fast404_respect_redirect` | Off. On only when `FAST404_RESPECT_REDIRECT=1` (set it on sites with the Redirect module, such as the OIG sites) | `example.settings.fast404.php` lines 153-156: default `FALSE`, "needs to be enabled, so that fast 404 respects the redirect module" | Follows. Without the Redirect module, turning it on gives HTTP 500 on every unknown path [V: lab] |
-| Themed page | `fast404_HTML_error_page` points at the file cron writes | `example.settings.fast404.php`; themed_fast_404 README "How it works" | Follows |
-| Themed Fast 404 base URL | `THEMED_FAST404_BASE_URL` | themed_fast_404 README "Configuration page": "It is recommended to set it" | Follows |
+| `drupal/fast_404` | **Removed** (was `^3.7`) | `fast404_preboot()` "not fully implemented" (README.txt lines 48-49); [#2961512](https://www.drupal.org/project/fast_404/issues/2961512), open since 2018 | Preboot broken upstream. Without it the module's 404 was not page-cacheable (26-66 ms every time) while core's is |
+| `drupal/themed_fast_404` | **Removed** (was `^1.0`) | Our measurements, tmp/ddev/themed404-self-requests.txt; Bo saw a 404 page printed on top of a normal page | Overrides core's `fast_404.paths` with a match-everything regex and makes an HTTP self-request on every uncached request |
+| Where `settings.performance.php` is required | Last line of `settings.php` | Our choice (Bo ruling 2026-10-07) | Its first source, the fast_404 README line "Keep this code block at the end of this file to take full effect", went with the module. On OIG sites the end is still after `settings.base.php` |
+| Env vars `PERF_FAST404`, `FAST404_RESPECT_REDIRECT`, `THEMED_FAST404_BASE_URL` | **Removed** | Commit 6449272 | Nothing reads them any more. Upgrade steps: [troubleshooting.md](troubleshooting.md#upgrading-a-site-that-already-applied-the-recipe) |
+| Alias insert purge (`hook_path_alias_insert`) | Added | Our choice (Bo ruling 2026-10-07, option A); commit 223d6ba | Core's 404 is public, so Front Door can cache it; a new alias purges it. Open gap: [cache-sync.md](cache-sync.md) |
 
 ## Purge and Azure
 
