@@ -30,6 +30,10 @@ The recipe is two Composer packages:
 Composer reads `composer.json` only at a repository's root, so a `vcs` repository on this GitHub
 repo cannot supply the modules package [ASSUMED: Composer behaviour, not tested].
 
+**OIG sites (chosen 2026-10-07): commit the files into the site repo.** No package repositories:
+copy the recipe to `recipes/`, the modules to `docroot/modules/custom/`, and `composer require` the
+contrib modules. Steps: [quickstart-lando.md](quickstart-lando.md) steps 1 and 2. The other options:
+
 **a. Today (labs and the OIG test copy):** path repositories to a checkout of this repo [V: OIG copy
 `composer.json`]:
 
