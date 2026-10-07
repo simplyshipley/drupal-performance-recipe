@@ -14,6 +14,14 @@ use Drupal\path_alias\PathAliasInterface;
 use Drupal\perf_purge_paths\Hook\PerfPurgePathsHooks;
 
 /**
+ * Implements hook_path_alias_insert().
+ */
+#[LegacyHook]
+function perf_purge_paths_path_alias_insert(PathAliasInterface $alias): void {
+  \Drupal::service(PerfPurgePathsHooks::class)->pathAliasInsert($alias);
+}
+
+/**
  * Implements hook_path_alias_delete().
  */
 #[LegacyHook]

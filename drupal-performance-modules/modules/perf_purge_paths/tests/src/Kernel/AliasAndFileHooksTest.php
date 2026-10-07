@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Drupal\Tests\perf_purge_paths\Kernel;
 
 use Drupal\Core\Cache\Cache;
+use Drupal\node\Entity\Node;
 use PHPUnit\Framework\Attributes\Group;
 
 /**
@@ -23,6 +24,22 @@ final class AliasAndFileHooksTest extends PurgePathsKernelTestBase {
     \Drupal::cache()->set($cid, 'cached page', Cache::PERMANENT, ['node:' . $nid]);
     $this->assertNotFalse(\Drupal::cache()->get($cid), 'The probe entry is cached.');
     return $cid;
+  }
+
+  /**
+   * Creating a node with an alias queues the alias.
+   *
+   * The edge may hold a 404 for that path from before the node existed.
+   */
+  public function testCreatingNodeQueuesItsNewAlias(): void {
+    Node::create([
+      'type' => 'page',
+      'title' => 'SYNTHETIC node',
+      'status' => 1,
+      'path' => ['alias' => '/synthetic-new', 'pathauto' => 0],
+    ])->save();
+    $this->assertContains('/synthetic-new', $this->queuedPaths());
+    $this->assertContains('/synthetic-new/', $this->queuedPaths());
   }
 
   /**

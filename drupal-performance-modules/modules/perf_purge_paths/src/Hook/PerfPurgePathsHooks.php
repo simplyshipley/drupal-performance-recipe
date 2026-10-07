@@ -20,7 +20,7 @@ use Drupal\purge\Plugin\Purge\Queue\StatsTrackerInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 /**
- * Purges what the tag mapping cannot find once it is deleted, and the UI.
+ * Purges aliases and files the tag mapping cannot find, and the UI.
  *
  * The cache tags of a deleted entity are invalidated after it is gone, so
  * these hooks queue a deleted or renamed alias and a deleted file while they
@@ -115,6 +115,17 @@ final class PerfPurgePathsHooks {
         'severity' => enum_exists(RequirementSeverity::class) ? RequirementSeverity::from($level) : $level,
       ],
     ];
+  }
+
+  /**
+   * Implements hook_path_alias_insert().
+   *
+   * The edge may hold a 404 cached before the content existed. Core's
+   * 4xx-response tag clears only Drupal's own page cache.
+   */
+  #[Hook('path_alias_insert')]
+  public function pathAliasInsert(PathAliasInterface $alias): void {
+    $this->queuer->queuePaths([(string) $alias->getAlias()]);
   }
 
   /**
