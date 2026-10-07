@@ -1,11 +1,14 @@
 # Troubleshooting commands (Lando)
 
-Copy-paste checks for a site running the recipe on Lando. Each section: the symptom, the commands, what good output looks like.
+Copy-paste checks for a site running the recipe on Lando. Each section: the commands, what good output looks like, and **"If you see"** cases with what to do.
 For causes and fixes in more depth, see [troubleshooting.md](troubleshooting.md).
+
+- **On a protected system?** You don't need to share output. Match what you see to a case and report the case letter (for example "3-A").
+- **Secrets:** none of these commands print passwords or client secrets. Don't add `--include-overridden` to `drush cget azure_cdn_purge.settings`: it prints the client secret.
 
 > [!NOTE]
 > Run everything from the site folder. Command names come from the recipe, Drupal core, Drush and the Purge module.
-> Sections 1-6 were run on the Lando lab (Lando 3.26.9) on 2026-10-07; not yet on an OIG Lando site or WSL2. If a command fails, note it here.
+> The commands in sections 1-6 and the quick health check were run on the Lando lab (Lando 3.26.9) on 2026-10-07; not yet on an OIG Lando site or WSL2. The "If you see" cases come from the code and today's lab findings; not every case has been reproduced. If a command fails, note it here.
 
 **Contents**
 
@@ -20,6 +23,17 @@ For causes and fixes in more depth, see [troubleshooting.md](troubleshooting.md)
 - [9. Lando itself](#9-lando-itself)
 - [10. Run the tests](#10-run-the-tests)
 
+**Quick health check** (run these first; each line links to its section)
+
+```bash
+lando drush status --field=bootstrap                                          # 1: "Successful"
+lando drush php:eval "print getenv('REDIS_HOST') ?: 'UNSET';"                 # 2: cache
+lando drush php:eval "print get_class(\Drupal::cache('render'));"             # 4: ...FailOpenCacheBackend
+lando redis-cli config get maxmemory-policy                                   # 4: volatile-lfu
+lando drush p:queue-stats                                                     # 5: queue size
+lando perf-test-in headers_anon                                               # 3: PASS
+```
+
 ---
 
 ## 1. Site and environment
@@ -32,7 +46,11 @@ lando drush pm:list --status=enabled | grep -E 'redis|purge|azure|perf_|fast404|
 ```
 
 - **Good:** `drush status` shows the database connected. The module list shows `redis`, the Purge modules, `azure_cdn_purge`, `perf_purge_paths` and `perf_redis_failopen`, and no `fast404` or `themed_fast_404`.
-- **`ENVIRONMENT` blank:** OIG's `settings.base.php` treats the site as **prod** (`get_env('ENVIRONMENT') ?: 'prod'`). That loads `settings.prod.php` and lets `block_inactive_users` send emails. Set your team's local value in `.lando.yml`, then `lando rebuild -y`.
+**If you see**
+
+- **1-A: `drush status` can't connect to the database.** `lando start`, then `lando logs -s database`.
+- **1-B: `fast404` or `themed_fast_404` still enabled.** They were removed from the recipe: `lando drush pm:uninstall themed_fast_404 fast404 -y`, then `lando composer remove drupal/themed_fast_404 drupal/fast_404`.
+- **1-C: `ENVIRONMENT` blank:** OIG's `settings.base.php` treats the site as **prod** (`get_env('ENVIRONMENT') ?: 'prod'`). That loads `settings.prod.php` and lets `block_inactive_users` send emails. Set your team's local value in `.lando.yml`, then `lando rebuild -y`.
 
 ## 2. Settings are loaded
 
@@ -47,7 +65,12 @@ lando drush php:eval "print_r(\Drupal\Core\Site\Settings::get('cache')['bins'] ?
   - `require __DIR__ . '/settings.performance.php';` is the **last** line.
   - `REDIS_HOST` prints `cache`.
   - The bins list shows `render`, `page`, `dynamic_page_cache`, `data`, `entity` and `menu` on `cache.backend.redis`.
-- **Bins list empty:** `REDIS_HOST` is unset, `REDIS_ENABLED` is `0`, or the phpredis extension is missing:
+**If you see**
+
+- **2-A: `include` instead of `include_once` for `settings.base.php`.** Change it to `include_once`, or `drush recipe` fails with "Cannot redeclare `config_is_exported()`".
+- **2-B: the `require` is not the last line.** Move it to the end of `settings.php`.
+- **2-C: `REDIS_HOST` prints nothing.** The variable isn't reaching PHP: check `.lando.yml` → `appserver` → `overrides` → `environment`, then `lando rebuild -y`.
+- **2-D: bins list empty:** `REDIS_HOST` is unset, `REDIS_ENABLED` is `0`, or the phpredis extension is missing:
 
   ```bash
   lando exec appserver -- php -m | grep -i redis
@@ -78,14 +101,27 @@ for i in 1 2; do lando exec appserver -- curl -sI http://appserver_nginx/ | grep
 - **Why `lando exec`:** `lando ssh -c` mangles nested quotes and pipes. `lando exec` runs one command in the container, and the `grep` runs on your machine.
 
 - **Good:** the second request shows `X-Drupal-Cache: HIT` and `Cache-Control: max-age=900, public`.
-- **`UNCACHEABLE (...)`:** the text in brackets is the reason.
 
-| Header says | Usual cause |
-|---|---|
-| `UNCACHEABLE (request policy)` | The request has a session cookie (look for `Set-Cookie: SESS...`), or isn't a plain GET |
-| `UNCACHEABLE (response policy)` | Something on the page switched page caching off: a form with a token, a webform, a status message |
-| `UNCACHEABLE (poor cacheability)` | A view or block on the page has `max-age: 0` |
-| `UNCACHEABLE (no cacheability)` | The response isn't cacheable, for example a redirect. Check `Location:`; OIG sites redirect `/node/N` to the alias |
+**If you see** (read the second request of each pair)
+
+- **3-A: `HTTP/1.1 301` and a `Location:` line on `/node/N`, while the home page shows `HIT`.**
+  - Page caching works. OIG sites redirect `/node/N` to the page's alias, so `headers_anon` checked the redirect, not a page.
+  - **Do:** nothing on the site. Check the alias instead: repeat step b with the path from `Location:`.
+- **3-B: `UNCACHEABLE (request policy)`, often with `Set-Cookie: SESS...`.**
+  - Something starts a session for anonymous visitors, and Drupal never caches pages for sessions.
+  - **Do:** look for modules that store things per visitor (cookie consent, carts, forms) or a block that sets a message: `lando drush pm:list --status=enabled`.
+- **3-C: `UNCACHEABLE (response policy)`.**
+  - Something on the page switched page caching off: a form with a security token, a webform, a status message.
+  - **Do:** compare with the home page (step c). If the home page is `HIT`, the cause is that page's content or blocks.
+- **3-D: `UNCACHEABLE (poor cacheability)`.**
+  - A view or block on the page has caching set to "None" (`max-age 0`).
+  - **Do:** set the view's or block's caching to tag-based or time-based.
+- **3-E: `UNCACHEABLE (no cacheability)` on a `200` page.**
+  - A module returned a response without cache data.
+  - **Do:** note the page and the modules on it; this needs a closer look.
+- **3-F: no `X-Drupal-Cache` header at all.**
+  - Page caching is off: run `lando perf-cache prod-like`, and check `lando drush pm:list --status=enabled | grep page_cache`.
+- **3-G: `Cache-Control: no-cache, private` with `HIT` missing.** Same causes as 3-B to 3-E.
 
 - **Also check:**
 
@@ -110,7 +146,13 @@ lando redis-cli info stats | grep -E 'evicted_keys|keyspace_hits|keyspace_misses
   - `db0` has keys after you load a few pages.
   - The policy is `volatile-lfu`.
   - Used memory is below `maxmemory`.
-- **`lando redis-cli` not found:**
+**If you see**
+
+- **4-A: no `PONG`.** The `cache` service is down: `lando logs -s cache`, then `lando restart`. The site keeps working without Redis (fail-open), just slower.
+- **4-B: policy `allkeys-lru`.** The site still has the old `redis.conf`: copy `recipes/drupal-performance-recipe/lando/redis.conf` to `.lando/redis.conf`, then `lando rebuild -y`.
+- **4-C: `db0` empty after loading pages.** Drupal isn't using Redis: see 2-C and 2-D.
+- **4-D: `evicted_keys` climbing fast.** `maxmemory` is too small for the site. Normal under a crawl; on Azure, raise `REDIS_MAXMEMORY` in the Redis container.
+- **4-E: `lando redis-cli` not found:**
 
   ```bash
   lando exec cache -- valkey-cli info keyspace
@@ -123,6 +165,8 @@ lando redis-cli info stats | grep -E 'evicted_keys|keyspace_hits|keyspace_misses
   ```
 
   It should print `Drupal\perf_redis_failopen\Cache\FailOpenCacheBackend`.
+  - **`DatabaseBackend` instead:** Redis is off for that bin (see 2-C, 2-D).
+  - **`RedisBackend`-style class without `FailOpen`:** `perf_redis_failopen` isn't enabled: `lando drush pm:enable perf_redis_failopen -y`.
 - **Fail-open state:** the status report shows the "Redis fail-open" entry (`/admin/reports/status`). From the command line:
 
   ```bash
@@ -161,16 +205,26 @@ lando drush p:queue-browse
 
   ```bash
   lando drush cget azure_cdn_purge.settings endpoint_type
-  lando drush cget azure_cdn_purge.settings --include-overridden
+  lando drush php:eval "\$c = \Drupal::config('azure_cdn_purge.settings'); foreach (['tenant_id','client_id','client_secret','subscription_id','resource_group_name','profile_name','endpoint_name'] as \$k) { printf('%-20s %s%s', \$k, \$c->get(\$k) ? 'set' : 'EMPTY', PHP_EOL); }"
   ```
 
-  `endpoint_type` should be `afdEndpoints` (Front Door Standard/Premium).
+  - `endpoint_type` should be `afdEndpoints` (Front Door Standard/Premium).
+  - The second command prints only `set` or `EMPTY` per value, never the values. All `set` on Azure. Locally, the SYNTHETIC mock values show `set`.
 - **Purge errors from Azure:**
 
   ```bash
   lando drush watchdog:show --type=azurecdn --count=20
   lando drush watchdog:show --type=purge --count=20
   ```
+
+**If you see**
+
+- **5-A: nothing is queued when you save a page.** `path_queuer` is off in `purge.plugins`, or purging is switched off (`perf_purge_paths.settings` `enabled: FALSE`). Turn `path_queuer` on under *Configuration → Development → Performance → Purge*.
+- **5-B: the queue grows and never empties.** No processor is sending it: check `p:processor-ls` lists `cron`, and that cron runs. To send it now: `lando drush p:queue-work`.
+- **5-C: items fail with an `AADSTS...` error in the `azurecdn` log.** Signing in to Azure failed: wrong tenant, client ID or secret, or the wrong cloud. OIG needs `AZURE_CLOUD=usgovernment` and an empty scope ([azure.md](azure.md#azure-government-patched-azure_cdn_purge)).
+- **5-D: `AuthorizationFailed` / HTTP 403.** The service principal lacks the purge role on the Front Door profile ([azure.md](azure.md)).
+- **5-E: `ResourceNotFound` / HTTP 404.** A name is wrong: subscription, resource group, profile or endpoint.
+- **5-F: an `EMPTY` value from the check above.** That environment variable isn't set (on Azure: an App Service setting or Key Vault reference).
 
 - **Turn purging off for a test:** add this to `settings.php`, then `lando drush cr`:
 
@@ -194,7 +248,13 @@ done
   - Both return `404`, and the second request of each is `HIT`.
   - The missing file gets OIG's plain "404 Not Found" page (core Fast 404).
   - The unknown page gets the themed "Page not found".
-- **Old static 404 files** from `themed_fast_404` can be deleted:
+**If you see**
+
+- **6-A: `fast_404` `enabled` is false or empty.** Core's Fast 404 is off: OIG sets it in `settings.config.php`. Check that file is loaded (`settings.base.php` includes it).
+- **6-B: the second request isn't `HIT`.** Same causes as section 3. Also check `lando drush cget system.performance cache.page.max_age` is `900`.
+- **6-C: the unknown page shows a plain page, not the themed one.** Its path matches core's Fast 404 `paths` pattern (file extensions). Normal for files; for page URLs, check the pattern.
+- **6-D: one page printed on top of another.** That was `themed_fast_404` with `fast_404`. Both are removed from the recipe: see 1-B.
+- **6-E: old static 404 files** from `themed_fast_404` can be deleted:
 
   ```bash
   lando exec appserver -- sh -c 'ls /app/docroot/sites/default/files/page-not-found-*.html'
@@ -215,6 +275,8 @@ git log --oneline -3 -- config/sync/purge.plugins.yml config/sync/azure_cdn_purg
   lando drush pm:uninstall purge_ui purge_processor_cron purge_drush azure_cdn_purge purge -y
   ```
 
+- **`Recipe not found`:** use the full path: `lando drush recipe /app/recipes/drupal-performance-recipe`.
+- **`config:status` lists differences after `drush cim`:** something overrides config in `settings.php` (OIG's `settings.config.php` does this on purpose for site name, mail, Solr and others). Overridden values are expected to differ.
 - **Don't re-run the recipe** on a site that already has it. Config changes go through `drush cex` / `drush cim`.
 
 ## 8. Logs
