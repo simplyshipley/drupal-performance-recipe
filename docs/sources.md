@@ -12,18 +12,18 @@ For developers changing a setting: check here before you change it.
 
 | Setting | What we do | Source | Follows / Our choice |
 |---|---|---|---|
-| Eviction policy | `maxmemory-policy volatile-lfu` | redis README, "Eviction policy" (lines 425-431): "safe and recommended to use a volatile policy", "volatile-lfu" for typical scenarios | Follows (ruling 2026-10-07; replaced `allkeys-lru`) |
+| Eviction policy | `maxmemory-policy volatile-lfu` | redis README, "Eviction policy" (lines 425-431): "safe and recommended to use a volatile policy", "volatile-lfu" for typical scenarios. (Its "Redis Report" section, line 95, gives `allkeys-lfu` only as an example of a setting the report shows.) | Follows (ruling 2026-10-07; replaced `allkeys-lru`) |
 | `redis_invalidate_all_as_delete` | `TRUE` | `settings.redis.example.php` line 44, "Additional optimizations"; README "Cache optimizations" | Follows (ruling 2026-10-07) |
-| Client, host, port, password, base | PhpRedis, from environment variables | README "Drupal Redis settings" (lines 82, 95, 166-182) | Follows |
-| Compression | `redis_compress_length` 100 | README "Common configuration" (line 123) | Follows |
-| TTL offset | `redis_ttl_offset` 3600 | README "Expiration of cache items" (line 260) | Follows |
-| Cache prefix | `REDIS_PREFIX`, set per site | README "Prefixing site cache entries" (lines 232-234): an explicit prefix is recommended | Follows when `REDIS_PREFIX` is set. Not enforced; no ruling [open] |
-| RDB snapshots | Off (`save ""`) | README "Redis RDB snapshots" (lines 467-469) | Follows |
-| `maxmemory` | Set explicitly | README "Eviction policy" (line 444) | Follows |
-| Classloader and `redis.services.yml` | Added in `settings.performance.php` | README "Common configuration" (lines 116, 135) | Follows (ruling 2026-10-07: keep the README lines in the settings file) |
-| Which bins use Redis | Only `render`, `page`, `dynamic_page_cache`, `data`, `entity`, `menu` | README sets `cache.default` to Redis for every bin (lines 98-100) | Our choice (Bo, 2026-09-25). The other bins are small, read on every request and must work when Redis is down |
-| Cache-tag checksum, flood, lock | Stay in the database | README includes `example.services.yml` (lines 106-111, 483) | Our choice (Bo, 2026-09-25). With them on Redis an outage was a site outage [V: HTTP 500] |
-| `container` bin | Stays on core's default (database behind APCu) | README "bootstrap_container_definition" (lines 132-135) | Our choice (Bo, 2026-09-25). Same reason: it cannot fail open |
+| Client, host, port, password, base | PhpRedis, from environment variables | README "Drupal Redis settings" (lines 117-127, 192-220) | Follows |
+| Compression | `redis_compress_length` 100 | README "Common configuration" (lines 148-153) | Follows |
+| TTL offset | `redis_ttl_offset` 3600 | README "Expiration of cache items" (lines 266-290) | Follows |
+| Cache prefix | `REDIS_PREFIX`, set per site | README "Prefixing site cache entries" (lines 222-233): an explicit prefix is recommended | Follows when `REDIS_PREFIX` is set. Not enforced; no ruling [open] |
+| RDB snapshots | Off (`save ""`) | README "Redis RDB snapshots" (lines 457-470) | Follows |
+| `maxmemory` | Set explicitly | README "Eviction policy" (lines 441-445) | Follows |
+| Classloader and `redis.services.yml` | Added in `settings.performance.php` | README "Common configuration" (lines 143-146, 163-165) and `settings.redis.example.php` lines 54-60 | Follows (ruling 2026-10-07: keep the README lines in the settings file) |
+| Which bins use Redis | Only `render`, `page`, `dynamic_page_cache`, `data`, `entity`, `menu` | README sets `cache.default` to Redis for every bin (line 130) | Our choice (Bo, 2026-09-25). The other bins are small, read on every request and must work when Redis is down |
+| Cache-tag checksum, flood, lock | Stay in the database | README includes `example.services.yml` (lines 136-141, 483) | Our choice (Bo, 2026-09-25). With them on Redis an outage was a site outage [V: HTTP 500] |
+| `container` bin | Stays on core's default (database behind APCu) | README "Common configuration" (lines 161-190, `bootstrap_container_definition`) | Our choice (Bo, 2026-09-25). Same reason: it cannot fail open |
 | Fail-open wrapper | `perf_redis_failopen` turns Redis errors into cache misses | Not in the README | Our choice (Bo, 2026-09-25). Redis down must not mean the site is down |
 | Queue backend | Not set | README "Queue Backend" (lines 485-504) | Not applicable: the purge queue uses the database |
 
@@ -36,7 +36,7 @@ For developers changing a setting: check here before you change it.
 | Path check | On, done by the module's request subscriber | fast_404 README.txt, "Enable Drupal path checking" | Follows |
 | Static-file extensions | The example list plus `webp`, `svg`, `map`, `aspx`, `php`, `env`, `bak`, `sql`, `zip`, `gz` | README.txt: keep the list under review | Follows, list extended by us |
 | Whitelists, `fast404_allow_anon_imagecache`, `not_found_exception` | The example file's values | `example.settings.fast404.php` | Follows |
-| `fast404_respect_redirect` | Off. On only when `FAST404_RESPECT_REDIRECT=1` | Example file sets it `TRUE` (lines 153-156) | Our choice (2026-10-06). Without the Redirect module it queries a missing table: HTTP 500 [V: lab] |
+| `fast404_respect_redirect` | Off. On only when `FAST404_RESPECT_REDIRECT=1` (set it on sites with the Redirect module, such as the OIG sites) | `example.settings.fast404.php` lines 153-156: default `FALSE`, "needs to be enabled, so that fast 404 respects the redirect module" | Follows. Without the Redirect module, turning it on gives HTTP 500 on every unknown path [V: lab] |
 | Themed page | `fast404_HTML_error_page` points at the file cron writes | `example.settings.fast404.php`; themed_fast_404 README "How it works" | Follows |
 | Themed Fast 404 base URL | `THEMED_FAST404_BASE_URL` | themed_fast_404 README "Configuration page": "It is recommended to set it" | Follows |
 
