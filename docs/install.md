@@ -120,6 +120,12 @@ Notes:
 
 ## 5b. Azure Government patch
 
+> [!NOTE]
+> **Composer-patches 1.x** (OIG sites use `^1.6.5`): add the three patches under `extra.patches` and
+> run `composer reinstall drupal/azure_cdn_purge`. The exact block is in
+> [quickstart-lando.md](quickstart-lando.md#2-add-the-contrib-modules-and-patches) step 2.
+> The commands below are for **2.x**.
+
 Required on Azure Government; harmless on commercial Azure (defaults unchanged). The patch
 files ship in the recipe, but composer-patches 2.0.0 resolves a dependency's relative patch
 path against the project root, so declaring it in the recipe's `composer.json` fails

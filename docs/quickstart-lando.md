@@ -72,7 +72,9 @@ mv recipes/drupal-performance-recipe/drupal-performance-modules docroot/modules/
 
 </details>
 
-## 2. Add the contrib modules
+## 2. Add the contrib modules and patches
+
+a. Require the contrib modules:
 
 ```bash
 lando composer require drupal/redis:^1.11 drupal/purge:^3.7 drupal/azure_cdn_purge:1.0.4 drupal/fast_404:^3.7 drupal/themed_fast_404:^1.0
@@ -80,13 +82,38 @@ lando composer require drupal/redis:^1.11 drupal/purge:^3.7 drupal/azure_cdn_pur
 
 - These are the versions the recipe needs (from its `composer.json` files).
 
+b. Add the `azure_cdn_purge` patches to the site's `composer.json`, inside `"extra"`. OIG sites use
+`cweagans/composer-patches` 1.x, which reads them from `extra.patches`. Keep this order:
+
+```json
+"patches": {
+    "drupal/azure_cdn_purge": {
+        "#3427718 MR !6: Azure cloud selector (Government)": "recipes/drupal-performance-recipe/patches/azure_cdn_purge-3427718-mr6-9859fc45.patch",
+        "Follow-up to #3427718: commercial default, host overrides, scope from cloud": "recipes/drupal-performance-recipe/patches/azure_cdn_purge-3427718-followup-default-cloud.patch",
+        "Send wildcardpath invalidations to Azure": "recipes/drupal-performance-recipe/patches/azure_cdn_purge-wildcardpath-purged.patch"
+    }
+}
+```
+
+c. Reinstall the module so the patches apply:
+
+```bash
+lando composer reinstall drupal/azure_cdn_purge
+```
+
+- **Check:** the output lists the three patches as applied.
+- **Why:** the first two make purging work on Azure Government (OIG). The third makes wildcard purges (`/news*`, `/*`) actually reach Azure. Details: [azure.md](azure.md#azure-government-patched-azure_cdn_purge).
+- After this, teammates' `composer install` and the Docker build apply the patches automatically.
+
 <details>
 <summary><b>If this doesn't go smoothly</b></summary>
 
 - **Version conflicts.** `azure_cdn_purge` is pinned to `1.0.4` because the patches were made for it. See what blocks it: `lando composer why-not drupal/azure_cdn_purge 1.0.4`.
 - **Don't run `composer update -W`.** In the lab it pulled a Twig release that broke every page.
-- **Azure Government patches.** OIG runs on Azure Government, so Prod needs the three `azure_cdn_purge` patches from `recipes/drupal-performance-recipe/patches/` ([install.md](install.md) section 5b). Locally they're only needed for wildcard purge paths.
-  - **Watch out:** OIG sites use `cweagans/composer-patches` **1.x** (americorps: `^1.6.5`). The `patches-relock` / `patches-repatch` commands in install.md are **2.x**. With 1.x, add the same entries under `extra.patches` in `composer.json` and run `lando composer install`. Options: stay on 1.x (simplest) or move to 2.x.
+- **A patch fails to apply.** The install stops and names the patch (`composer-exit-on-patch-failure` is on in OIG sites). Check `azure_cdn_purge` is exactly `1.0.4` (`lando composer show drupal/azure_cdn_purge`), and the three patches are in the order above.
+- **No "Applying patches" lines.** Patching is off or the package wasn't reinstalled. Check `extra.enable-patching` is `true`, then run step c again.
+- **The site already has an `extra.patches` section.** Add the `drupal/azure_cdn_purge` entry inside it. Don't add a second `"patches"` key.
+- **Composer-patches 1.x vs 2.x.** This step is for 1.x (OIG sites: `^1.6.5`). On 2.x, use [install.md](install.md#5b-azure-government-patch) instead (`patches-relock`, `patches-repatch`). The labs used 2.x; 1.x hasn't been run on these patches yet.
 
 </details>
 
