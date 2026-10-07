@@ -13,10 +13,11 @@ Everything is committed to the **site repo**, so your team and the Docker build 
 
 | Path | What |
 |---|---|
-| `docroot/modules/custom/drupal-performance-modules/` | The two modules and `settings.performance.php` |
+| `docroot/modules/custom/drupal-performance-modules/` | The two modules |
 | `recipes/drupal-performance-recipe/` | The recipe, its config, patches, local test services and docs |
 | `composer.json`, `composer.lock` | The contrib modules (redis, purge, azure_cdn_purge, fast_404, themed_fast_404) |
 | `.lando.yml` | Local Redis, mock Front Door and edge services |
+| `docroot/sites/default/settings.performance.php` | The recipe's settings (Redis, purge credentials, Fast 404), owned by the site |
 | `docroot/sites/default/settings.php` | One `require` line |
 | `config/sync/` | The config the recipe creates |
 
@@ -58,7 +59,7 @@ git -C ../drupal-performance-recipe archive HEAD | tar -x -C recipes/drupal-perf
 mv recipes/drupal-performance-recipe/drupal-performance-modules docroot/modules/custom/
 ```
 
-- **Check:** `docroot/modules/custom/drupal-performance-modules/settings/settings.performance.php` exists.
+- **Check:** `docroot/modules/custom/drupal-performance-modules/modules/perf_purge_paths` exists.
 - `git archive` copies only tracked files, without the `.git` folder.
 
 <details>
@@ -194,15 +195,35 @@ lando rebuild -y
 
 </details>
 
-## 4. Include the settings file
+## 4. Add the settings file
 
-Add one line to `docroot/sites/default/settings.php`, after the `settings.base.php` include:
+a. Copy the settings file next to `settings.php`, and make it read-only:
 
-```php
-require $app_root . '/modules/custom/drupal-performance-modules/settings/settings.performance.php';
+```bash
+cp docroot/modules/custom/drupal-performance-modules/settings/settings.performance.php docroot/sites/default/settings.performance.php
+chmod 444 docroot/sites/default/settings.performance.php
 ```
 
-- It's a `require`, so a missing folder stops the site loudly instead of silently running without Redis.
+b. Add one line to `docroot/sites/default/settings.php`, after the `settings.base.php` include:
+
+```php
+require __DIR__ . '/settings.performance.php';
+```
+
+- **It's the site's own settings file now,** like `settings.php`. It runs on every environment, Prod included. Every feature in it switches on only when its environment variable is set.
+- **It's a `require`,** so a missing file stops the site loudly instead of silently running without Redis.
+- **Never include `example.settings.local-lab.php`** (same folder in the modules package) outside a local lab. It sends outbound requests to the mock Front Door.
+
+> [!IMPORTANT]
+> **Git doesn't keep the read-only permission.** It only stores the executable bit, so a fresh clone
+> or the Docker build gets a writable file again. Lock it down in the image too, for example in the
+> `Dockerfile` after `COPY . ./`:
+>
+> ```dockerfile
+> RUN chmod 444 docroot/sites/default/settings.php docroot/sites/default/settings.performance.php
+> ```
+>
+> Check what the base image already does to `sites/default` before adding it. [not tested]
 
 <details>
 <summary><b>If this doesn't go smoothly</b></summary>
@@ -264,7 +285,8 @@ lando redis-cli info keyspace
 ```bash
 lando drush cex -y
 git add docroot/modules/custom/drupal-performance-modules recipes/drupal-performance-recipe \
-  composer.json composer.lock .lando.yml .gitignore docroot/sites/default/settings.php config/sync
+  composer.json composer.lock .lando.yml .gitignore docroot/sites/default/settings.php \
+  docroot/sites/default/settings.performance.php config/sync
 git commit -m "Add the Drupal performance recipe (Redis, Front Door purge, Fast 404)"
 ```
 
@@ -317,7 +339,9 @@ bash recipes/drupal-performance-recipe/scripts/lando-test.sh
 1. Pull the recipe repo: `git -C ~/sites/drupal-performance-recipe pull`.
 2. Delete `recipes/drupal-performance-recipe/` and `docroot/modules/custom/drupal-performance-modules/` in the site.
 3. Repeat step 1 (`archive` and `mv`), then `lando drush cr`.
-4. Review `git diff`, test, and commit.
+4. Compare the new settings file with the site's copy, and bring over any changes you want:
+   `diff docroot/modules/custom/drupal-performance-modules/settings/settings.performance.php docroot/sites/default/settings.performance.php`
+5. Review `git diff`, test, and commit.
 
 - Don't re-apply the recipe on a site that already has it. There is no upgrade path. Config changes come through `drush cex`/`cim`.
 
