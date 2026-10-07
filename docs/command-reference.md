@@ -273,4 +273,4 @@ For the two modules (`perf_purge_paths`, `perf_redis_failopen`), run from the in
 bash scripts/qa.sh phpunit    # good: OK (N tests, M assertions); Kernel tests need SIMPLETEST_DB (a throwaway schema)
 ```
 
-`bash scripts/qa.sh` alone runs phpcs, then phpstan, then phpunit. `[not run in this project]` by this page; results are in [tests.md](tests.md#unit-tests-fail-open-module).
+`bash scripts/qa.sh` alone runs phpcs, then phpstan, then phpunit. Last run 2026-10-07 on the OIG DDEV copy: phpcs clean, phpstan OK, PHPUnit OK (49 tests). Results are in [tests.md](tests.md#unit-tests-fail-open-module).
