@@ -2,8 +2,8 @@
 # Save as .lando.local.yml (merged automatically) or paste into .lando.yml.
 # Paths assume the recipe is installed at recipes/drupal-performance-recipe.
 #
-# This Mac: DDEV owns host ports 80/443/8080. Start Lando with the proxy off:
-#   LANDO_PROXY=OFF lando start
+# Lando's proxy stays on (https://<app>.lndo.site). Only a machine that also
+# runs DDEV needs LANDO_PROXY=OFF (both want ports 80/443).
 # None of these services publishes a host port.
 #
 # All AZURE_CDN_* values are SYNTHETIC placeholders for the mock endpoint.
@@ -70,12 +70,12 @@ services:
 tooling:
   perf-test-in:
     service: appserver
-    description: Run the performance tests inside appserver (use scripts/lando-test.sh for the full run incl. Redis-down)
-    cmd: bash -c 'BASE_URL=http://appserver_nginx bash recipes/drupal-performance-recipe/scripts/test-local.sh "$@"' --
+    description: Run the performance tests inside appserver (settings in perf-test.env; scripts/lando-test.sh adds Redis-down)
+    cmd: bash recipes/drupal-performance-recipe/scripts/test-local.sh
   perf-cache:
     service: appserver
     description: "Drupal cache mode for local testing: dev | dev-twig | prod-like | off | status | clear (docs/cache-modes.md)"
-    cmd: bash -c 'BASE_URL=http://appserver_nginx bash recipes/drupal-performance-recipe/scripts/perf-cache.sh "$@"' --
+    cmd: bash recipes/drupal-performance-recipe/scripts/perf-cache.sh
   redis-cli:
     service: cache
     cmd: redis-cli

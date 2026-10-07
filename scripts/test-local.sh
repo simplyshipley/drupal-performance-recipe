@@ -5,9 +5,10 @@
 #   scripts/test-local.sh [test ...]      run the named tests (default: all)
 #   scripts/test-local.sh --list          list test names
 #
-# Environment:
-#   BASE_URL        URL of the site as seen from this container
-#                   (DDEV: http://localhost, Lando: http://appserver_nginx)
+# Environment (or KEY=VALUE lines in perf-test.env, see perf-test.env.example):
+#   BASE_URL        URL of the site as seen from this container (default
+#                   DDEV: http://localhost, Lando: http://appserver_nginx)
+#   PERF_TEST_PATH  page the read-only tests fetch (default /)
 #   PERF_MOCK_URL   Mock Front Door control URL (default http://mock-afd:8080)
 #   REDIS_HOST/REDIS_PORT/REDIS_PASSWORD/REDIS_PREFIX  same as the site uses
 #   DRUSH           drush command (default vendor/bin/drush)
@@ -18,7 +19,8 @@
 # The redis_down test is special: the Redis container must already be stopped
 # (the ddev-test.sh / lando-test.sh wrappers do that from the host).
 #
-# All content this script creates is SYNTHETIC (titles start "SYNTHETIC").
+# All content this script creates is SYNTHETIC (titles start "SYNTHETIC"); the
+# SYNTHETIC nodes and terms of a run are deleted when it exits.
 
 set -uo pipefail
 
@@ -33,7 +35,17 @@ if [[ "${1:-}" != "--list" && "${IS_DDEV_PROJECT:-}" != "true" && "${LANDO:-}" !
   exit 99
 fi
 
+# Optional settings file (perf-test.env in the site root, or $PERF_TEST_ENV).
+# Read as data, never run; anything already set in the environment wins.
+if [[ -f "${PERF_TEST_ENV:-perf-test.env}" ]]; then
+  while IFS= read -r kv || [[ -n "$kv" ]]; do
+    kv="${kv%$'\r'}"; key="${kv%%=*}"
+    [[ "$kv" == *=* && "$key" =~ ^[A-Z_][A-Z0-9_]*$ && -z "${!key+x}" ]] && export "$key=${kv#*=}"
+  done < "${PERF_TEST_ENV:-perf-test.env}"
+fi
+[[ "${LANDO:-}" == ON ]] && : "${BASE_URL:=http://appserver_nginx}"
 BASE_URL="${BASE_URL:-http://localhost}"
+PERF_TEST_PATH="${PERF_TEST_PATH:-/}"
 MOCK="${PERF_MOCK_URL:-http://mock-afd:8080}"
 DRUSH="${DRUSH:-vendor/bin/drush}"
 PREFIX="${REDIS_PREFIX:-}"
@@ -116,12 +128,22 @@ mock_count() { mock_log | grep -c "\"kind\": \"$1\"" || true; }
 
 queue_volume() { $DRUSH p:queue-volume --format=string 2>/dev/null | tr -dc '0-9'; }
 
-# Pick a SYNTHETIC published article node id (creates one if none exists).
-first_node() {
-  php_eval '
-    $ids = \Drupal::entityQuery("node")->accessCheck(FALSE)->condition("status", 1)->sort("nid")->range(0, 1)->execute();
-    if (!$ids) { $n = \Drupal\node\Entity\Node::create(["type" => "article", "title" => "SYNTHETIC perf test node", "status" => 1]); $n->save(); $ids = [$n->id()]; }
-    print reset($ids);'
+# Tests that edit content share one SYNTHETIC node per run, never a real node
+# (Bo ruling 2026-10-07); cleanup() deletes it at exit.
+RUN_START=$(date +%s)
+TEST_NID=""
+first_node() { echo "$TEST_NID"; }
+# Made by the runner before the first test that calls first_node: type page,
+# else article, else the first type; published, also as moderation state.
+make_test_node() {
+  local p s
+  TEST_NID=$(php_eval '$types = array_keys(\Drupal::entityTypeManager()->getStorage("node_type")->loadMultiple());
+    $type = in_array("page", $types) ? "page" : (in_array("article", $types) ? "article" : reset($types));
+    $n = \Drupal\node\Entity\Node::create(["type" => $type, "title" => "SYNTHETIC perf test '"$RUN_START-$$"'", "status" => 1, "path" => ["alias" => "/synthetic-perf-test-'"$RUN_START-$$"'", "pathauto" => 0]]);
+    if ($n->hasField("moderation_state")) { $n->set("moderation_state", "published"); }
+    $n->save(); print $n->id();' | tail -1)
+  p=$(node_path "$TEST_NID" | tail -1); s=$(status_of "$BASE_URL$p")
+  [[ "$TEST_NID" =~ ^[0-9]+$ && "$s" == 200 ]] || say FAIL test_node "SYNTHETIC test node '$TEST_NID' ($p) answers $s to anonymous visitors (want 200), so tests that edit content cannot pass"
 }
 node_path() { php_eval "print \Drupal::service('path_alias.manager')->getAliasByPath('/node/$1');"; }
 touch_node() { php_eval "\$n = \Drupal\node\Entity\Node::load($1); \$n->setTitle('SYNTHETIC perf test ' . time() . ' ' . mt_rand()); \$n->save(); print \$n->label();"; }
@@ -153,7 +175,7 @@ t_redis_in_use() {
   cls=$(php_eval 'print get_class(\Drupal::cache("render"));')
   before=$(redis_php count)
   # Uncached URLs (unique query strings) so new entries must be written.
-  curl -s -o /dev/null "$BASE_URL/?perf=$RANDOM$RANDOM"; curl -s -o /dev/null "$BASE_URL/node/$(first_node)?perf=$RANDOM$RANDOM"
+  curl -s -o /dev/null "$BASE_URL/?perf=$RANDOM$RANDOM"; curl -s -o /dev/null "$BASE_URL$PERF_TEST_PATH?perf=$RANDOM$RANDOM"
   after=$(redis_php count)
   if [[ "$cls" == *redis* && "${after:-0}" -gt "${before:-0}" ]]; then
     say PASS redis_in_use "render bin class=$cls; keys (prefix '${PREFIX:-*}') grew $before -> $after after 2 uncached requests"
@@ -163,8 +185,7 @@ t_redis_in_use() {
 }
 
 t_drush_cr() {
-  local nid path b_all b_render b_page a_all a_render a_page s1 x2 a2
-  nid=$(first_node); path=$(node_path "$nid")
+  local path="$PERF_TEST_PATH" b_all b_render b_page a_all a_render a_page s1 x2 a2
   curl -s -o /dev/null "$BASE_URL$path"; curl -s -o /dev/null "$BASE_URL$path"
   s1=$(hget "$(hdr "$BASE_URL$path")" x-drupal-cache)
   b_all=$(redis_php count); b_render=$(redis_php count_bin render); b_page=$(redis_php count_bin page)
@@ -204,7 +225,7 @@ t_eviction() {
   used=$(redis_php info memory used_memory)
   limit=$((used + 400000))
   # Always restore the Redis limits, even if the test is interrupted.
-  trap "redis_php config_set maxmemory '$orig_mem' >/dev/null; redis_php config_set maxmemory-policy '$orig_pol' >/dev/null; perf_cache_restore" EXIT INT TERM
+  trap "redis_php config_set maxmemory '$orig_mem' >/dev/null; redis_php config_set maxmemory-policy '$orig_pol' >/dev/null; cleanup" EXIT
   redis_php config_set maxmemory "$limit" >/dev/null
   redis_php config_set maxmemory-policy volatile-lfu >/dev/null
   ev0=$(redis_php info stats evicted_keys)
@@ -216,7 +237,7 @@ t_eviction() {
   local peak; peak=$(redis_php info memory used_memory_peak_human)
   redis_php config_set maxmemory "$orig_mem" >/dev/null
   redis_php config_set maxmemory-policy "$orig_pol" >/dev/null
-  trap - INT TERM; trap perf_cache_restore EXIT
+  trap cleanup EXIT
   if [[ "$((ev1 - ev0))" -gt 0 && "$code" == "200" ]]; then
     say PASS eviction "maxmemory temporarily $limit bytes (policy volatile-lfu), $n page requests: evicted_keys $ev0 -> $ev1, home page still $code; peak=$peak; restored maxmemory=$orig_mem policy=$orig_pol"
   else
@@ -385,13 +406,14 @@ t_core_404_page() {
 
 t_headers_anon() {
   local u h1 h2 cc
-  u="$BASE_URL/node/$(first_node)"
+  u="$BASE_URL$PERF_TEST_PATH"
   curl -s -o /dev/null "$u"; h1=$(hdr "$u"); h2=$(hdr "$u")
   cc=$(hget "$h2" cache-control)
-  if [[ "$(hget "$h2" x-drupal-cache)" == "HIT" && "$cc" == *public* && "$cc" == *max-age=900* ]]; then
-    say PASS headers_anon "anonymous: X-Drupal-Cache=$(hget "$h2" x-drupal-cache) X-Drupal-Dynamic-Cache=$(hget "$h1" x-drupal-dynamic-cache) Cache-Control='$cc'"
+  # 200: a mistyped PERF_TEST_PATH would otherwise pass on the cached 404 page.
+  if [[ "$(hget "$h2" status)" == 200 && "$(hget "$h2" x-drupal-cache)" == "HIT" && "$cc" == *public* && "$cc" == *max-age=900* ]]; then
+    say PASS headers_anon "anonymous $PERF_TEST_PATH: X-Drupal-Cache=$(hget "$h2" x-drupal-cache) X-Drupal-Dynamic-Cache=$(hget "$h1" x-drupal-dynamic-cache) Cache-Control='$cc'"
   else
-    say FAIL headers_anon "X-Drupal-Cache=$(hget "$h2" x-drupal-cache) Cache-Control='$cc'"
+    say FAIL headers_anon "$PERF_TEST_PATH: status $(hget "$h2" status) X-Drupal-Cache=$(hget "$h2" x-drupal-cache) Cache-Control='$cc'"
   fi
 }
 
@@ -400,7 +422,7 @@ t_headers_auth() {
   jar=$(mktemp)
   link=$($DRUSH uli --uri="$BASE_URL" --no-browser 2>/dev/null | tail -1)
   curl -s -o /dev/null -c "$jar" -b "$jar" -L "$link"
-  u="$BASE_URL/node/$(first_node)"
+  u="$BASE_URL$PERF_TEST_PATH"
   h1=$(hdr "$u" -b "$jar"); h2=$(hdr "$u" -b "$jar")
   cc=$(hget "$h2" cache-control)
   rm -f "$jar" 2>/dev/null || true
@@ -444,7 +466,7 @@ mode_probe() {
 t_cache_mode_dev() {
   local target=dev; [[ "${CACHE_MODE_NEGATIVE:-0}" == 1 ]] && target=prod-like
   bash "$PERF_CACHE_SH" "$target" >/dev/null 2>&1
-  mode_probe "$BASE_URL/node/$(first_node)?mode=$(rnd)"
+  mode_probe "$BASE_URL$PERF_TEST_PATH?mode=$(rnd)"
   bash "$PERF_CACHE_SH" prod-like >/dev/null 2>&1
   if [[ "$MP_CLS" == NullBackend && "$MP_PC" != HIT && "$MP_TWIG" -ge 1 && "$MP_AGG" -eq 0 && "$MP_CC" == *no-cache* ]]; then
     say PASS cache_mode_dev "dev: render bin $MP_CLS, 2nd request X-Drupal-Cache='${MP_PC:-absent}', Cache-Control '$MP_CC', $MP_TWIG THEME DEBUG comments, 0 aggregated CSS links; switched back to prod-like"
@@ -456,7 +478,7 @@ t_cache_mode_dev() {
 t_cache_mode_prod() {
   local target=prod-like; [[ "${CACHE_MODE_NEGATIVE:-0}" == 1 ]] && target=dev
   bash "$PERF_CACHE_SH" "$target" >/dev/null 2>&1
-  mode_probe "$BASE_URL/node/$(first_node)?mode=$(rnd)"
+  mode_probe "$BASE_URL$PERF_TEST_PATH?mode=$(rnd)"
   [[ "$target" != prod-like ]] && bash "$PERF_CACHE_SH" prod-like >/dev/null 2>&1
   if [[ "$MP_CLS" != NullBackend && "$MP_PC" == HIT && "$MP_TWIG" -eq 0 && "$MP_AGG" -ge 1 && "$MP_CC" == *public* ]]; then
     say PASS cache_mode_prod "prod-like: render bin $MP_CLS, 2nd request X-Drupal-Cache=HIT, Cache-Control '$MP_CC', no THEME DEBUG, $MP_AGG aggregated CSS link(s)"
@@ -554,7 +576,7 @@ t_edge_querystring() {
 
 t_edge_bypass_session() {
   local jar=/tmp/perf-edge-cookies.txt link u a1 a2 s1 s2 cc ck
-  : > "$jar"; u="/node/$(first_node)?edgebypass=$(rnd)"
+  : > "$jar"; u="$PERF_TEST_PATH?edgebypass=$(rnd)"
   link=$($DRUSH uli --uri="$EDGE" --no-browser 2>/dev/null | tail -1)
   curl -s -o /dev/null -c "$jar" -b "$jar" -L "$link"
   s1=$(hdr "$EDGE$u" -b "$jar"); s2=$(hdr "$EDGE$u" -b "$jar")
@@ -572,7 +594,7 @@ t_edge_bypass_session() {
 t_edge_html_ttl() {
   local prev u h1 h2 p1 p2 cc
   prev=$(php_eval 'print \Drupal::config("system.performance")->get("cache.page.max_age");' | tail -1)
-  u="$EDGE/node/$(first_node)?edgettl=$(rnd)"
+  u="$EDGE$PERF_TEST_PATH?edgettl=$(rnd)"
   php_eval '\Drupal::configFactory()->getEditable("system.performance")->set("cache.page.max_age", 300)->save();' >/dev/null
   h1=$(hdr "$u"); h2=$(hdr "$u"); cc=$(hget "$h2" cache-control)
   php_eval '\Drupal::configFactory()->getEditable("system.performance")->set("cache.page.max_age", 0)->save();' >/dev/null
@@ -722,7 +744,7 @@ t_waf_rate_limit() {
 CHROME_UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
 t_bot_challenge() {
   local u b1 b2 c3 s4 s5 s6 d7 k8 bad="" out
-  u="/node/$(first_node)?bot=$(rnd)"
+  u="$PERF_TEST_PATH?bot=$(rnd)"
   b1=$(hdr "$EDGE$u" -A "$CHROME_UA" -H 'Sec-Fetch-Mode: navigate' -H 'Accept-Language: en-US,en;q=0.9')
   b2=$(hdr "$EDGE$u" -A "$CHROME_UA")
   c3=$(status_of "$EDGE$u")
@@ -1060,7 +1082,9 @@ t_sync_file_swap() {
 t_sync_bulk() {
   local ids n reqs maxp v
   sync_begin
-  ids=$(php_eval '$ids = \Drupal::entityQuery("node")->accessCheck(FALSE)->range(0, 60)->execute(); print implode(",", $ids);' | tail -1)
+  # Its own 60 SYNTHETIC nodes; only the bulk save's queue items are counted.
+  ids=$(php_eval '$ids = []; for ($i = 0; $i < 60; $i++) { $n = \Drupal\node\Entity\Node::create(["type" => "article", "title" => "SYNTHETIC sync bulk $i", "status" => 1]); $n->save(); $ids[] = $n->id(); } print implode(",", $ids);' | tail -1)
+  dr p:queue-empty >/dev/null
   sphp "foreach (\Drupal\node\Entity\Node::loadMultiple([$ids]) as \$n) { \$n->save(); }" >/dev/null
   v=$(queue_volume); dr p:queue-work --finish >/dev/null
   reqs=$(mock_log | grep -c '"kind": "purge"' || true)
@@ -1127,9 +1151,22 @@ if [[ "${PERF_CACHE_AUTO:-1}" == 1 ]]; then
     echo "# cache mode: '${PERF_CACHE_PREV:-off}' -> prod-like for the suite"
   fi
 fi
-trap perf_cache_restore EXIT
-echo "# perf test-local.sh $(date -u +%FT%TZ) BASE_URL=$BASE_URL MOCK=$MOCK PREFIX=$PREFIX"
+# At exit, also after a failed test or Ctrl-C: restore the cache mode, delete the
+# run's SYNTHETIC nodes and terms (with their aliases, menu links and redirects).
+cleanup() {
+  perf_cache_restore
+  echo "# cleanup: deleted SYNTHETIC $(php_eval 'foreach (["node" => ["title", "created"], "taxonomy_term" => ["name", "changed"]] as $type => [$label, $time]) {
+      if (!\Drupal::entityTypeManager()->hasDefinition($type)) { continue; }
+      $s = \Drupal::entityTypeManager()->getStorage($type);
+      $ids = $s->getQuery()->accessCheck(FALSE)->condition($label, "SYNTHETIC", "STARTS_WITH")->condition($time, '"$RUN_START"', ">=")->execute();
+      $s->delete($s->loadMultiple($ids)); print count($ids) . " $type ";
+    }' | tail -1)"
+}
+trap cleanup EXIT
+trap 'exit 130' INT  # Ctrl-C stops the run: drush handles SIGINT and returns, bash would go on
+echo "# perf test-local.sh $(date -u +%FT%TZ) BASE_URL=$BASE_URL PERF_TEST_PATH=$PERF_TEST_PATH MOCK=$MOCK PREFIX=$PREFIX settings file: $([[ -f "${PERF_TEST_ENV:-perf-test.env}" ]] && echo "${PERF_TEST_ENV:-perf-test.env}" || echo none)"
 for t in "${TESTS[@]}"; do
+  [[ -z "$TEST_NID" && "$(declare -f "t_$t")" == *first_node* ]] && make_test_node
   if declare -F "t_$t" >/dev/null; then "t_$t"; else say FAIL "$t" "unknown test"; fi
 done
 echo "# summary: $PASSES passed, $FAILS failed, $FINDINGS findings (open decisions, see docs/cache-sync.md)"

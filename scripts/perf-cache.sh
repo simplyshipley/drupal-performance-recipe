@@ -19,6 +19,16 @@
 # See docs/cache-modes.md.
 set -uo pipefail
 
+# Optional settings file, same as test-local.sh (perf-test.env in the site root,
+# or $PERF_TEST_ENV). Read as data, never run; the environment wins.
+if [[ -f "${PERF_TEST_ENV:-perf-test.env}" ]]; then
+  while IFS= read -r kv || [[ -n "$kv" ]]; do
+    kv="${kv%$'\r'}"; key="${kv%%=*}"
+    [[ "$kv" == *=* && "$key" =~ ^[A-Z_][A-Z0-9_]*$ && -z "${!key+x}" ]] && export "$key=${kv#*=}"
+  done < "${PERF_TEST_ENV:-perf-test.env}"
+fi
+[[ "${LANDO:-}" == ON ]] && : "${BASE_URL:=http://appserver_nginx}"
+
 DRUSH="${DRUSH:-vendor/bin/drush}"
 EDGE_CTL="${PERF_EDGE_CONTROL:-}"
 
