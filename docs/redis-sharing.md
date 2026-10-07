@@ -38,7 +38,7 @@ The shared model was tested locally: two "sites" (two ACL users and prefixes) on
   - Tested: after site A's `drush cr`, site B's cached item was still returned. With both sites on the same prefix (fail-proof), B's item was gone.
   - FLUSHALL must stay denied: it would empty every site. Only `admin` can run it.
 - **Contention and noisy neighbours:**
-  - `maxmemory` and allkeys-lru are global. One busy site evicts the others' keys, and there is no per-user memory quota in Redis.
+  - `maxmemory` and the eviction policy (volatile-lfu) are global. One busy site evicts the others' keys, and there is no per-user memory quota in Redis.
   - Eviction fairness follows access recency, not the site. CPU is also shared (single-threaded commands).
   - Mitigation: size for the sum of all sites plus headroom, and alert on `evicted_keys`.
 - **Monitoring per site:** INFO is global. Per-site numbers need `--scan --pattern '<site>:*'` as `admin`, or the Drupal redis report, which needs SCAN. Log Analytics sees only the container.

@@ -71,7 +71,7 @@ ddev composer reinstall simplyshipley/drupal-performance-recipe simplyshipley/dr
 Why:
 
 - The add-on writes its own `settings.ddev.redis.php` and an include in `settings.php` [V]. Retiring the file leaves the include as a no-op, so `settings.performance.php` is the only Redis configuration.
-- The add-on's `redis.conf` sets `maxmemory 2048mb` and `allkeys-lfu` and is marked `#ddev-generated` [V]. The recipe's copy has no marker, so DDEV keeps it. It sets 256 MB, `allkeys-lru`, persistence off.
+- The add-on's `redis.conf` sets `maxmemory 2048mb` and `allkeys-lfu` and is marked `#ddev-generated` [V]. The recipe's copy has no marker, so DDEV keeps it. It sets 256 MB, `volatile-lfu` (the redis README's recommendation; the add-on's own default is `allkeys-lfu`), persistence off.
 
 Evidence: tmp/ddev/run18-valkey.log; tmp/valkey-server-evidence-20261005.txt.
 

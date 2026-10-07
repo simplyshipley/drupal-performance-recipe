@@ -48,7 +48,7 @@ Put secrets in Key Vault references, not plain values [ASSUMED].
 | `DRUPAL_REVERSE_PROXY_ADDRESSES` | App Service internal ranges + Front Door backend ranges | Only with `DRUPAL_REVERSE_PROXY=1`. Comma-separated IPs/CIDRs. Both hops are needed, see [Client IP](#client-ip) |
 | `DRUPAL_CACHE_TTL_4XX` | `3600` | Core default; see guide "Why 403s arrive in batches" |
 | `DRUPAL_DATABASE_CACHE_MAX_ROWS` | `5000` | Only matters for bins still in MySQL |
-| `PERF_FAST404` | `1` | Turns on the Fast 404 settings and the pre-boot static-file check. Unset = the settings file does nothing for Fast 404 |
+| `PERF_FAST404` | `1` | Turns on the Fast 404 settings. Unset = the settings file does nothing for Fast 404 |
 | `THEMED_FAST404_BASE_URL` | `http://localhost` (whatever reaches the site from inside the container) | See the self-request warning below |
 | `AZURE_CDN_TENANT_ID` | tenant GUID | Service principal's tenant |
 | `AZURE_CDN_CLIENT_ID` | app GUID | Service principal |
@@ -201,9 +201,9 @@ Door must honour origin cache headers and bypass the cache for `SESS*` cookies [
 Deploy steps (Bicep, az CLI, private DNS, VNet integration, sizing, monitoring) are in
 [infra/azure/README.md](../infra/azure/README.md). Rules:
 
-- Set an explicit `maxmemory`, `allkeys-lru`, no persistence.
+- Set an explicit `maxmemory`, `volatile-lfu`, no persistence. Source: redis README, "Eviction policy" and "Redis RDB snapshots".
 - Permanent Drupal items get a one-year TTL in Redis (`31536000` s) [V: lab key TTLs]. `drush cr`
-  does not delete keys, so LRU eviction is what frees memory.
+  does not delete keys, so eviction is what frees memory.
 - One replica only: a second replica would be a separate cache.
 
 ## Client IP

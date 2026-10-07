@@ -6,6 +6,7 @@ For Drupal developers installing it.
 > [!TIP]
 > **Start here:** [Quick start on an OIG Lando site](docs/quickstart-lando.md) (8 steps).
 > Full reference: [setup guide](docs/setup-guide.md).
+> Where each setting comes from: [sources](docs/sources.md).
 
 Evidence labels used in every doc:
 - **[V: evidence]**: verified in the SYNTHETIC lab sites (DDEV `perflab106`, Lando `perflab106lando`, Drupal 10.6.17, PHP 8.3) on 2026-09-25, with the evidence named.
@@ -70,6 +71,7 @@ include $app_root . '/modules/custom/drupal-performance-modules/settings/example
 
 1. **Start here: [setup guide](docs/setup-guide.md)** (nothing to working, verified; links every detail doc)
 2. [Install into an existing site](docs/install.md)
+   - Where each setting comes from (module README or our choice): [sources.md](docs/sources.md)
 3. [Azure configuration](docs/azure.md) (Front Door, App Service settings, Redis managed vs container, client IP)
 4. [DDEV setup and test walkthrough](docs/ddev.md)
 5. [Lando setup and test walkthrough](docs/lando.md)

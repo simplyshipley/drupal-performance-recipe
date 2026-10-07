@@ -60,7 +60,7 @@ Composer installs the recipe at `recipes/drupal-performance-recipe`, the modules
 
 ## 4. Include the settings file
 
-Append to `web/sites/default/settings.php`, **after** `$databases` is defined. Use `require`, not
+Append to the **end** of `web/sites/default/settings.php` (after `$databases` is defined). Source: fast_404 README.txt line 34, "Keep this code block at the end of this file to take full effect". Use `require`, not
 a `file_exists` check: a missing package then fails loudly instead of silently dropping the Redis,
 proxy and trusted-host settings.
 
@@ -69,6 +69,7 @@ proxy and trusted-host settings.
 require $app_root . '/modules/custom/drupal-performance-modules/settings/settings.performance.php';
 ```
 
+- Where each setting comes from (module README or our own choice): [sources.md](sources.md).
 - Every block is controlled by environment variables and does nothing when they are unset. The full list is at the top of `settings.performance.php`.
 - Redis is used only when `REDIS_HOST` is set [ASSUMED: code guard at settings.performance.php "Redis cache backend" block; the no-Redis path was not run in the lab].
 

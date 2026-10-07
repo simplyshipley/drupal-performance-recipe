@@ -204,13 +204,14 @@ cp docroot/modules/custom/drupal-performance-modules/settings/settings.performan
 chmod 444 docroot/sites/default/settings.performance.php
 ```
 
-b. Add one line to `docroot/sites/default/settings.php`, after the `settings.base.php` include:
+b. Add one line at the **end** of `docroot/sites/default/settings.php`:
 
 ```php
 require __DIR__ . '/settings.performance.php';
 ```
 
 - **It's the site's own settings file now,** like `settings.php`. It runs on every environment, Prod included. Every feature in it switches on only when its environment variable is set.
+- **Why the end:** the fast_404 README says "Keep this code block at the end of this file to take full effect" (README.txt line 34). On OIG sites the end is still after `settings.base.php`, so nothing in `settings.config.php`, `settings.{env}.php` or `settings.global.php` is lost.
 - **It's a `require`,** so a missing file stops the site loudly instead of silently running without Redis.
 - **Never include `example.settings.local-lab.php`** (same folder in the modules package) outside a local lab. It sends outbound requests to the mock Front Door.
 

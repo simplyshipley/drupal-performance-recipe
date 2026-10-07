@@ -20,13 +20,14 @@ With the default settings a Redis outage is absorbed by `modules/perf_redis_fail
 `drush cr` invalidates every cached item at once (the next page request was a MISS in both labs), but the keys stay in Redis [V: drush_cr INFO lines].
 
 - drupal/redis 1.11 `deleteAll()` only writes a "last delete all" timestamp. Older items are ignored on read [V: redis/src/Cache/CacheBase.php lines 511-518].
-- Permanent items carry a one-year TTL (31536000 s) [V], so only LRU eviction removes old keys.
+- Permanent items carry a one-year TTL (31536000 s) [V], so only eviction removes old keys.
 
 Consequences:
 
-- Memory after `drush cr` does not drop; keep `maxmemory-policy allkeys-lru`.
+- Memory after `drush cr` does not drop; keep `maxmemory-policy volatile-lfu` (every item has a TTL, so it can be evicted).
 - To actually empty Redis, run `redis-cli FLUSHDB` on a database no other site uses, or delete by prefix.
-- The module setting `redis_invalidate_all_as_delete` changes `invalidateAll()` behaviour [V: CacheBase.php line 476]. Its effect on `drush cr` was not tested [ASSUMED].
+- `$settings['redis_invalidate_all_as_delete'] = TRUE` is set (2026-10-07). It makes `invalidateAll()` act as `deleteAll()` [V: CacheBase.php line 476]. The suite's `drush_cr` test passes with it [V].
+- Source: redis `settings.redis.example.php`, "Additional optimizations".
 
 ## Unknown paths return HTTP 500 with `Table 'db.redirect' doesn't exist`
 
@@ -35,10 +36,11 @@ Consequences:
 
 ## PHP log: `ServiceUnavailableHttpException::__construct(): Argument #3 ($previous) must be of type ?Throwable, array given`
 
-- **What happens:** logged once per missing static file answered by the pre-boot check in `settings.php` [V: DDEV web log]. The 404 has already been sent, so visitors see a correct 404, but the PHP error log fills with one TypeError per request.
+- **Gone since 2026-10-07:** it came from the `fast404_preboot()` call in `settings.php`, which was removed. Missing static files are now answered by the module inside Drupal. Not re-checked in the PHP log after the removal [ASSUMED].
+- **What happened:** logged once per missing static file answered by the pre-boot check [V: DDEV web log]. The 404 had already been sent, so visitors saw a correct 404, but the PHP error log filled with one TypeError per request.
 - **Upstream:** https://www.drupal.org/project/fast_404/issues/3194034 ("Argument 3 passed to ServiceUnavailableHttpException::__construct() must be an instance of Exception or null, array given"). Still present in 3.7.0 (Fast404.php line 302) [V: code].
-- **Options:** patch it (pass the message only), or drop the pre-boot include and let the module's event subscriber handle static files after bootstrap (slower).
-- **Status:** not changed here; open decision.
+- **Fix taken:** dropped the pre-boot call and let the module's event subscriber handle static files after bootstrap (slower, 26-66 ms vs 1.5-3.7 ms with preboot). Source: fast_404 README.txt lines 48-49 ("not fully implemented and not ready for to use"), [#2961512](https://www.drupal.org/project/fast_404/issues/2961512).
+- **Status:** closed; the upstream bug is still open.
 
 ## Themed Fast 404 makes an HTTP request to itself on most requests
 
@@ -52,8 +54,7 @@ every 404 therefore cost an extra HTTP round trip, which on Azure goes to the pu
 
 This recipe still installs it (MANIFEST decision: Themed Fast 404 `^1.0`). Fast 404
 (contrib) and Themed Fast 404 do work together: the settings include points
-`fast404_HTML_error_page` at the file cron writes, so both the pre-boot check and the
-module's path check serve the themed page [V: fast404_static, fast404_path, themed_404].
+`fast404_HTML_error_page` at the file cron writes, so the module's static-file and path checks both serve the themed page [V: fast404_static, fast404_path, themed_404].
 Before production, decide whether to patch the override to read the file from disk.
 
 ## Purge: only node updates are purged
@@ -67,11 +68,12 @@ node's alias. Check `perf_purge_paths.settings:enabled` and see
 `/admin/reports/redis` shows both of these on a recipe site. Both are expected; do not "fix" them.
 
 - "Using an allkeys eviction policy may drop cache tag checksums ...": the checksums are in the
-  database, not Redis (`azure.md` ruling), so an evicted key is only a cache miss.
+  database, not Redis (`azure.md` ruling), so an evicted key is only a cache miss. We now use
+  `volatile-lfu`, so the warning may not appear [ASSUMED: report not re-read after the change].
 - "No cache tags found, make sure that the redis cache tag checksum service is used": same
   reason. Moving the checksum service to Redis made a Redis outage a site outage (HTTP 500).
 
-[V: redis 8.x-1.11 `ReportController.php`; OIG copy: `maxmemory_policy:allkeys-lru`, 0 cache-tag keys in Redis]
+[V: redis 8.x-1.11 `ReportController.php`; OIG copy, measured with `allkeys-lru` before the 2026-10-07 change: 0 cache-tag keys in Redis]
 
 ## Purge items fail
 

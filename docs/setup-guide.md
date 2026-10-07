@@ -2,6 +2,7 @@
 
 > [!TIP]
 > New here? Use the [Lando quick start](quickstart-lando.md) first. This guide is the full reference.
+> Where each setting comes from (module README, Microsoft, or our own choice): [sources.md](sources.md).
 
 The full order of operations, from nothing to a working, verified setup. Detail lives in the linked docs.
 Nothing here has run on Azure (phases 3 and 4). Lab sites and all lab content are SYNTHETIC.
@@ -220,4 +221,4 @@ Gaps:
 - Bicep never deployed; TLS to Redis not supported as shipped (3.4); FedRAMP scope of Container Apps, Log Analytics and alerts not confirmed.
 - `api-version 2024-02-01` and the patched purger: not tested on Azure Government ([azure.md](azure.md#azure-government-patched-azure_cdn_purge)).
 - `JSChallenge` action name: assumed ([hardening.md](hardening.md#header-consistency-rule-browser-ua-without-browser-headers)).
-- Themed Fast 404 requests itself over HTTP; fast_404 TypeError per 404: open ([troubleshooting.md](troubleshooting.md)).
+- Themed Fast 404 requests itself over HTTP ([troubleshooting.md](troubleshooting.md)).

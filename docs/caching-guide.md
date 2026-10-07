@@ -156,7 +156,9 @@ Moving the high-churn bins to Redis removes the big cron deletes from the HA dat
 - **Container image:** Add the `phpredis` PHP extension, plus APCu for fast local bins.
 - **Drupal:** Install `drupal/redis`. Set `$settings['redis.connection']['interface'] = 'PhpRedis'` with host, `tls://` scheme, port 6380 and password. Set `$settings['cache']['default'] = 'cache.backend.redis';` and include the module's example services file.
 - **Bins to move first:** `render`, `page`, `dynamic_page_cache`, `data`, `entity`.
-- **Server settings:** `maxmemory` set explicitly, `maxmemory-policy allkeys-lru` (most Drupal items are permanent, so `volatile-lru` never evicts them), persistence off.
+- **Server settings:** `maxmemory` set explicitly, `maxmemory-policy volatile-lfu`, persistence off.
+  - Source: redis README, "Eviction policy": "safe and recommended to use a volatile policy", "volatile-lfu" for typical scenarios.
+  - The redis module gives every cache item a TTL, so a volatile policy can evict them. Only the per-bin `_redis_last_delete_all` keys have none.
 - **Several sites:** One instance per site gives isolation. A shared instance needs a distinct `$settings['cache_prefix']` or database number per site, and `FLUSHALL` would wipe every site.
 
 ### Does `drush cr` clear Redis?
@@ -263,7 +265,7 @@ Copy this list for each site and record the results beside it.
 - [ ] Reverse proxy and trusted host settings in `settings.php`
 - [ ] Front Door rules: session-cookie bypass, admin paths bypassed, static files cached, query strings used
 - [ ] Real client IP appears in `/admin/reports/dblog`
-- [ ] Redis bins configured, `maxmemory` and `allkeys-lru` set, memory measured
+- [ ] Redis bins configured, `maxmemory` and `volatile-lfu` set, memory measured
 - [ ] Purge path decided and tested
 - [ ] OPcache and APCu sized; container restarted on deploy
 - [ ] Components documented in the System Security Plan
