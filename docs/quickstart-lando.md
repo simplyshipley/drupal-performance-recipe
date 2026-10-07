@@ -119,11 +119,20 @@ lando composer reinstall drupal/azure_cdn_purge
 
 ## 3. Add the local services to `.lando.yml`
 
-a. Open `recipes/drupal-performance-recipe/lando/lando.perf.yml`.
+a. Copy the two Lando config files into the site's `.lando/` folder, next to `php.ini` and
+`mysql.cnf`. The site then owns them, and a recipe update can't change your Lando setup by surprise:
 
-b. Copy its `services:` entries (`appserver`, `cache`, `mockafd`, `edge`) and `tooling:` entries
+```bash
+cp recipes/drupal-performance-recipe/lando/nginx-fast404.conf.tpl .lando/nginx-fast404.conf.tpl
+cp recipes/drupal-performance-recipe/lando/redis.conf .lando/redis.conf
+```
+
+b. Open `recipes/drupal-performance-recipe/lando/lando.perf.yml`.
+
+c. Copy its `services:` entries (`appserver`, `cache`, `mockafd`, `edge`) and `tooling:` entries
 (`perf-test-in`, `perf-cache`, `redis-cli`) into the site's `.lando.yml`. Merge them into the
 existing `services:` and `tooling:` sections. Don't add a second `services:` line.
+Change the two paths to the `.lando/` copies (marked below).
 
 The result looks like this (existing entries kept, recipe entries added):
 
@@ -133,13 +142,18 @@ services:
     # ...
   appserver:             # from lando.perf.yml
     config:
-      vhosts: recipes/drupal-performance-recipe/lando/nginx-fast404.conf.tpl
+      vhosts: .lando/nginx-fast404.conf.tpl          # changed: was recipes/.../lando/
     overrides:
       environment:
         REDIS_HOST: cache
         # ...the rest from lando.perf.yml
   cache:                 # from lando.perf.yml
-    # ...
+    type: compose
+    services:
+      image: valkey/valkey:9.1.2-alpine3.24
+      command: valkey-server /usr/local/etc/valkey/valkey.conf --protected-mode no
+      volumes:
+        - ./.lando/redis.conf:/usr/local/etc/valkey/valkey.conf:ro   # changed: was ./recipes/.../lando/
   mockafd:               # from lando.perf.yml
     # ...
   edge:                  # from lando.perf.yml
@@ -151,7 +165,7 @@ tooling:
     # ...
 ```
 
-c. Create the mock's data folder, keep it out of git, and rebuild:
+d. Create the mock's data folder, keep it out of git, and rebuild:
 
 ```bash
 mkdir -p .lando-mock-afd-data
@@ -160,6 +174,7 @@ lando rebuild -y
 ```
 
 - Adds Valkey (Redis), a mock Front Door and a local Front Door cache. All local only.
+- `mockafd` and `edge` still build from `recipes/drupal-performance-recipe/` (they're whole folders with a Dockerfile). Leave those paths as they are.
 - The `AZURE_CDN_*` values in that file are SYNTHETIC placeholders for the mock. They're safe to commit.
 
 <details>
@@ -170,7 +185,11 @@ lando rebuild -y
   - Run `docker pull valkey/valkey:9.1.2-alpine3.24` by itself to see the real error.
   - Configure Docker's proxy settings, if the VM has a corporate proxy.
   - For a Redis-only first try, leave out `mockafd` and `edge`. Purge tests then won't run.
-- **The site's own nginx rules stopped working.** The `vhosts:` line replaces Lando's nginx config with the recipe's copy (one extra Fast 404 line). If the site needs its own rules, leave the `vhosts:` line out. Fast 404 then won't see missing image/CSS files, which is harmless locally.
+- **The site already has `.lando/nginx.conf.tpl`.** americorps has one committed, but no Lando file points to it, so it isn't used today. It differs from the recipe's template in three places: an older Drupal 7 style `rewrite`, no `expires max` on CSS/JS aggregates, and its own `try_files` for static files. Options:
+  - **Keep both (default):** use `.lando/nginx-fast404.conf.tpl` as above, and leave the old file alone.
+  - **One file:** copy the recipe's template over `.lando/nginx.conf.tpl` and point `vhosts:` at that. Check first that nobody depends on the old one.
+- **The site's own nginx rules stopped working.** The `vhosts:` line replaces Lando's nginx config with this template (Lando's own plus one Fast 404 line). Add the site's rules to `.lando/nginx-fast404.conf.tpl`, or leave the `vhosts:` line out. Without it Fast 404 won't see missing image/CSS files, which is harmless locally.
+- **After a Lando upgrade, nginx acts oddly.** The template is a copy of Lando 3.26.9's drupal10 vhost. Compare it with the new Lando version's template and update the `.lando/` copy.
 - **Port or proxy errors with DDEV running.** `export LANDO_PROXY=OFF`, then rebuild.
 
 </details>
