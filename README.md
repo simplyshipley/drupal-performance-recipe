@@ -75,6 +75,7 @@ include $app_root . '/modules/custom/drupal-performance-modules/settings/example
 5. [Lando setup and test walkthrough](docs/lando.md)
 6. [Test reference](docs/tests.md)
 7. [Troubleshooting and known module issues](docs/troubleshooting.md)
+   - [Troubleshooting commands (Lando)](docs/troubleshooting-commands.md): copy-paste checks
 8. [Edge: local Front Door + WAF stand-in](docs/edge-waf.md) (setup, static asset caching test, differences) and [research notes](docs/research-afd-waf.md)
 9. [Cache modes for local testing](docs/cache-modes.md) (`perf-cache dev|prod-like|status`)
 10. [Cache sync: Drupal, Redis, purge queue and Front Door](docs/cache-sync.md) (edge cases, findings, open decisions)

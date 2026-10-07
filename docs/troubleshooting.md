@@ -2,6 +2,9 @@
 
 Symptoms, causes and fixes for the recipe's Redis, 404 and purge pieces. For developers and DevOps on a site that misbehaves.
 
+> [!TIP]
+> Copy-paste checks for each area: [troubleshooting-commands.md](troubleshooting-commands.md).
+
 ## Redis down: the site stays up (fail-open)
 
 With the default settings a Redis outage is absorbed by `modules/perf_redis_failopen`

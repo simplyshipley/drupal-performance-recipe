@@ -291,7 +291,7 @@ lando redis-cli info keyspace
 
 - **`headers_anon` FAILS.** Drupal is probably in a development cache mode. Run `lando perf-cache prod-like`, then test again.
 - **No keys in Redis.** `lando drush php:eval "print getenv('REDIS_HOST');"` should print `cache`. Also check `/admin/reports/status` for "Redis fail-open".
-- **`lando redis-cli` not found.** Use `lando ssh -s cache -c 'valkey-cli info keyspace'`.
+- **`lando redis-cli` not found.** Use `lando exec cache -- valkey-cli info keyspace`.
 
 </details>
 
@@ -373,4 +373,4 @@ bash recipes/drupal-performance-recipe/scripts/lando-test.sh
 
 - **Azure (QA, Prod):** [azure.md](azure.md), then [setup-guide.md](setup-guide.md) phases 3 to 5.
 - **Push the Redis image:** [redis-image.md](redis-image.md).
-- **Something wrong:** [troubleshooting.md](troubleshooting.md).
+- **Something wrong:** [troubleshooting-commands.md](troubleshooting-commands.md) (copy-paste checks), then [troubleshooting.md](troubleshooting.md).
