@@ -4,7 +4,7 @@
 # (Container Apps secret volumes) or the plain variables; passwords are
 # written to the config only as SHA-256 hashes.
 #
-#   REDIS_PORT (6379)  REDIS_MAXMEMORY (256mb)  REDIS_MAXMEMORY_POLICY (allkeys-lru)
+#   REDIS_PORT (6379)  REDIS_MAXMEMORY (256mb)  REDIS_MAXMEMORY_POLICY (volatile-lfu)
 #   REDIS_TLS=1 + REDIS_TLS_CERT_FILE, REDIS_TLS_KEY_FILE, REDIS_TLS_CA_FILE,
 #       REDIS_TLS_PORT (6380): TLS only (plain port closed)
 #   REDIS_ACL_FILE      use this ACL file as is (all users below are ignored)

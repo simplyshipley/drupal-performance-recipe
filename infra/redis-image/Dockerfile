@@ -12,7 +12,7 @@ RUN chmod 0755 /etc/perf-redis && mkdir -p /run/redis && chown valkey:valkey /ru
 USER valkey
 ENV REDIS_PORT=6379 \
     REDIS_MAXMEMORY=256mb \
-    REDIS_MAXMEMORY_POLICY=allkeys-lru \
+    REDIS_MAXMEMORY_POLICY=volatile-lfu \
     REDIS_TLS=0
 EXPOSE 6379 6380
 HEALTHCHECK --interval=15s --timeout=3s --retries=3 CMD ["/usr/local/bin/perf-redis-healthcheck"]

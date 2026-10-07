@@ -20,7 +20,7 @@ Before use:
 `redis-containerapp.bicep` creates:
 
 - an internal Container Apps environment in your VNet;
-- the Redis app: 1 replica, internal TCP ingress on 6379, no persistence, `maxmemory` + `allkeys-lru`, password from a secret, TCP liveness and readiness probes;
+- the Redis app: 1 replica, internal TCP ingress on 6379, no persistence, `maxmemory` + `volatile-lfu`, password from a secret, TCP liveness and readiness probes;
 - optional restart and memory alerts.
 
 Since 2026-09-28 it runs the custom image from `infra/redis-image`, pulled from ACR ([docs/redis-image.md](../../docs/redis-image.md)). The CLI example below still shows the older stock-image variant.
@@ -58,7 +58,7 @@ az containerapp create -g $RG -n $P-redis --environment $P-cae \
   --ingress internal --transport tcp --target-port 6379 --exposed-port 6379 \
   --secrets redis-password=<from Key Vault> --env-vars REDIS_PASSWORD=secretref:redis-password \
   --command sh -c \
-  --args 'exec redis-server --requirepass "$REDIS_PASSWORD" --maxmemory 768mb --maxmemory-policy allkeys-lru --appendonly no --save "" --protected-mode no'
+  --args 'exec redis-server --requirepass "$REDIS_PASSWORD" --maxmemory 768mb --maxmemory-policy volatile-lfu --appendonly no --save "" --protected-mode no'
 ```
 
 Probes cannot be set with plain `az containerapp create` flags. Use the Bicep, or `az containerapp update --yaml` with the probe block [ASSUMED].

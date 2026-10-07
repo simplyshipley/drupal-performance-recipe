@@ -206,7 +206,7 @@ t_eviction() {
   # Always restore the Redis limits, even if the test is interrupted.
   trap "redis_php config_set maxmemory '$orig_mem' >/dev/null; redis_php config_set maxmemory-policy '$orig_pol' >/dev/null; perf_cache_restore" EXIT INT TERM
   redis_php config_set maxmemory "$limit" >/dev/null
-  redis_php config_set maxmemory-policy allkeys-lru >/dev/null
+  redis_php config_set maxmemory-policy volatile-lfu >/dev/null
   ev0=$(redis_php info stats evicted_keys)
   nids=$(php_eval 'print implode(" ", \Drupal::entityQuery("node")->accessCheck(FALSE)->condition("status",1)->range(0,200)->execute());')
   n=0
@@ -218,7 +218,7 @@ t_eviction() {
   redis_php config_set maxmemory-policy "$orig_pol" >/dev/null
   trap - INT TERM; trap perf_cache_restore EXIT
   if [[ "$((ev1 - ev0))" -gt 0 && "$code" == "200" ]]; then
-    say PASS eviction "maxmemory temporarily $limit bytes (policy allkeys-lru), $n page requests: evicted_keys $ev0 -> $ev1, home page still $code; peak=$peak; restored maxmemory=$orig_mem policy=$orig_pol"
+    say PASS eviction "maxmemory temporarily $limit bytes (policy volatile-lfu), $n page requests: evicted_keys $ev0 -> $ev1, home page still $code; peak=$peak; restored maxmemory=$orig_mem policy=$orig_pol"
   else
     say FAIL eviction "evicted_keys $ev0 -> $ev1 after $n requests; home=$code"
   fi
@@ -361,18 +361,21 @@ t_purge_retry() {
 }
 
 t_fast404_static() {
-  local u r code t size h
+  local u r code t size h xc
   u="$BASE_URL/sites/default/files/perf-missing-$RANDOM.png"
   r=$(curl -s -o /tmp/perf-404s.html -w '%{http_code} %{time_total} %{size_download}' "$u")
   read -r code t size <<<"$r"
-  h=$(hdr "$u")
+  h=$(hdr "$u"); xc=$(hget "$h" x-drupal-cache)
   local ref; ref=$(curl -s -o /dev/null -w '%{time_total}' "$BASE_URL/user/login?perf=$RANDOM")
+  # Fast 404's request subscriber answers with a plain Response, which the page
+  # cache never stores ("UNCACHEABLE (no cacheability)"). Drupal's own 404
+  # handling is page-cached (MISS, then HIT on this second request).
   if grep -q '<center>nginx' /tmp/perf-404s.html; then
     say FAIL fast404_static "answered by nginx itself (${t}s), Drupal/Fast 404 never saw the request; pass missing static files to Drupal (see docs) to test Fast 404"
-  elif [[ "$code" == "404" && -z "$(hget "$h" x-drupal-cache)" && -z "$(hget "$h" x-drupal-dynamic-cache)" ]]; then
-    say PASS fast404_static "missing .png -> 404 in ${t}s, ${size} bytes, no Drupal cache headers (answered before Drupal booted); uncached /user/login for comparison ${ref}s"
+  elif [[ "$code" == "404" && "$xc" == "UNCACHEABLE (no cacheability)" ]]; then
+    say PASS fast404_static "missing .png -> 404 in ${t}s, ${size} bytes, answered by the Fast 404 module (X-Drupal-Cache: $xc); uncached /user/login for comparison ${ref}s"
   else
-    say FAIL fast404_static "code=$code time=${t}s size=$size x-drupal-cache=$(hget "$h" x-drupal-cache)"
+    say FAIL fast404_static "code=$code time=${t}s size=$size x-drupal-cache=$xc"
   fi
 }
 

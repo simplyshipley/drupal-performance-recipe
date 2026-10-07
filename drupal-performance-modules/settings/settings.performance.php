@@ -4,13 +4,16 @@
  * @file
  * Performance settings include (Redis, reverse proxy, Fast 404, Purge).
  *
- * Include this file from sites/default/settings.php AFTER $databases is set.
- * It ships in the drupal-performance-modules Composer package, which Composer
- * installs under web/modules/custom and updates with the site, so the include
- * is required, not optional: a missing package must be loud, not a silently
- * dropped Redis, reverse proxy and trusted host configuration.
+ * Require this file at the END of sites/default/settings.php, after $databases
+ * and the site's other includes, so nothing later overrides its settings
+ * (fast_404 README.txt: "Keep this code block at the end of this file to take
+ * full effect"). It ships in the drupal-performance-modules Composer package,
+ * which Composer installs under web/modules/custom and updates with the site,
+ * so the include is required, not optional: a missing package must be loud,
+ * not a silently dropped Redis, reverse proxy and trusted host configuration.
  *
  * @code
+ * // Last line of settings.php:
  * require $app_root . '/modules/custom/drupal-performance-modules/settings/settings.performance.php';
  * @endcode
  *
@@ -82,8 +85,8 @@
  *                           Explicit host URLs (override AZURE_CLOUD).
  *
  * Fast 404
- *   PERF_FAST404             1 = apply the Fast 404 settings below and the
- *                            pre-boot static-file check. Unset = none of it.
+ *   PERF_FAST404             1 = apply the Fast 404 settings below. Unset =
+ *                            none of them.
  *   FAST404_RESPECT_REDIRECT 1 = let paths with a Redirect module redirect
  *                            through. ONLY when the redirect module is
  *                            installed.
@@ -94,7 +97,8 @@
  *                            http://localhost). Unset = the module's config.
  *
  * Local labs (DDEV/Lando): the local edge, the mock Front Door proxy and the
- * cache modes are in example.settings.local-lab.php (README.md, "Local labs").
+ * cache modes are in example.settings.local-lab.php, required after this file
+ * (README.md, "Local labs").
  */
 
 use Drupal\Core\Installer\InstallerKernel;
@@ -189,8 +193,14 @@ if ($perf_env('REDIS_HOST') !== NULL
     }
   }
   $settings['redis_compress_length'] = (int) $perf_env('REDIS_COMPRESS_LENGTH', '100');
-  // Let Redis expire items; required for allkeys-lru to behave sensibly.
+  // Expired items can still be requested for up to one hour, then Redis drops
+  // the key. Source: redis README "Expiration of cache items" /
+  // settings.redis.example.php.
   $settings['redis_ttl_offset'] = 3600;
+  // invalidateAll() is handled as deleteAll(): one check per bin, not two.
+  // Source: redis README "Cache optimizations" / settings.redis.example.php
+  // ("Additional optimizations").
+  $settings['redis_invalidate_all_as_delete'] = TRUE;
 
   // The redis module's own services and classes, as its README documents, so
   // the bins work before the module is installed (for example while the recipe
@@ -257,8 +267,8 @@ if ($perf_env('THEMED_FAST404_BASE_URL') !== NULL) {
 
 // ---------------------------------------------------------------------------
 // Fast 404 (drupal/fast_404, module name fast404) + Themed Fast 404.
-// Only when PERF_FAST404=1. Without it this file sets no fast404 settings and
-// runs no pre-boot check (the installed module then uses its own defaults).
+// Only when PERF_FAST404=1. Without it this file sets no fast404 settings (the
+// installed module then uses its own defaults).
 // ---------------------------------------------------------------------------
 if ($perf_env('PERF_FAST404') === '1') {
   // Static-file extensions that should never reach a full Drupal bootstrap.
@@ -288,15 +298,9 @@ if ($perf_env('PERF_FAST404') === '1') {
     $settings['fast404_HTML_error_page'] = $perf_404_pages;
     $settings['fast404_HTML_error_all_paths'] = TRUE;
   }
-
-  // Pre-bootstrap extension check: answers missing static files before Drupal
-  // boots. The path check needs the database, so it only runs later in the
-  // module's event subscriber.
-  $perf_fast404_inc = $app_root . '/modules/contrib/fast_404/fast404.inc';
-  if (PHP_SAPI !== 'cli' && file_exists($perf_fast404_inc)) {
-    include_once $perf_fast404_inc;
-    fast404_preboot(['fast404_path_check' => FALSE] + $settings);
-  }
+  // No fast404_preboot(): fast_404 README.txt says it "is not fully implemented
+  // and not ready for to use" (drupal.org #2961512). The module's event
+  // subscriber answers missing static files instead.
 }
 
 // ---------------------------------------------------------------------------
@@ -308,5 +312,4 @@ $settings['perf_purge_list_paths'] = (string) $perf_env('PERF_PURGE_LIST_PATHS',
 $settings['perf_purge_sitewide_paths'] = (string) $perf_env('PERF_PURGE_SITEWIDE_PATHS', '');
 
 unset($perf_env, $perf_patterns, $perf_host, $perf_pattern, $perf_redis_dir, $perf_scheme,
-  $perf_bins, $perf_bin, $perf_azure_map, $perf_cloud, $perf_clouds, $perf_var, $perf_key, $perf_public, $perf_404_pages, $perf_file, $perf_lang,
-  $perf_fast404_inc);
+  $perf_bins, $perf_bin, $perf_azure_map, $perf_cloud, $perf_clouds, $perf_var, $perf_key, $perf_public, $perf_404_pages, $perf_file, $perf_lang);
