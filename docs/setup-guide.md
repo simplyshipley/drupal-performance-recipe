@@ -19,7 +19,7 @@ Not yet tested on WSL2.
 
 ## Phase 0: Prerequisites
 
-1. Install Docker, DDEV and/or Lando, Composer, Git. When DDEV is also installed, stop it (`ddev poweroff`) while you use Lando ([lando.md](lando.md#footguns-on-this-mac-from-the-2026-09-16-lando-lab)).
+1. Install Docker, DDEV and/or Lando, Composer, Git. When DDEV is also installed, stop it (`ddev poweroff`) while you use Lando ([lando.md](lando.md#if-ddev-is-also-installed-lando-footguns)).
 2. Phase 3 only: install Azure CLI with Bicep, then `az cloud set --name AzureUSGovernment` and `az login`.
    Check: `az cloud show --query name -o tsv`
 3. Create before phase 3 (assumed: none were created in the lab):

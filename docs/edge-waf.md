@@ -121,7 +121,7 @@ aggregates a one-year lifetime, as production does.
 ## Setup: Lando
 
 1. Copy `recipes/drupal-performance-recipe/lando/lando.perf.yml` to `.lando.local.yml`. It adds the `edge` service, the `mockafd` purge forwarding and the appserver variables.
-2. Run `lando rebuild -y`. (Only if DDEV is also installed: `ddev poweroff` first, or see [lando.md](lando.md#footguns-on-this-mac-from-the-2026-09-16-lando-lab).)
+2. Run `lando rebuild -y`. (Only if DDEV is also installed: `ddev poweroff` first, or see [lando.md](lando.md#if-ddev-is-also-installed-lando-footguns).)
 3. Reach the edge from the appserver: `lando ssh -s appserver -c "curl -sI http://edge:8080/"`.
 
 The vhost template now sends `expires max` for `sites/*/files/{css,js,styles}`, as Drupal's
