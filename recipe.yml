@@ -18,7 +18,8 @@ install:
   - perf_purge_paths
 config:
   # purge.plugins and azure_cdn_purge.settings ship no default config, so the
-  # recipe provides them in config/ (created only if the site has none yet).
+  # recipe provides them in config/. Recipes are strict: if the site already
+  # has either one and it differs, the recipe stops (see docs/troubleshooting.md).
   actions:
     system.performance:
       simpleConfigUpdate:

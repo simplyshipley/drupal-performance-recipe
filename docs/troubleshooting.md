@@ -78,7 +78,13 @@ Core's Fast 404 is set in `docroot/sites/default/settings.config.php` (`system.p
 ## `The configuration 'purge.plugins' exists already and does not match the recipe's configuration`
 
 - **Cause:** recipes are strict by default (`strict` defaults to TRUE in core `Recipe/ConfigConfigurator.php`). The site already has `purge.plugins`, from an earlier partial run or because it already uses Purge.
-- **Not automatic:** the recipe does not handle this. The comment in `recipe.yml` ("created only if the site has none yet") is wrong. A recipe change (strict mode off for these two configs) is pending Bo's ruling.
+- **Strict on purpose:** stale or half-finished Purge config stops the run instead of being kept silently. Our choice (Bo, 2026-10-07): the first case seen was leftover local config from building the recipe.
+- **Simplest reset for leftover local config:** uninstall the Purge modules (removes all their config), then rerun the recipe:
+
+  ```bash
+  lando db-export before-purge-reset.sql.gz
+  lando drush pm:uninstall purge_ui purge_processor_cron purge_drush azure_cdn_purge purge -y
+  ```
 - **Step 1, check committed config:**
 
   ```bash

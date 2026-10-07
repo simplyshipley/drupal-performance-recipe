@@ -258,9 +258,17 @@ lando drush cr
   - **Upstream fix:** a `function_exists()` guard in oig-distro-assets' `settings.base.php`.
 - **`The configuration 'purge.plugins' exists already and does not match the recipe's configuration`.**
   - **Cause:** recipes are strict by default (core `Recipe/ConfigConfigurator.php`, `strict` defaults to TRUE). The site already has `purge.plugins`, from an earlier partial run or because it already uses Purge.
-  - **Not automatic:** the recipe does not handle this. A recipe change (strict mode off for these two configs) is pending Bo's ruling.
+  - **Strict on purpose:** stale or half-finished Purge config stops the run instead of being kept silently. Our choice (Bo, 2026-10-07).
   - **Check committed config first:** `git log -- config/sync/purge.plugins.yml`.
-  - **Site never used Purge:** `lando drush config:delete purge.plugins` (and `azure_cdn_purge.settings` if it reports that too), `lando drush cr`, then rerun the recipe.
+  - **Leftover local config (site never used Purge in production):** back up (`lando db-export before-purge-reset.sql.gz`), uninstall the Purge modules so all their config goes, then rerun the recipe:
+
+    ```bash
+    lando drush pm:list --status=enabled | grep -E 'purge|azure'
+    lando drush pm:uninstall purge_ui purge_processor_cron purge_drush azure_cdn_purge purge -y
+    lando drush cr
+    lando drush recipe ../recipes/drupal-performance-recipe
+    ```
+
   - **Site already uses Purge:** don't delete. Compare `lando drush cget purge.plugins` with the recipe's `config/purge.plugins.yml`, then add the azurecdn purger and `path_queuer`.
 - **HTTP 500 after applying.** Run `lando drush cr`. If it stays: `lando drush watchdog:show --severity=Error --count=5`, then [troubleshooting.md](troubleshooting.md).
 
