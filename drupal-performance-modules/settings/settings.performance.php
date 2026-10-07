@@ -2,15 +2,15 @@
 
 /**
  * @file
- * Performance settings include (Redis, reverse proxy, Fast 404, Purge).
+ * Performance settings include (Redis, reverse proxy, Purge).
  *
  * Require this file at the END of sites/default/settings.php, after $databases
- * and the site's other includes, so nothing later overrides its settings
- * (fast_404 README.txt: "Keep this code block at the end of this file to take
- * full effect"). It ships in the drupal-performance-modules Composer package,
- * which Composer installs under web/modules/custom and updates with the site,
- * so the include is required, not optional: a missing package must be loud,
- * not a silently dropped Redis, reverse proxy and trusted host configuration.
+ * and the site's other includes, so nothing later overrides its settings (our
+ * choice, Bo ruling 2026-10-07). It ships in the drupal-performance-modules
+ * Composer package, which Composer installs under web/modules/custom and
+ * updates with the site, so the include is required, not optional: a missing
+ * package must be loud, not a silently dropped Redis, reverse proxy and trusted
+ * host configuration.
  *
  * @code
  * // Last line of settings.php:
@@ -83,18 +83,6 @@
  *                           azure_cdn_purge Azure Government patch (patches/).
  *   AZURE_LOGIN_HOST, AZURE_MANAGEMENT_HOST
  *                           Explicit host URLs (override AZURE_CLOUD).
- *
- * Fast 404
- *   PERF_FAST404             1 = apply the Fast 404 settings below. Unset =
- *                            none of them.
- *   FAST404_RESPECT_REDIRECT 1 = let paths with a Redirect module redirect
- *                            through. ONLY when the redirect module is
- *                            installed.
- *
- * Themed Fast 404
- *   THEMED_FAST404_BASE_URL  Base URL cron uses to fetch /page-not-found,
- *                            reachable from inside the container (for example
- *                            http://localhost). Unset = the module's config.
  *
  * Local labs (DDEV/Lando): the local edge, the mock Front Door proxy and the
  * cache modes are in example.settings.local-lab.php, required after this file
@@ -271,59 +259,6 @@ foreach ($perf_azure_map as $perf_var => $perf_key) {
   }
 }
 
-// Themed Fast 404: the URL cron uses to fetch the 404 page it saves as static
-// HTML. Must be reachable from the app container itself. Source:
-// themed_fast_404 README "Configuration page" ("It is recommended to set it").
-if ($perf_env('THEMED_FAST404_BASE_URL') !== NULL) {
-  $config['themed_fast_404.settings']['base_url'] = $perf_env('THEMED_FAST404_BASE_URL');
-}
-
-// ---------------------------------------------------------------------------
-// Fast 404 (drupal/fast_404, module name fast404) + Themed Fast 404.
-// Only when PERF_FAST404=1 (our switch). Without it this file sets no fast404
-// settings (the installed module then uses its own defaults). Source:
-// fast_404 README.txt and example.settings.fast404.php.
-// ---------------------------------------------------------------------------
-if ($perf_env('PERF_FAST404') === '1') {
-  // Static-file extensions that should never reach a full Drupal bootstrap:
-  // the example's default list plus webp, svg, map, aspx, php, env, bak, sql,
-  // zip and gz (README.txt #3: keep an eye on the list).
-  $settings['fast404_exts'] = '/^(?!\/robots)^(?!\/system\/files).*\.(txt|png|gif|jpe?g|webp|svg|css|js|map|ico|swf|flv|cgi|bat|pl|dll|exe|asp|aspx|php[0-9]?|env|bak|sql|zip|gz)$/i';
-  // Defaults from example.settings.fast404.php (the whitelist is its example
-  // list); the string whitelist is ours.
-  $settings['fast404_allow_anon_imagecache'] = TRUE;
-  $settings['fast404_url_whitelisting'] = FALSE;
-  $settings['fast404_whitelist'] = ['index.php', 'rss.xml', 'install.php', 'cron.php', 'update.php', 'xmlrpc.php'];
-  $settings['fast404_string_whitelisting'] = ['/admin', '/user', '/system/files', '/batch'];
-  // Unknown router paths are checked by the module's event subscriber (needs
-  // the module installed; it queries the router and alias tables). Source:
-  // README.txt #2 "Enable Drupal path checking".
-  $settings['fast404_path_check'] = TRUE;
-  $settings['fast404_not_found_exception'] = FALSE;
-  // Only with the Redirect module installed: Fast 404 then queries the
-  // {redirect} table and lets redirected paths through. Without the module the
-  // table is missing and every unknown path returns HTTP 500 (verified in the
-  // lab), so this is opt-in (FALSE is the module's default).
-  $settings['fast404_respect_redirect'] = $perf_env('FAST404_RESPECT_REDIRECT') === '1';
-  // FastCGI header when PHP runs under FPM (example.settings.fast404.php).
-  $settings['fast404_HTTP_status_method'] = PHP_SAPI === 'fpm-fcgi' ? 'FastCGI' : 'mod_php';
-  // Serve the static page Themed Fast 404 writes on cron, when it exists
-  // (example.settings.fast404.php; themed_fast_404 README "How it works").
-  $perf_public = $settings['file_public_path'] ?? 'sites/default/files';
-  $perf_404_pages = [];
-  foreach (glob($app_root . '/' . $perf_public . '/page-not-found-*.html') ?: [] as $perf_file) {
-    $perf_lang = substr(basename($perf_file, '.html'), strlen('page-not-found-'));
-    $perf_404_pages[$perf_lang] = $perf_file;
-  }
-  if ($perf_404_pages) {
-    $settings['fast404_HTML_error_page'] = $perf_404_pages;
-    $settings['fast404_HTML_error_all_paths'] = TRUE;
-  }
-  // No fast404_preboot(): fast_404 README.txt says it "is not fully implemented
-  // and not ready for to use" (drupal.org #2961512). The module's event
-  // subscriber answers missing static files instead.
-}
-
 // ---------------------------------------------------------------------------
 // Front Door path purging: the path settings of the perf_purge_paths module
 // (an installed module; the recipe installs it). Its on/off switch is the
@@ -334,4 +269,4 @@ $settings['perf_purge_list_paths'] = (string) $perf_env('PERF_PURGE_LIST_PATHS',
 $settings['perf_purge_sitewide_paths'] = (string) $perf_env('PERF_PURGE_SITEWIDE_PATHS', '');
 
 unset($perf_env, $perf_patterns, $perf_host, $perf_pattern, $perf_redis_dir, $perf_scheme,
-  $perf_bins, $perf_bin, $perf_azure_map, $perf_cloud, $perf_clouds, $perf_var, $perf_key, $perf_public, $perf_404_pages, $perf_file, $perf_lang);
+  $perf_bins, $perf_bin, $perf_azure_map, $perf_cloud, $perf_clouds, $perf_var, $perf_key);

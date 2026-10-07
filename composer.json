@@ -1,6 +1,6 @@
 {
     "name": "simplyshipley/drupal-performance-recipe",
-    "description": "Drupal recipe: Redis cache, Purge + Azure Front Door (path) purging, Fast 404 + Themed Fast 404, core cache tuning. Settings include and local DDEV/Lando test harness.",
+    "description": "Drupal recipe: Redis cache, Purge + Azure Front Door (path) purging, core cache tuning. Settings include and local DDEV/Lando test harness.",
     "type": "drupal-recipe",
     "license": "GPL-2.0-or-later",
     "require": {
@@ -8,8 +8,6 @@
         "drupal/redis": "^1.11",
         "drupal/purge": "^3.7",
         "drupal/azure_cdn_purge": "1.0.4",
-        "drupal/fast_404": "^3.7",
-        "drupal/themed_fast_404": "^1.0",
         "simplyshipley/drupal-performance-modules": "^1.0"
     },
     "suggest": {

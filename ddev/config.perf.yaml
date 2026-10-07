@@ -5,7 +5,6 @@ web_environment:
   - REDIS_HOST=redis
   - REDIS_PORT=6379
   - REDIS_PREFIX=perflab
-  - PERF_FAST404=1
   - PERF_MOCK_AFD_PROXY=http://mock-afd:8080
   - AZURE_CDN_TENANT_ID=00000000-0000-0000-0000-000000000000
   - AZURE_CDN_CLIENT_ID=11111111-1111-1111-1111-111111111111
@@ -15,7 +14,6 @@ web_environment:
   - AZURE_CDN_PROFILE=afd-synthetic
   - AZURE_CDN_ENDPOINT=ep-synthetic
   - AZURE_CDN_ENDPOINT_TYPE=afdEndpoints
-  - THEMED_FAST404_BASE_URL=http://localhost
   - PERF_MOCK_URL=http://mock-afd:8080
   - PERF_REDIS_CONTAINER_HINT=ddev
   # Edge (Front Door + WAF stand-in, docker-compose.edge.yaml). Lab only.

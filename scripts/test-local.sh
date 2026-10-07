@@ -40,7 +40,7 @@ PREFIX="${REDIS_PREFIX:-}"
 FAILS=0
 PASSES=0
 ALL_TESTS=(redis_bins redis_in_use drush_cr tag_invalidation eviction purge_queue_fills purge_send purge_send_gov purge_retry
-  fast404_static fast404_path themed_404 headers_anon headers_auth cache_4xx cache_mode_dev cache_mode_prod cache_mode_guard)
+  core_404_static core_404_page headers_anon headers_auth cache_4xx cache_mode_dev cache_mode_prod cache_mode_guard)
 # Edge tests need the edge service (edge/). waf_rate_limit runs last: it
 # exhausts this client's rate-limit buckets for about a minute.
 # PERF_EDGE=0 skips them (site without the edge).
@@ -360,60 +360,27 @@ t_purge_retry() {
   fi
 }
 
-t_fast404_static() {
-  local u r code t size h xc
-  u="$BASE_URL/sites/default/files/perf-missing-$RANDOM.png"
-  r=$(curl -s -o /tmp/perf-404s.html -w '%{http_code} %{time_total} %{size_download}' "$u")
-  read -r code t size <<<"$r"
-  h=$(hdr "$u"); xc=$(hget "$h" x-drupal-cache)
-  local ref; ref=$(curl -s -o /dev/null -w '%{time_total}' "$BASE_URL/user/login?perf=$RANDOM")
-  # Fast 404's request subscriber answers with a plain Response, which the page
-  # cache never stores ("UNCACHEABLE (no cacheability)"). Drupal's own 404
-  # handling is page-cached (MISS, then HIT on this second request).
-  if grep -q '<center>nginx' /tmp/perf-404s.html; then
-    say FAIL fast404_static "answered by nginx itself (${t}s), Drupal/Fast 404 never saw the request; pass missing static files to Drupal (see docs) to test Fast 404"
-  elif [[ "$code" == "404" && "$xc" == "UNCACHEABLE (no cacheability)" ]]; then
-    say PASS fast404_static "missing .png -> 404 in ${t}s, ${size} bytes, answered by the Fast 404 module (X-Drupal-Cache: $xc); uncached /user/login for comparison ${ref}s"
-  else
-    say FAIL fast404_static "code=$code time=${t}s size=$size x-drupal-cache=$xc"
-  fi
+# miss_hit <url>: "status X-Drupal-Cache" of two requests in a row.
+miss_hit() { local a b; a=$(hdr "$1"); b=$(hdr "$1"); echo "$(hget "$a" status) $(hget "$a" x-drupal-cache), $(hget "$b" status) $(hget "$b" x-drupal-cache)"; }
+
+# Core's Fast 404 (system.performance fast_404; sites may set its paths and page
+# in settings.php) answers a missing static file with its short page, and the
+# page cache stores it. Its <title> tells it from the theme's 404 page.
+t_core_404_static() {
+  local u c t body
+  u="$BASE_URL/sites/default/files/perf-missing-$RANDOM.png"; c=$(miss_hit "$u"); body=$(curl -s "$u")
+  t=$(php_eval 'preg_match("#<title>.*?</title>#", (string) \Drupal::config("system.performance")->get("fast_404.html"), $m); print $m[0] ?? "";' | tail -1)
+  if [[ "$c" == "404 MISS, 404 HIT" && -n "$t" && "$body" == *"$t"* ]]; then say PASS core_404_static "missing .png: $c, core's Fast 404 page $t"
+  else say FAIL core_404_static "missing .png: $c (want 404 MISS, 404 HIT); Fast 404 title '$t' in body: $([[ -n "$t" && "$body" == *"$t"* ]] && echo yes || echo no)"; fi
 }
 
-t_fast404_path() {
-  local u r code t size f ref
-  u="$BASE_URL/perf-no-such-path-$RANDOM/deeper"
-  r=$(curl -s -o /tmp/perf-404p.html -w '%{http_code} %{time_total} %{size_download}' "$u")
-  read -r code t size <<<"$r"
-  ref=$(curl -s -o /dev/null -w '%{time_total}' "$BASE_URL/user/password?perf=$RANDOM")
-  f="$(php_eval 'print \Drupal::service("file_system")->realpath("public://");')/page-not-found-en.html"
-  # Served by fast 404 = the body is the static page (Themed Fast 404 file, or
-  # the fast404 default HTML when cron has not written the file yet).
-  if [[ "$code" == "404" ]] && { cmp -s "$f" /tmp/perf-404p.html || grep -q 'Not Found</h1>' /tmp/perf-404p.html; }; then
-    say PASS fast404_path "unknown path -> 404 in ${t}s, ${size} bytes, body = static fast 404 page (uncached /user/password for comparison ${ref}s)"
-  else
-    say FAIL fast404_path "code=$code time=${t}s size=$size body-matches-static=$(cmp -s "$f" /tmp/perf-404p.html && echo yes || echo no)"
-  fi
-}
-
-t_themed_404() {
-  local f pub u
-  pub=$(php_eval 'print \Drupal::service("file_system")->realpath("public://");')
-  f="$pub/page-not-found-en.html"
-  dr cron >/dev/null
-  if [[ ! -s "$f" ]]; then
-    say FAIL themed_404 "cron did not write $f"
-    return
-  fi
-  local marker; marker=$(grep -o '<title>[^<]*</title>' "$f" | head -1)
-  u="$BASE_URL/sites/default/files/perf-missing-$RANDOM.css"
-  curl -s -o /tmp/perf-404t.html "$u"
-  # The response must be byte-identical to the file cron wrote (fast404
-  # substitutes @path, so compare with @path replaced by the request path).
-  if cmp -s "$f" /tmp/perf-404t.html || cmp -s <(sed "s#@path#${u#$BASE_URL}#g" "$f") /tmp/perf-404t.html; then
-    say PASS themed_404 "cron wrote $(basename "$f") ($(wc -c <"$f") bytes, $marker); the missing .css response is byte-identical to it"
-  else
-    say FAIL themed_404 "response ($(wc -c </tmp/perf-404t.html) bytes) is not the static file ($(wc -c <"$f") bytes); first bytes: $(head -c 120 /tmp/perf-404t.html | tr '\n' ' ')"
-  fi
+# An unknown page gets the theme's 404 page, also page-cached. "Page not found"
+# is core's title; a site with its own 404 page (system.site page.404) differs.
+t_core_404_page() {
+  local u c body
+  u="$BASE_URL/perf-no-such-page-$RANDOM"; c=$(miss_hit "$u"); body=$(curl -s "$u")
+  if [[ "$c" == "404 MISS, 404 HIT" && "$body" == *"<title>Page not found"* ]]; then say PASS core_404_page "unknown page: $c, the theme's 'Page not found' page"
+  else say FAIL core_404_page "unknown page: $c (want 404 MISS, 404 HIT); title 'Page not found' in body: $([[ "$body" == *"<title>Page not found"* ]] && echo yes || echo no)"; fi
 }
 
 t_headers_anon() {

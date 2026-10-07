@@ -85,7 +85,7 @@ An internal environment's apps resolve under `environmentDefaultDomain` [ASSUMED
    az webapp config appsettings set -g $RG -n <webapp> --settings \
      REDIS_HOST=<redisHost output> REDIS_PORT=6379 REDIS_SCHEME=tcp \
      REDIS_PASSWORD='@Microsoft.KeyVault(SecretUri=https://<kv>.vault.usgovcloudapi.net/secrets/redis-password/)' \
-     REDIS_PREFIX=<site> PERF_FAST404=1 AZURE_CLOUD=usgovernment
+     REDIS_PREFIX=<site> AZURE_CLOUD=usgovernment
    ```
 
    Keep the defaults `PERF_REDIS_CONNECT_TIMEOUT=1` and `PERF_REDIS_READ_TIMEOUT=2` (unset gives those values). Do not set:

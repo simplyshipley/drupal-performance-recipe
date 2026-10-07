@@ -1,5 +1,5 @@
-name: 'Performance: Redis, Purge (Azure Front Door), Fast 404'
-description: 'Installs Redis, Purge with the Azure CDN/Front Door purger (path-based), Fast 404 and Themed Fast 404, BigPipe and syslog, and sets core cache and aggregation settings. Connection details and credentials live in settings/settings.performance.php (environment variables), never in config.'
+name: 'Performance: Redis, Purge (Azure Front Door)'
+description: 'Installs Redis, Purge with the Azure CDN/Front Door purger (path-based), BigPipe and syslog, and sets core cache and aggregation settings. Connection details and credentials live in settings/settings.performance.php (environment variables), never in config.'
 type: 'Performance'
 install:
   - page_cache
@@ -16,8 +16,6 @@ install:
   # They depend on redis, purge and azure_cdn_purge above.
   - perf_redis_failopen
   - perf_purge_paths
-  - fast404
-  - themed_fast_404
 config:
   # purge.plugins and azure_cdn_purge.settings ship no default config, so the
   # recipe provides them in config/ (created only if the site has none yet).
