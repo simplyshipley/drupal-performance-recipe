@@ -101,10 +101,10 @@ lando exec appserver -- curl -sI "http://appserver_nginx/node/$N" | grep -i -E '
 |---|---|---|
 | `X-Drupal-Cache` | `HIT` | Served from the page cache |
 | | `MISS` | Built now; the next request should be `HIT` |
-| | `UNCACHEABLE (request policy)` | Visitor has a session cookie |
-| | `UNCACHEABLE (response policy)` | Something on the page switched page caching off |
-| | `UNCACHEABLE (poor cacheability)` | A view or block has max-age 0 |
-| | `UNCACHEABLE (no cacheability)` | A response with no cache data |
+| | `UNCACHEABLE (request policy)` | Not a GET/HEAD, or a session is open (often a session cookie) |
+| | `UNCACHEABLE (response policy)` | Code switched page caching off (kill switch, e.g. Honeypot on a form), or a server error |
+| | `UNCACHEABLE (no cacheability)` | The response isn't a cacheable type |
+| `X-Drupal-Dynamic-Cache` | `UNCACHEABLE (poor cacheability)` | Something on the page varies too much or has max-age 0 (dynamic cache only) |
 | | absent | Page cache is off (check `perf-cache status`) |
 | `X-Drupal-Dynamic-Cache` | `HIT` / `MISS` / `UNCACHEABLE` | Same, for the per-block cache; works for logged-in users too |
 | `Cache-Control` | `max-age=900, public` | Anonymous page, cacheable at Front Door |

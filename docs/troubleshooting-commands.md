@@ -101,6 +101,13 @@ for i in 1 2; do lando exec appserver -- curl -sI http://appserver_nginx/ | grep
 - **Why `lando exec`:** `lando ssh -c` mangles nested quotes and pipes. `lando exec` runs one command in the container, and the `grep` runs on your machine.
 
 - **Good:** the second request shows `X-Drupal-Cache: HIT` and `Cache-Control: max-age=900, public`.
+- **Which page `headers_anon` tests:** `/node/<id>` of the **lowest-numbered published node**, whatever its type (`first_node()` in `scripts/test-local.sh`). See which one it is:
+
+  ```bash
+  lando drush sqlq "SELECT nid, type, title FROM node_field_data WHERE status=1 ORDER BY nid LIMIT 1"
+  ```
+
+- **Where `UNCACHEABLE` comes from:** Drupal core's page cache (`core/modules/page_cache/src/StackMiddleware/PageCache.php`). It sets `X-Drupal-Cache: UNCACHEABLE (reason)` and has exactly three reasons: `request policy`, `no cacheability`, `response policy`. `poor cacheability` only appears on `X-Drupal-Dynamic-Cache` (core's dynamic page cache).
 
 **If you see** (read the second request of each pair)
 
@@ -108,16 +115,18 @@ for i in 1 2; do lando exec appserver -- curl -sI http://appserver_nginx/ | grep
   - Page caching works. OIG sites redirect `/node/N` to the page's alias, so `headers_anon` checked the redirect, not a page.
   - **Do:** nothing on the site. Check the alias instead: repeat step b with the path from `Location:`.
 - **3-B: `UNCACHEABLE (request policy)`, often with `Set-Cookie: SESS...`.**
-  - Something starts a session for anonymous visitors, and Drupal never caches pages for sessions.
+  - Core's request rules said no: the request is not a GET/HEAD, or a session is open (`DefaultRequestPolicy`: `CommandLineOrUnsafeMethod`, `NoSessionOpen`). Modules can add rules too (core's `basic_auth` does).
+  - Usually something starts a session for anonymous visitors, and Drupal never caches pages for sessions.
   - **Do:** look for modules that store things per visitor (cookie consent, carts, forms) or a block that sets a message: `lando drush pm:list --status=enabled`.
 - **3-C: `UNCACHEABLE (response policy)`.**
-  - Something on the page switched page caching off: a form with a security token, a webform, a status message.
+  - Core's response rules said no. Most often code called the page cache "kill switch" (`page_cache_kill_switch`) while building the page, or the response was a server error (`page_cache_no_server_error`).
+  - On OIG sites, suspect Honeypot first: `settings.global.php` turns on its 5-second time limit for webforms, user registration and password reset, and a page showing one of those forms can't be cached. Also forms with a security token and status messages.
   - **Do:** compare with the home page (step c). If the home page is `HIT`, the cause is that page's content or blocks.
-- **3-D: `UNCACHEABLE (poor cacheability)`.**
-  - A view or block on the page has caching set to "None" (`max-age 0`).
-  - **Do:** set the view's or block's caching to tag-based or time-based.
+- **3-D: `X-Drupal-Dynamic-Cache: UNCACHEABLE (poor cacheability)`.** (This reason never appears on `X-Drupal-Cache`.)
+  - Something on the page varies too much (for example per user or per session) or has max-age 0, so the dynamic cache skips the whole page. This alone doesn't stop the page cache for anonymous visitors.
+  - **Do:** check views and blocks on the page for caching set to "None".
 - **3-E: `UNCACHEABLE (no cacheability)` on a `200` page.**
-  - A module returned a response without cache data.
+  - The response isn't a cacheable type (it doesn't implement `CacheableResponseInterface`): a module returned a plain Symfony response.
   - **Do:** note the page and the modules on it; this needs a closer look.
 - **3-F: no `X-Drupal-Cache` header at all.**
   - Page caching is off: run `lando perf-cache prod-like`, and check `lando drush pm:list --status=enabled | grep page_cache`.
