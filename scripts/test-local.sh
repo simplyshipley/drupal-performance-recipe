@@ -249,15 +249,15 @@ t_redis_down() {
   local c_home c_node c_login body d warn
   c_home=$(curl -s -o /tmp/perf-redis-down.html -w '%{http_code} %{time_total}' "$BASE_URL/?perf=$RANDOM")
   body=$(head -c 200 /tmp/perf-redis-down.html | tr '\n' ' ')
-  c_node=$(curl -s -o /dev/null -w '%{http_code} %{time_total}' "$BASE_URL/node/1?perf=$RANDOM")
+  c_node=$(curl -s -o /dev/null -w '%{http_code} %{time_total}' "$BASE_URL$PERF_TEST_PATH?perf=$RANDOM")
   c_login=$(status_of "$BASE_URL/user/login")
   d=$($DRUSH status --field=bootstrap 2>&1 | tail -1)
   warn=$($DRUSH sqlq "SELECT COUNT(*) FROM watchdog WHERE type='perf_redis_failopen' AND timestamp > UNIX_TIMESTAMP() - 120" 2>/dev/null | tr -dc "0-9")
-  say INFO redis_down "home: $c_home; node/1: $c_node; /user/login: $c_login; drush bootstrap: $d; fail-open warnings logged in last 120 s: ${warn:-n/a}; body starts: ${body:0:120}"
+  say INFO redis_down "home: $c_home; $PERF_TEST_PATH: $c_node; /user/login: $c_login; drush bootstrap: $d; fail-open warnings logged in last 120 s: ${warn:-n/a}; body starts: ${body:0:120}"
   if [[ "${c_home%% *}" == "200" && "${c_node%% *}" == "200" && "$c_login" == "200" && "${warn:-0}" -ge 1 ]]; then
     say PASS redis_down "site answered 200 with Redis stopped and logged a throttled warning (${warn} in 120 s)"
   else
-    say FAIL redis_down "Redis stopped: home ${c_home%% *}, node ${c_node%% *}, login $c_login, warnings ${warn:-n/a}"
+    say FAIL redis_down "Redis stopped: home ${c_home%% *}, $PERF_TEST_PATH ${c_node%% *}, login $c_login, warnings ${warn:-n/a}"
   fi
 }
 
@@ -265,8 +265,8 @@ t_redis_down() {
 # first request pays at most the connect/read timeout, later ones skip Redis.
 t_redis_hang() {
   local t1 t2 t3 c1 c2 c3 bound="${PERF_HANG_BOUND:-5}"
-  read -r c1 t1 <<<"$(curl -s -o /dev/null --max-time 90 -w '%{http_code} %{time_total}' "$BASE_URL/node/3?hang=$RANDOM")"
-  read -r c2 t2 <<<"$(curl -s -o /dev/null --max-time 90 -w '%{http_code} %{time_total}' "$BASE_URL/node/4?hang=$RANDOM")"
+  read -r c1 t1 <<<"$(curl -s -o /dev/null --max-time 90 -w '%{http_code} %{time_total}' "$BASE_URL$PERF_TEST_PATH?hang=$RANDOM")"
+  read -r c2 t2 <<<"$(curl -s -o /dev/null --max-time 90 -w '%{http_code} %{time_total}' "$BASE_URL$PERF_TEST_PATH?hang=$RANDOM")"
   read -r c3 t3 <<<"$(curl -s -o /dev/null --max-time 90 -w '%{http_code} %{time_total}' "$BASE_URL/?hang=$RANDOM")"
   say INFO redis_hang "Redis paused: first $c1 in ${t1}s, second $c2 in ${t2}s, third $c3 in ${t3}s (bound ${bound}s first, 1s after)"
   if [[ "$c1" == 200 && "$c2" == 200 && "$c3" == 200 ]] && awk -v a="$t1" -v b="$t2" -v c="$t3" -v m="$bound" 'BEGIN{exit !(a<m && b<1 && c<1)}'; then
@@ -283,13 +283,13 @@ t_redis_recover() {
   wait=$(( ${PERF_REDIS_RETRY_INTERVAL:-30} + 2 ))
   sleep "$wait"
   before=$(redis_php count)
-  curl -s -o /dev/null "$BASE_URL/node/2"; curl -s -o /dev/null "$BASE_URL/node/2"
-  h=$(hget "$(hdr "$BASE_URL/node/2")" x-drupal-cache)
+  curl -s -o /dev/null "$BASE_URL$PERF_TEST_PATH"; curl -s -o /dev/null "$BASE_URL$PERF_TEST_PATH"
+  h=$(hget "$(hdr "$BASE_URL$PERF_TEST_PATH")" x-drupal-cache)
   after=$(redis_php count)
   if [[ "${after:-0}" -gt "${before:-0}" && "$h" == "HIT" ]]; then
-    say PASS redis_recover "after ${wait}s Redis is used again: keys $before -> $after, node/2 X-Drupal-Cache=$h"
+    say PASS redis_recover "after ${wait}s Redis is used again: keys $before -> $after, $PERF_TEST_PATH X-Drupal-Cache=$h"
   else
-    say FAIL redis_recover "keys $before -> $after, node/2 X-Drupal-Cache=$h after ${wait}s"
+    say FAIL redis_recover "keys $before -> $after, $PERF_TEST_PATH X-Drupal-Cache=$h after ${wait}s"
   fi
 }
 
@@ -1134,6 +1134,7 @@ t_sync_redis_down() {
 
 # --- Runner -------------------------------------------------------------------
 if [[ "${1:-}" == "--list" ]]; then printf '%s\n' "${ALL_TESTS[@]}" redis_down sync_redis_down redis_recover redis_hang; exit 0; fi
+[[ "${1:-}" == "--home" ]] && { status_of "$BASE_URL/"; exit 0; }  # home page HTTP status, for lando-test.sh
 TESTS=("$@"); [[ ${#TESTS[@]} -eq 0 ]] && TESTS=("${ALL_TESTS[@]}")
 # The suite needs production behaviour: switch to prod-like, restore the
 # previous mode at exit. PERF_CACHE_AUTO=0 skips (the host wrappers do it once).
@@ -1151,10 +1152,13 @@ if [[ "${PERF_CACHE_AUTO:-1}" == 1 ]]; then
     echo "# cache mode: '${PERF_CACHE_PREV:-off}' -> prod-like for the suite"
   fi
 fi
-# At exit, also after a failed test or Ctrl-C: restore the cache mode, delete the
-# run's SYNTHETIC nodes and terms (with their aliases, menu links and redirects).
+# At exit, also after a failed test or Ctrl-C: restore the cache mode and the
+# page max-age the run started with (tests set 300 or 0), delete the run's
+# SYNTHETIC nodes and terms (with their aliases, menu links and redirects).
 cleanup() {
+  trap '' INT  # a second Ctrl-C must not cut the cleanup short
   perf_cache_restore
+  [[ "$SYNC_PREV_MAXAGE" =~ ^[0-9]+$ ]] && sync_end
   echo "# cleanup: deleted SYNTHETIC $(php_eval 'foreach (["node" => ["title", "created"], "taxonomy_term" => ["name", "changed"]] as $type => [$label, $time]) {
       if (!\Drupal::entityTypeManager()->hasDefinition($type)) { continue; }
       $s = \Drupal::entityTypeManager()->getStorage($type);
@@ -1162,6 +1166,7 @@ cleanup() {
       $s->delete($s->loadMultiple($ids)); print count($ids) . " $type ";
     }' | tail -1)"
 }
+SYNC_PREV_MAXAGE=$(php_eval 'print \Drupal::config("system.performance")->get("cache.page.max_age");' | tail -1)
 trap cleanup EXIT
 trap 'exit 130' INT  # Ctrl-C stops the run: drush handles SIGINT and returns, bash would go on
 echo "# perf test-local.sh $(date -u +%FT%TZ) BASE_URL=$BASE_URL PERF_TEST_PATH=$PERF_TEST_PATH MOCK=$MOCK PREFIX=$PREFIX settings file: $([[ -f "${PERF_TEST_ENV:-perf-test.env}" ]] && echo "${PERF_TEST_ENV:-perf-test.env}" || echo none)"
