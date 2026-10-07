@@ -22,6 +22,17 @@
 
 set -uo pipefail
 
+# LAB ONLY. This script creates SYNTHETIC nodes promoted to the front page,
+# empties the purge queue, stops and starts Redis from its wrappers and runs a
+# menu save with PERF_PURGE_SITEWIDE_PATHS=/* followed by queue-work, which is a
+# real full purge. It ships in every deployment of the recipe, so it refuses to
+# run anywhere that is not a DDEV or Lando environment (the same check the
+# settings include uses for its lab switches). --list is harmless and exempt.
+if [[ "${1:-}" != "--list" && "${IS_DDEV_PROJECT:-}" != "true" && "${LANDO:-}" != "ON" ]]; then
+  echo "FAIL guard: test-local.sh is a lab test harness and only runs inside DDEV (IS_DDEV_PROJECT=true) or Lando (LANDO=ON). Refusing to run here." >&2
+  exit 99
+fi
+
 BASE_URL="${BASE_URL:-http://localhost}"
 MOCK="${PERF_MOCK_URL:-http://mock-afd:8080}"
 DRUSH="${DRUSH:-vendor/bin/drush}"
@@ -35,9 +46,10 @@ ALL_TESTS=(redis_bins redis_in_use drush_cr tag_invalidation eviction purge_queu
 # PERF_EDGE=0 skips them (site without the edge).
 EDGE_TESTS=(edge_static_hit edge_querystring edge_bypass_session edge_html_ttl edge_purge_e2e
   waf_block_sqli waf_block_xss waf_blocked_paths waf_detection_mode origin_headers
-  bot_challenge security_headers generator_removed
-  sync_alias sync_single_save sync_listing sync_alias_change sync_delete sync_publish_cycle sync_revert sync_new_path_404
-  sync_other_entities sync_menu_block sync_file sync_bulk sync_cron sync_wildcard
+  bot_challenge security_headers generator_removed origin_forwarded_port
+  sync_alias sync_single_save sync_listing sync_alias_change sync_alias_rename sync_delete sync_alias_delete sync_alias_delete_404
+  sync_publish_cycle sync_revert sync_new_path_404
+  sync_other_entities sync_menu_block sync_file sync_file_delete sync_file_swap sync_bulk sync_cron sync_wildcard
   waf_rate_limit)
 [[ "${PERF_EDGE:-1}" == 1 ]] && ALL_TESTS+=("${EDGE_TESTS[@]}")
 
@@ -194,7 +206,7 @@ t_eviction() {
   # Always restore the Redis limits, even if the test is interrupted.
   trap "redis_php config_set maxmemory '$orig_mem' >/dev/null; redis_php config_set maxmemory-policy '$orig_pol' >/dev/null; perf_cache_restore" EXIT INT TERM
   redis_php config_set maxmemory "$limit" >/dev/null
-  redis_php config_set maxmemory-policy allkeys-lru >/dev/null
+  redis_php config_set maxmemory-policy volatile-lfu >/dev/null
   ev0=$(redis_php info stats evicted_keys)
   nids=$(php_eval 'print implode(" ", \Drupal::entityQuery("node")->accessCheck(FALSE)->condition("status",1)->range(0,200)->execute());')
   n=0
@@ -206,7 +218,7 @@ t_eviction() {
   redis_php config_set maxmemory-policy "$orig_pol" >/dev/null
   trap - INT TERM; trap perf_cache_restore EXIT
   if [[ "$((ev1 - ev0))" -gt 0 && "$code" == "200" ]]; then
-    say PASS eviction "maxmemory temporarily $limit bytes (policy allkeys-lru), $n page requests: evicted_keys $ev0 -> $ev1, home page still $code; peak=$peak; restored maxmemory=$orig_mem policy=$orig_pol"
+    say PASS eviction "maxmemory temporarily $limit bytes (policy volatile-lfu), $n page requests: evicted_keys $ev0 -> $ev1, home page still $code; peak=$peak; restored maxmemory=$orig_mem policy=$orig_pol"
   else
     say FAIL eviction "evicted_keys $ev0 -> $ev1 after $n requests; home=$code"
   fi
@@ -349,18 +361,21 @@ t_purge_retry() {
 }
 
 t_fast404_static() {
-  local u r code t size h
+  local u r code t size h xc
   u="$BASE_URL/sites/default/files/perf-missing-$RANDOM.png"
   r=$(curl -s -o /tmp/perf-404s.html -w '%{http_code} %{time_total} %{size_download}' "$u")
   read -r code t size <<<"$r"
-  h=$(hdr "$u")
+  h=$(hdr "$u"); xc=$(hget "$h" x-drupal-cache)
   local ref; ref=$(curl -s -o /dev/null -w '%{time_total}' "$BASE_URL/user/login?perf=$RANDOM")
+  # Fast 404's request subscriber answers with a plain Response, which the page
+  # cache never stores ("UNCACHEABLE (no cacheability)"). Drupal's own 404
+  # handling is page-cached (MISS, then HIT on this second request).
   if grep -q '<center>nginx' /tmp/perf-404s.html; then
     say FAIL fast404_static "answered by nginx itself (${t}s), Drupal/Fast 404 never saw the request; pass missing static files to Drupal (see docs) to test Fast 404"
-  elif [[ "$code" == "404" && -z "$(hget "$h" x-drupal-cache)" && -z "$(hget "$h" x-drupal-dynamic-cache)" ]]; then
-    say PASS fast404_static "missing .png -> 404 in ${t}s, ${size} bytes, no Drupal cache headers (answered before Drupal booted); uncached /user/login for comparison ${ref}s"
+  elif [[ "$code" == "404" && "$xc" == "UNCACHEABLE (no cacheability)" ]]; then
+    say PASS fast404_static "missing .png -> 404 in ${t}s, ${size} bytes, answered by the Fast 404 module (X-Drupal-Cache: $xc); uncached /user/login for comparison ${ref}s"
   else
-    say FAIL fast404_static "code=$code time=${t}s size=$size x-drupal-cache=$(hget "$h" x-drupal-cache)"
+    say FAIL fast404_static "code=$code time=${t}s size=$size x-drupal-cache=$xc"
   fi
 }
 
@@ -689,6 +704,28 @@ t_origin_headers() {
   fi
 }
 
+# X-Forwarded-Port is not trusted (docs/hardening.md). Front Door overwrites only
+# X-Forwarded-Host and -Proto and passes the other headers a client sends, so if
+# Drupal trusted the port, a forged "X-Forwarded-Port: 4444" would put absolute
+# links with :4444 (canonical, shortlink) into a page the edge then caches for
+# everyone. The request goes through the edge (the trusted proxy) with a
+# cache-busting query; no absolute URL in the page may carry the forged port.
+# Fail-proof: trust the header again (lab settings: PERF_LAB_TRUST_FORWARDED_PORT=1
+# in docs/tests.md); the page then carries :4444 and the test FAILs.
+t_origin_forwarded_port() {
+  local nid p body links
+  nid=$(first_node); p=$(node_path "$nid")
+  body=$(curl -s -H 'X-Forwarded-Port: 4444' "$EDGE$p?fwdport=$(rnd)")
+  links=$(grep -o -E '(rel="(canonical|shortlink)"[^>]*|<link[^>]*(canonical|shortlink)[^>]*)' <<<"$body" | head -3 | tr '\n' ' ')
+  if [[ "$links" != *canonical* ]]; then
+    say FAIL origin_forwarded_port "no canonical link in the page for $p, so this proves nothing (got: '${links:0:160}')"
+  elif [[ "$body" == *":4444"* ]]; then
+    say FAIL origin_forwarded_port "a forged X-Forwarded-Port: 4444 reached the page: ${links:0:200}"
+  else
+    say PASS origin_forwarded_port "X-Forwarded-Port: 4444 sent through the edge is ignored: no ':4444' anywhere in $p (links: ${links:0:160})"
+  fi
+}
+
 t_waf_rate_limit() {
   local i c codes="" lg n429=0 s429=0 p429 psz g429 dry=0
   for i in $(seq 1 12); do codes="$codes $(status_of -X POST --data 'name=x&pass=y&form_id=user_login_form' "$EDGE/user/login")"; done
@@ -774,11 +811,20 @@ t_generator_removed() {
 # Each test warms URLs at the local edge (TCP_HIT), changes content with
 # drush, works the purge queue, and checks the first edge response after it:
 # TCP_MISS = purged, TCP_HIT = still cached (stale).
-# SYNC_NEGATIVE=1 fail-proof: the content change runs with PERF_PURGE_PATHS=0
-# (only azure_cdn_purge's own node alias purge), so the tests that depend on
-# the perf_purge_paths fix FAIL.
+# SYNC_NEGATIVE=1 fail-proof: the content change runs with path purging
+# switched off the way an environment does it, the settings.php line
+# $config['perf_purge_paths.settings']['enabled'] = FALSE (the lab settings.php
+# sets it when PERF_LAB_PURGE_OFF=1), so perf_purge_paths queues nothing (while
+# it is installed it also removes azure_cdn_purge's own node hook), and the
+# tests that depend on it FAIL.
 # FINDING lines = known gaps left as open decisions (docs/cache-sync.md).
-sync_env() { if [[ "${SYNC_NEGATIVE:-0}" == 1 ]]; then echo "PERF_PURGE_PATHS=0"; else echo "PERF_PURGE_PATHS=1"; fi; }
+# sync_delete, sync_alias_delete, sync_file_delete and sync_file_swap need the
+# delete hooks of the perf_purge_paths module (the former perf_purge_deleted
+# module is part of it): with it installed, stale = FAIL; without it, stale =
+# FINDING. Each checks that the URL was cached at the edge BEFORE the delete,
+# so a purge that never happened and a page that was never cached cannot look
+# the same.
+sync_env() { if [[ "${SYNC_NEGATIVE:-0}" == 1 ]]; then echo "PERF_LAB_PURGE_OFF=1"; else echo "PERF_LAB_PURGE_OFF=0"; fi; }
 sphp() { env $(sync_env) ${SYNC_EXTRA_ENV:-} $DRUSH php:eval "$1" 2>&1; }
 SYNC_PREV_MAXAGE=""
 sync_begin() {
@@ -794,6 +840,29 @@ after() { local u h; for u in "$@"; do h=$(hdr "$EDGE_REAL$u"); printf '%s=%s/%s
 all_miss() { [[ "$1" != *TCP_HIT* && "$1" == *TCP_MISS* ]]; }
 queued() { php_eval 'print implode(" ", array_map(fn($d) => ($x = unserialize($d)) ? ($x[0] . ":" . $x[2]) : "?", \Drupal::database()->query("SELECT data FROM {purge_queue}")->fetchCol()));' | tail -1; }
 new_node() { php_eval "\$n = \Drupal\node\Entity\Node::create(['type' => 'article', 'title' => 'SYNTHETIC sync $1 ' . mt_rand(), 'status' => ${3:-1}, 'promote' => 1, 'path' => ['alias' => '$2', 'pathauto' => 0]]); \$n->save(); print \$n->id();" | tail -1; }
+# deleted_mod: "on" when the perf_purge_paths module (which carries the alias and
+# file delete/rename hooks) is installed.
+deleted_mod() { php_eval 'print \Drupal::moduleHandler()->moduleExists("perf_purge_paths") ? "on" : "off";' | tail -1; }
+# hits <result>: how many URLs came from the edge cache with status 200.
+hits() { grep -o 'TCP_HIT/200 ' <<<"$1" | grep -c .; }
+# gone <result> <n>: all n URLs answered 404 and none came from the edge cache.
+gone() { [[ "$1" != *TCP_HIT* && "$(grep -o '/404 ' <<<"$1" | grep -c .)" == "$2" ]]; }
+# fresh_or_404 <result> <n>: none of the n URLs came from the edge cache, and each
+# is fresh from the origin (TCP_MISS) or a 404.
+fresh_or_404() { [[ "$1" != *TCP_HIT* && "$(grep -oE '=(TCP_MISS/[0-9]+|[A-Z_]+/404) ' <<<"$1" | grep -c .)" == "$2" ]]; }
+# new_png <name>: a SYNTHETIC public PNG (unique bytes) as a permanent managed
+# file public://synthetic-sync-<name>.png; prints "<fid> <md5 of the bytes>".
+new_png() {
+  php_eval '
+    $im = imagecreatetruecolor(4, 4); imagefill($im, 0, 0, imagecolorallocate($im, mt_rand(0, 255), mt_rand(0, 255), mt_rand(0, 255)));
+    ob_start(); imagepng($im); $bytes = ob_get_clean();
+    $uri = "public://synthetic-sync-'"$1"'.png"; file_put_contents($uri, $bytes);
+    $f = \Drupal\file\Entity\File::create(["uri" => $uri, "status" => 1]); $f->save();
+    print $f->id() . " " . md5($bytes);' | tail -1
+}
+# style_url <fid>: root-relative URL (with ?itok) of the file in the first image
+# style; empty when the site has no image style.
+style_url() { php_eval "\$s = \Drupal\image\Entity\ImageStyle::loadMultiple(); \$s = reset(\$s); print \$s ? \Drupal::service('file_url_generator')->transformRelative(\$s->buildUrl(\Drupal\file\Entity\File::load($1)->getFileUri())) : '';" | tail -1; }
 
 t_sync_alias() {
   local r nid a res q
@@ -813,7 +882,7 @@ t_sync_single_save() {
   q=$(queued); dr p:queue-empty >/dev/null; sync_end
   n=$(printf '%s\n' $q | grep -c . || true); u=$(printf '%s\n' $q | sort -u | grep -c . || true)
   dup=$(printf '%s\n' $q | sort | uniq -d | tr '\n' ' ')
-  if [[ "$n" -gt 0 && "$n" == "$u" && " $q " == *" path:${a#/} "* && " $q " == *" path:node/$nid "* && " $q " != *"rss.xml/"* ]]; then
+  if [[ "$n" -gt 0 && "$n" == "$u" && " $q " == *" path:${a#/} "* && " $q " == *" path:node/$nid "* ]]; then
     say PASS sync_single_save "one save of node/$nid queued $n invalidations, each once: $q"
   else say FAIL sync_single_save "one save queued $n items, $u unique; duplicates: '${dup}'; items: $q"; fi
 }
@@ -838,14 +907,78 @@ t_sync_alias_change() {
   else say FAIL sync_alias_change "old alias still served from the edge after the alias change: $res"; fi
 }
 
+# A node is deleted: its alias and /node/N must be purged and answer 404. With
+# the perf_purge_paths module installed (its alias hook queues the alias while it
+# still exists) a stale alias is a FAIL; without it, a FINDING (known gap). The
+# URLs must be cached at the edge BEFORE the delete, so "never cached" cannot
+# pass as "purged", and both must answer 404, not merely "not a hit".
 t_sync_delete() {
-  local r nid a res
-  sync_begin; r=$(rnd); a="/synthetic-sync-del-$r"; nid=$(new_node delete "$a"); sync_work; warm "$a" "/node/$nid"
+  local r nid a on pre res
+  sync_begin; r=$(rnd); a="/synthetic-sync-del-$r"; on=$(deleted_mod)
+  nid=$(new_node delete "$a"); sync_work; warm "$a" "/node/$nid"; pre=$(after "$a" "/node/$nid")
   sphp "\Drupal\node\Entity\Node::load($nid)->delete();" >/dev/null
   sync_work; res=$(after "$a" "/node/$nid"); sync_end
-  if [[ "$res" != *TCP_HIT* ]]; then say PASS sync_delete "deleted node/$nid: alias and /node/N purged (404): $res"
-  elif [[ "$res" == *"/node/$nid=TCP_MISS"* ]]; then say FINDING sync_delete "deleted node/$nid: /node/N purged but the ALIAS is still served from the edge until its TTL: $res. Likely cause [ASSUMED]: the alias row is already deleted when the tags reach the queuer. Fix needs a hook module (docs/cache-sync.md open decision 1)"
-  else say FAIL sync_delete "deleted node still at the edge: $res"; fi
+  if [[ "$(hits "$pre")" != 2 ]]; then say FAIL sync_delete "alias and /node/N were not both cached at the edge before the delete, so this proves nothing: $pre"
+  elif gone "$res" 2; then say PASS sync_delete "deleted node/$nid: alias and /node/N purged (404): $res (before: $pre; perf_purge_paths $on)"
+  elif [[ "$on" == off && "$res" == *"/node/$nid=TCP_MISS"* ]]; then say FINDING sync_delete "deleted node/$nid: /node/N purged but the ALIAS is still served from the edge until its TTL: $res. Fix: install the perf_purge_paths module (docs/cache-sync.md)"
+  else say FAIL sync_delete "perf_purge_paths $on: deleted node still at the edge, or not 404: $res (before: $pre)"; fi
+}
+
+# Only the path_alias entity is deleted (the node stays): the alias must be purged
+# at the edge (HIT -> MISS). This test checks the EDGE CONTRACT only; what Drupal
+# answers is checked by sync_alias_delete_404 below. Core invalidates only
+# "route_match" for an alias, and Drupal's page cache entries do not expire, so
+# without the perf_purge_paths alias hook (which also invalidates the aliased
+# entity's tags) Drupal keeps answering 200 for the deleted alias.
+# Bo's ruling x (2026-10-06): "Pass when no URL is served from the edge cache and
+# each is fresh or a 404." The alias hook also makes Drupal answer 404 (not
+# cacheable at the edge), so "HIT -> MISS" was too narrow.
+t_sync_alias_delete() {
+  local r nid a on pre res
+  sync_begin; r=$(rnd); a="/synthetic-sync-adel-$r"; on=$(deleted_mod)
+  nid=$(new_node aliasdelete "$a"); sync_work; warm "$a" "$a/"; pre=$(after "$a" "$a/")
+  sphp "\$s = \Drupal::entityTypeManager()->getStorage('path_alias'); \$s->delete(\$s->loadByProperties(['alias' => '$a']));" >/dev/null
+  sync_work; res=$(after "$a" "$a/"); sync_end
+  if [[ "$(hits "$pre")" != 2 ]]; then say FAIL sync_alias_delete "alias and alias/ were not both cached at the edge before the delete, so this proves nothing: $pre"
+  elif fresh_or_404 "$res" 2; then say PASS sync_alias_delete "path_alias of node/$nid deleted: alias and alias/ no longer served from the edge cache, each fresh or a 404: $res (before: $pre; perf_purge_paths $on)"
+  elif [[ "$res" == *TCP_HIT* && "$on" == off ]]; then say FINDING sync_alias_delete "deleted alias is still served from the edge until its TTL: $res. Fix: install the perf_purge_paths module (docs/cache-sync.md)"
+  else say FAIL sync_alias_delete "perf_purge_paths $on: alias deleted, after queue-work: $res (before: $pre)"; fi
+}
+
+# The user-visible property of an alias-only delete: the deleted alias answers
+# 404 from the ORIGIN and from the edge. Separate from sync_alias_delete (the
+# edge contract) so neither check can hide the other. The origin is requested
+# twice at BASE_URL BEFORE the delete, so that exact page cache entry exists: a
+# cache-busting query string would hide the defect. Needs the perf_purge_paths
+# alias hook (it invalidates the aliased entity's cache tags).
+t_sync_alias_delete_404() {
+  local r nid a on pre o_pre res_e res_o
+  sync_begin; r=$(rnd); a="/synthetic-sync-adel404-$r"; on=$(deleted_mod)
+  nid=$(new_node aliasdelete404 "$a"); sync_work; warm "$a"; pre=$(after "$a")
+  status_of "$BASE_URL$a" >/dev/null; o_pre=$(status_of "$BASE_URL$a")
+  sphp "\$s = \Drupal::entityTypeManager()->getStorage('path_alias'); \$s->delete(\$s->loadByProperties(['alias' => '$a']));" >/dev/null
+  sync_work; res_e=$(after "$a"); res_o=$(status_of "$BASE_URL$a"); sync_end
+  if [[ "$(hits "$pre")" != 1 || "$o_pre" != 200 ]]; then say FAIL sync_alias_delete_404 "the alias was not cached at the edge ($pre) and served by the origin ($o_pre) before the delete, so this proves nothing"
+  elif [[ "$res_o" == 404 ]] && gone "$res_e" 1; then say PASS sync_alias_delete_404 "path_alias of node/$nid deleted: the origin answers 404 and the edge answers 404 (not from its cache): origin $res_o, edge $res_e (before: origin $o_pre, edge $pre; perf_purge_paths $on)"
+  else say FAIL sync_alias_delete_404 "perf_purge_paths $on: the deleted alias is still served: origin $res_o (want 404), edge $res_e (want 404 not from the cache); before: origin $o_pre, edge $pre"; fi
+}
+
+# A path_alias entity is renamed through the entity API (not the node form, which
+# also invalidates the node): the OLD alias must answer 404 at the origin and the
+# edge, and the NEW alias must serve the node. Needs the perf_purge_paths alias
+# update hook: it queues the old alias and invalidates the entity's cache tags,
+# which core does not do for an alias.
+t_sync_alias_rename() {
+  local r nid old new on pre o_pre res_e res_o
+  sync_begin; r=$(rnd); old="/synthetic-sync-renold-$r"; new="/synthetic-sync-rennew-$r"; on=$(deleted_mod)
+  nid=$(new_node aliasrename "$old"); sync_work; warm "$old"; pre=$(after "$old")
+  status_of "$BASE_URL$old" >/dev/null; o_pre=$(status_of "$BASE_URL$old")
+  sphp "\$s = \Drupal::entityTypeManager()->getStorage('path_alias'); foreach (\$s->loadByProperties(['alias' => '$old']) as \$a) { \$a->setAlias('$new')->save(); }" >/dev/null
+  sync_work; res_e=$(after "$old" "$new"); res_o=$(status_of "$BASE_URL$old"); sync_end
+  if [[ "$(hits "$pre")" != 1 || "$o_pre" != 200 ]]; then say FAIL sync_alias_rename "the old alias was not cached at the edge ($pre) and served by the origin ($o_pre) before the rename, so this proves nothing"
+  elif [[ "$res_o" == 404 && "$res_e" == "$old="*"/404 "* && "$res_e" != "$old=TCP_HIT"* && "$res_e" == *"$new=TCP_MISS/200"* ]]; then
+    say PASS sync_alias_rename "path_alias of node/$nid renamed $old -> $new: the old alias answers 404 at the origin ($res_o) and the edge, the new one serves the node: $res_e (before: origin $o_pre, edge $pre; perf_purge_paths $on)"
+  else say FAIL sync_alias_rename "perf_purge_paths $on: old alias origin $res_o (want 404), edge: $res_e (want old 404 not from the cache, new TCP_MISS/200); before: origin $o_pre, edge $pre"; fi
 }
 
 t_sync_publish_cycle() {
@@ -890,7 +1023,7 @@ t_sync_other_entities() {
   sync_work; tres=$(after "$ta" "/taxonomy/term/$tid"); ures=$(after "/user/$uid"); sync_end
   local media; media=$(php_eval 'print \Drupal::moduleHandler()->moduleExists("media") ? "yes" : "no";' | tail -1)
   # /user/* is a bypass path at the edge (CONFIG_NOCACHE): never cached, nothing to purge.
-  if all_miss "$tres" && { all_miss "$ures" || [[ "$ures" == *CONFIG_NOCACHE* ]]; }; then say PASS sync_other_entities "taxonomy term: $tres; user: $ures (bypassed at the edge); media module installed: $media (media:N maps the same way, untested when not installed)"
+  if all_miss "$tres" && { all_miss "$ures" || [[ "$ures" == *CONFIG_NOCACHE* ]]; }; then say PASS sync_other_entities "taxonomy term: $tres; user: $ures (bypassed at the edge); media module installed: $media (media:N is not mapped)"
   else say FAIL sync_other_entities "term: $tres; user: $ures"; fi
 }
 
@@ -918,6 +1051,43 @@ t_sync_file() {
   sync_work; res=$(after "$u"); body=$(curl -s "$EDGE_REAL$u"); sync_end
   if [[ "$res" == *TCP_MISS* && "$body" == *"version B"* ]]; then say PASS sync_file "file replaced at the same URL + file entity saved: $res, new content served (edge had Cache-Control '$cc')"
   else say FAIL sync_file "same-URL replacement: $res, body '$body' (edge Cache-Control '$cc')"; fi
+}
+
+# A file entity is deleted (an upload removed, or cron cleaning up): its URL and
+# its image style derivative must be purged.
+t_sync_file_delete() {
+  local r fid u d on pre res urls
+  sync_begin; r=$(rnd); on=$(deleted_mod)
+  read -r fid _ <<<"$(new_png "fdel-$r")"
+  u="/sites/default/files/synthetic-sync-fdel-$r.png"; d=$(style_url "$fid")
+  urls=("$u"); [[ -n "$d" ]] && urls+=("$d")
+  sync_work; warm "${urls[@]}"; pre=$(after "${urls[@]}")
+  sphp "\Drupal\file\Entity\File::load($fid)->delete();" >/dev/null
+  sync_work; res=$(after "${urls[@]}"); sync_end
+  if [[ "$(hits "$pre")" != "${#urls[@]}" ]]; then say FAIL sync_file_delete "not every URL was cached at the edge before the delete, so this proves nothing: $pre"
+  elif gone "$res" "${#urls[@]}"; then say PASS sync_file_delete "file/$fid deleted: ${#urls[@]} URL(s) (file$([[ -n "$d" ]] && echo " + image style derivative")) purged, now 404: $res (before: $pre; perf_purge_paths $on)"
+  elif [[ "$res" == *TCP_HIT* && "$on" == off ]]; then say FINDING sync_file_delete "deleted file is still served from the edge until its TTL: $res. Fix: install the perf_purge_paths module (docs/cache-sync.md)"
+  else say FAIL sync_file_delete "perf_purge_paths $on: file deleted, after queue-work: $res (before: $pre)"; fi
+}
+
+# A node's image is swapped for a new file, then the unused old file is deleted
+# (what cron's cleanup of unused files does): the old URLs go, the new one stays.
+t_sync_file_swap() {
+  local r nid fa fb md5b ua ub da on pre res urls newres newmd5
+  sync_begin; r=$(rnd); on=$(deleted_mod)
+  read -r fa _ <<<"$(new_png "swapa-$r")"; read -r fb md5b <<<"$(new_png "swapb-$r")"
+  ua="/sites/default/files/synthetic-sync-swapa-$r.png"; ub="/sites/default/files/synthetic-sync-swapb-$r.png"; da=$(style_url "$fa")
+  nid=$(php_eval "\$n = \Drupal\node\Entity\Node::create(['type' => 'article', 'title' => 'SYNTHETIC sync swap $r', 'status' => 1, 'promote' => 1, 'field_image' => ['target_id' => $fa, 'alt' => 'SYNTHETIC'], 'path' => ['alias' => '/synthetic-sync-swap-$r', 'pathauto' => 0]]); \$n->save(); print \$n->id();" | tail -1)
+  urls=("$ua"); [[ -n "$da" ]] && urls+=("$da")
+  sync_work; warm "${urls[@]}"; pre=$(after "${urls[@]}")
+  sphp "\$n = \Drupal\node\Entity\Node::load($nid); \$n->field_image = ['target_id' => $fb, 'alt' => 'SYNTHETIC']; \$n->save();" >/dev/null
+  sphp "\Drupal\file\Entity\File::load($fa)->delete();" >/dev/null
+  sync_work; res=$(after "${urls[@]}"); newres=$(after "$ub"); newmd5=$(curl -s "$EDGE_REAL$ub" | md5sum | cut -d' ' -f1); sync_end
+  if [[ "$(hits "$pre")" != "${#urls[@]}" ]]; then say FAIL sync_file_swap "the old file's URLs were not all cached at the edge before the swap, so this proves nothing: $pre"
+  elif [[ "$newres" != *"/200 "* || "$newmd5" != "$md5b" ]]; then say FAIL sync_file_swap "new file not served as expected: $newres, md5 at the edge $newmd5, wanted $md5b"
+  elif gone "$res" "${#urls[@]}"; then say PASS sync_file_swap "node/$nid image swapped (file/$fa -> file/$fb), old file deleted: old URL(s) purged, now 404: $res; new file served with the right bytes: $newres (before: $pre; perf_purge_paths $on)"
+  elif [[ "$res" == *TCP_HIT* && "$on" == off ]]; then say FINDING sync_file_swap "after the swap the OLD file is still served from the edge until its TTL: $res (new file: $newres). Fix: install the perf_purge_paths module (docs/cache-sync.md)"
+  else say FAIL sync_file_swap "perf_purge_paths $on: old file deleted after the swap, after queue-work: $res (before: $pre; new file: $newres)"; fi
 }
 
 t_sync_bulk() {

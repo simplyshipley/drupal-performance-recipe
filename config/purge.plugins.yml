@@ -18,9 +18,6 @@ processors:
     status: true
 queuers:
   -
-    plugin_id: coretags
-    status: true
-  -
     plugin_id: path_queuer
     status: true
   -

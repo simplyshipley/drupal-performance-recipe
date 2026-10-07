@@ -12,6 +12,12 @@ SCRIPT=recipes/drupal-performance-recipe/scripts/test-local.sh
 MODE=recipes/drupal-performance-recipe/scripts/perf-cache.sh
 fails=0
 {
+  # The lab must match the repo before anything runs (scripts/lab-preflight.sh,
+  # run from the repo mount so its checks are always the current ones).
+  if ! ddev exec "bash /opt/perf-recipe-src/scripts/lab-preflight.sh"; then
+    echo "FAIL preflight: the lab does not match the repo; no test was run."
+    exit 1
+  fi
   # Tests need production behaviour: prod-like once for the whole run, then
   # the previous cache mode is restored (docs/cache-modes.md).
   # Wait for the edge (if this project has one) before testing.

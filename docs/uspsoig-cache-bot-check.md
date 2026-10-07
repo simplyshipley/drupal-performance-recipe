@@ -93,14 +93,57 @@ The homepage sends the basic headers but two need tightening and a few are missi
 - `/core/install.php`, `/update.php`, `CHANGELOG.txt` blocked at the edge (Hardening tab of the caching guide).
 - TLS 1.2 minimum at Front Door and App Service.
 
+## Re-check: static assets and headers (Oct 6, 2026)
+
+Bo asked what uspsoig.gov sends for CSS/JS and other headers. Raw rows: `workspace/sessions/20260925-drupal-performance-recipe/uspsoig-headers-20261006/` (outside the repo).
+
+- **Requests:** 13 at 17:31–17:32 UTC through moocher's polite downloader (curl_cffi, Chrome impersonation, built-in delay). These went **direct**: the one-off script did not load the repo `.env`, so the Webshare proxy was not used. Then 3 more at 17:52 UTC **through the Webshare proxy** (home, one CSS aggregate, one PNG). Both sets returned the same headers.
+- **Out of scope:** logged-in pages, PDFs, 404s, listings, WAF behaviour.
+
+### What it sends
+
+| Response | `Cache-Control` | `x-cache` | Meaning |
+| --- | --- | --- | --- |
+| Homepage (x3) | `public, max-age=60` (was `max-age=1800` on Sep 29) | `CONFIG_NOCACHE` | Drupal page cache HIT; Front Door does not cache |
+| Aggregated CSS (2 files) and JS (1 file), each twice | **none** | `CONFIG_NOCACHE` every time | Front Door caches no assets; browsers must guess a lifetime |
+| `/libraries/fontawesome/js/all.min.js` | **none** | `CONFIG_NOCACHE` | Same |
+| Theme PNG and favicon | **none** | `CONFIG_NOCACHE` | Same; only `ETag` and `Last-Modified` are sent |
+
+- **Front Door caching is off for everything,** not just HTML. Every page, script, stylesheet and image goes to App Service.
+- **The origin sends no lifetime for static files.** Even with Front Door caching turned on, assets would need a lifetime from App Service or a Front Door rule.
+- **The page lifetime changed** from 30 minutes to 60 seconds between Sep 29 and Oct 6.
+
+### What the homepage HTML contains (relevant to CSP)
+
+- Inline script: only `<script type="application/json" data-drupal-selector="drupal-settings-json">`. It is data, not code, so CSP does not block it.
+- **5 inline `onclick` handlers** that open `https://hotlineform.uspsoig.gov` in a new window. These need `'unsafe-inline'` today.
+- **Google Tag Manager** (`google_tag` module, container `GTM-N3GD2TQ`), loading from `www.googletagmanager.com`.
+- **Seckit** is installed (`seckit.document_write.js`); whether the CSP header comes from Seckit, App Service or Front Door is not visible from outside.
+- `<meta name="Generator" content="Drupal 10">` is still in the HTML (no `X-Generator` header).
+
+### Suggestions
+
+1. **Turn on Front Door caching with lifetimes per file type** (rules engine, or origin headers):
+   - aggregated CSS/JS (`/sites/default/files/css/`, `/sites/default/files/js/`): `public, max-age=31536000, immutable`. Their file names change when the content changes.
+   - `/themes/`, `/libraries/`, `/core/` assets and images: about 7 days, `public`.
+   - HTML: Front Door 900 s, browsers 120 s, as the performance recipe sets with `http_cache_control`, plus path purging.
+2. **CSP, in report-only mode first** (`Content-Security-Policy-Report-Only`) for 2–4 weeks, then enforce. Starting policy for this homepage:
+   `default-src 'self'; script-src 'self' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://www.google-analytics.com https://*.google-analytics.com https://www.googletagmanager.com; frame-src https://www.googletagmanager.com; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests`
+   - Replace the 5 `onclick` handlers with plain links (`target="_blank" rel="noopener"`) so `'unsafe-inline'` is not needed for scripts.
+   - Drop `'unsafe-eval'`; the reports will show whether anything (for example a GTM custom HTML tag) still needs it.
+   - GTM tags that inject inline scripts need a nonce. Seckit and the CSP module both have open work on this: read [seckit #2976969](https://www.drupal.org/project/seckit/issues/2976969), [google_tag #3203811](https://www.drupal.org/project/google_tag/issues/3203811) and the [Seckit CSP Nonce](https://www.drupal.org/project/seckit_csp_nonce) project before choosing the module. [Not yet read]
+   - Fill in the analytics and embed hosts from a full inventory; the homepage alone does not show them all.
+3. **Add `Permissions-Policy`:** `camera=(), microphone=(), geolocation=(), payment=(), usb=()`.
+4. **HSTS:** add `includeSubDomains` (and `preload` later) only after confirming every uspsoig.gov subdomain serves HTTPS, including `hotlineform.uspsoig.gov`.
+5. **Remove the Generator meta tag** (the recipe's `generator_removed` lab check covers this with `drupal/remove_http_headers`).
+6. **Keep:** `X-Frame-Options: SAMEORIGIN` (with CSP `frame-ancestors 'self'`), `nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`. No `Server`, `X-Powered-By` or `X-Generator` header is exposed, which is good.
+
 ## Not yet tested
 
-The homepage does not predict other routes: Front Door rules and Drupal cache behaviour differ by path and file type. About eight more slow requests would cover it, pending Bo's approval.
+The homepage does not predict other routes: Front Door rules and Drupal cache behaviour differ by path and file type. CSS, JS and image headers were checked on Oct 6 (above).
 
 | Target | Why |
 | --- | --- |
-| One aggregated CSS file (twice) | Is Front Door caching assets, and what lifetime does origin send? |
-| One image under `/themes/` | Theme asset lifetime and compression |
 | One report PDF (HEAD, twice) | PDF caching, lifetime, and whether a version token is present |
 | One report page | Node page caching vs homepage |
 | One listing page with `?page=1` | Query-string handling on views |
@@ -114,5 +157,8 @@ Use these Front Door reference IDs to find the requests in WAF and access logs.
 
 | Time (UTC) | URL | Status | `x-azure-ref` |
 | --- | --- | --- | --- |
+| 2026-10-06 17:52:44 (proxy) | `https://www.uspsoig.gov/` | 200 | `20261006T175244Z-176d9fff4ff5q8pchS1PHXz0zw00000018bg00000000as8p` |
+| 2026-10-06 17:52:46 (proxy) | `https://www.uspsoig.gov/sites/default/files/css/css_QG8CaVXJ0ySg4BiCF5ZSqBf0tvqQqgm48c6dY6AT8Rk.css` | 200 | `20261006T175246Z-176d9fff4ff5q8pchS1PHXz0zw00000018bg00000000asbg` |
+| 2026-10-06 17:52:48 (proxy) | `https://www.uspsoig.gov/themes/custom/usps_subtheme/assets/img/alert-flag.png` | 200 | `20261006T175248Z-176d9fff4ff5q8pchS1PHXz0zw00000018bg00000000ase1` |
 | 2026-09-29 20:31:20 | `https://www.uspsoig.gov/` | 200 | `20260929T203120Z-15df8c46995jwckchS1SNRvmcs0000000z80000000005tab` |
 | 2026-09-29 20:31:05 | `https://www.uspsoig.gov/` | 200 | `20260929T203105Z-15df8c46995p2vjzhS1SNRc6m80000000z2000000000bk14` |

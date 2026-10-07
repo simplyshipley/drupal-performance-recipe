@@ -1,7 +1,0 @@
-# Loaded through $settings['container_yamls'] by settings.performance.php, so
-# it works before (and without) the module being installed, like the redis
-# module's own redis.services.yml.
-services:
-  cache.backend.redis_failopen:
-    class: Drupal\perf_redis_failopen\Cache\FailOpenCacheBackendFactory
-    arguments: ['@cache.backend.redis', '@database', '@logger.factory']

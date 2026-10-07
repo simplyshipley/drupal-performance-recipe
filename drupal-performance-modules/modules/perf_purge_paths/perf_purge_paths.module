@@ -1,0 +1,59 @@
+<?php
+
+/**
+ * @file
+ * Drupal 10.6 hook shims; the logic is in PerfPurgePathsHooks.
+ */
+
+declare(strict_types=1);
+
+use Drupal\Core\Hook\Attribute\LegacyHook;
+use Drupal\Core\Hook\Attribute\LegacyModuleImplementsAlter;
+use Drupal\file\FileInterface;
+use Drupal\path_alias\PathAliasInterface;
+use Drupal\perf_purge_paths\Hook\PerfPurgePathsHooks;
+
+/**
+ * Implements hook_path_alias_delete().
+ */
+#[LegacyHook]
+function perf_purge_paths_path_alias_delete(PathAliasInterface $alias): void {
+  \Drupal::service(PerfPurgePathsHooks::class)->pathAliasDelete($alias);
+}
+
+/**
+ * Implements hook_path_alias_update().
+ */
+#[LegacyHook]
+function perf_purge_paths_path_alias_update(PathAliasInterface $alias): void {
+  \Drupal::service(PerfPurgePathsHooks::class)->pathAliasUpdate($alias);
+}
+
+/**
+ * Implements hook_file_delete().
+ */
+#[LegacyHook]
+function perf_purge_paths_file_delete(FileInterface $file): void {
+  \Drupal::service(PerfPurgePathsHooks::class)->fileDelete($file);
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter() for system_performance_settings.
+ */
+#[LegacyHook]
+function perf_purge_paths_form_system_performance_settings_alter(array &$form): void {
+  \Drupal::service(PerfPurgePathsHooks::class)->formSystemPerformanceSettingsAlter($form);
+}
+
+/**
+ * Implements hook_module_implements_alter().
+ *
+ * Drupal 10.6 to 11.1: drops azure_cdn_purge's hook_node_update(), which only
+ * queues the node alias a second time (11.2 and later use #[RemoveHook]).
+ */
+#[LegacyModuleImplementsAlter]
+function perf_purge_paths_module_implements_alter(array &$implementations, string $hook): void {
+  if ($hook === 'node_update') {
+    unset($implementations['azure_cdn_purge']);
+  }
+}

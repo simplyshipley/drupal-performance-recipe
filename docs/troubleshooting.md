@@ -1,59 +1,46 @@
 # Troubleshooting and known module issues
 
+Symptoms, causes and fixes for the recipe's Redis, Fast 404 and purge pieces. For developers and DevOps on a site that misbehaves.
+
 ## Redis down: the site stays up (fail-open)
 
 With the default settings a Redis outage is absorbed by `modules/perf_redis_failopen`
 [V: redis_down PASS in both labs: home, node and login 200, Drush works, one warning logged].
 
-- Log: `perf_redis_failopen` warning "Redis unavailable, serving cache misses for 30 s ..." at
-  most once per `PERF_REDIS_LOG_INTERVAL` (60 s) per instance [V: 1 entry for a whole lab
-  outage].
-- Recovery: Redis is retried after `PERF_REDIS_RETRY_INTERVAL` (30 s; lab 5 s) and pages are
-  cached in Redis again [V: redis_recover]. If a delete or invalidation was lost during the
-  outage, the first request after recovery empties that bin (notice "Redis reachable again;
-  emptied bin ...") so no stale entry survives [V: unit test].
-- Pending flushes are one `key_value` row per bin (`perf_redis_failopen` /
-  `flush_pending:<bin>`) with a token; they are read from MySQL once per request (no APCu copy,
-  so no stale window; cost: one small query per request).
-- Slow first request after Redis hangs: expected, bounded by `PERF_REDIS_CONNECT_TIMEOUT` +
-  `PERF_REDIS_READ_TIMEOUT` once per retry window per PHP-FPM instance [V: redis_hang].
-- If it still returns HTTP 500 with `RedisException`: check that `PERF_REDIS_FAILOPEN` is not
-  `0`, that `REDIS_LOCK_FLOOD_TAGS` is not `1` (those services are not wrapped), and run
-  `drush cr` after changing either (the service container must be rebuilt).
-- The redis module's own report page `/admin/reports/redis` talks to Redis directly and is not
-  wrapped [ASSUMED: it may error while Redis is down; admin only]. The status report only
-  shows "Not connected" [V: redis.install].
+- **Log:** a `perf_redis_failopen` warning, "Redis unavailable, serving cache misses for 30 s ...", about once per retry interval per instance (the APCu outage state) [V: redis_down, 1 warning, tmp/jrock-cut/13-ddev-suite.log].
+- **Recovery:** Redis is retried after 30 s and pages are cached in Redis again [V: redis_recover]. If a delete or invalidation was lost during the outage, the first request after recovery empties that bin (notice "Redis reachable again; emptied bin ...") so no stale entry survives [V: unit test].
+- **Pending flushes:** one `key_value` row per bin (collection `perf_redis_failopen`, key = the bin). They are read from MySQL once per request, not once per bin. No APCu copy, so no stale window; cost is one small query per request [V: tmp/jrock-cut/12-query-count-after-warm.log].
+- **Slow first request after Redis hangs:** expected. It is bounded by the module's 2 s connect and read timeout, once per retry window per PHP-FPM instance [V: redis_hang 2.04 s, tmp/jrock-cut/13-ddev-suite.log].
+- **Still HTTP 500 with `RedisException`:** check that the `perf_redis_failopen` module is installed.
+- **Planned or long outage:** set `REDIS_ENABLED=0` (the bins use the database, no deploy).
+- **Report page:** the redis module's `/admin/reports/redis` talks to Redis directly and is not wrapped [ASSUMED: it may error while Redis is down; admin only]. The status report only shows "Not connected" [V: redis.install].
 
 ## `drush cr` does not delete Redis keys
 
-`drush cr` makes every cached item invalid immediately (the next page request was a MISS in
-both labs), but the keys stay in Redis [V: drush_cr INFO lines]. drupal/redis 1.11
-`deleteAll()` only writes a "last delete all" timestamp; items older than it are ignored on
-read [V: redis/src/Cache/CacheBase.php lines 511-518]. Permanent items carry a one-year TTL
-(31536000 s) [V], so old keys are only removed by LRU eviction. Consequences:
+`drush cr` invalidates every cached item at once (the next page request was a MISS in both labs), but the keys stay in Redis [V: drush_cr INFO lines].
 
-- Memory after `drush cr` does not drop; keep `maxmemory-policy allkeys-lru`.
-- To actually empty Redis: `redis-cli FLUSHDB` on a database no other site uses, or delete by
-  prefix. The module setting `redis_invalidate_all_as_delete` changes `invalidateAll()`
-  behaviour [V: CacheBase.php line 476]; its effect on `drush cr` was not tested [ASSUMED].
+- drupal/redis 1.11 `deleteAll()` only writes a "last delete all" timestamp. Older items are ignored on read [V: redis/src/Cache/CacheBase.php lines 511-518].
+- Permanent items carry a one-year TTL (31536000 s) [V], so only eviction removes old keys.
+
+Consequences:
+
+- Memory after `drush cr` does not drop; keep `maxmemory-policy volatile-lfu` (every item has a TTL, so it can be evicted).
+- To actually empty Redis, run `redis-cli FLUSHDB` on a database no other site uses, or delete by prefix.
+- `$settings['redis_invalidate_all_as_delete'] = TRUE` is set (2026-10-07). It makes `invalidateAll()` act as `deleteAll()` [V: CacheBase.php line 476]. The suite's `drush_cr` test passes with it [V].
+- Source: redis `settings.redis.example.php`, "Additional optimizations".
 
 ## Unknown paths return HTTP 500 with `Table 'db.redirect' doesn't exist`
 
-Fast 404's `fast404_respect_redirect = TRUE` queries the `{redirect}` table without checking
-that the Redirect module is installed [V: lab error, Fast404.php line 234]. The settings
-include makes it opt-in: set `FAST404_RESPECT_REDIRECT=1` only on sites with the Redirect
-module.
+- **Cause:** Fast 404's `fast404_respect_redirect = TRUE` queries the `{redirect}` table without checking that the Redirect module is installed [V: lab error, Fast404.php line 234].
+- **Fix:** the settings include makes it opt-in. Set `FAST404_RESPECT_REDIRECT=1` only on sites with the Redirect module.
 
 ## PHP log: `ServiceUnavailableHttpException::__construct(): Argument #3 ($previous) must be of type ?Throwable, array given`
 
-Logged once per missing static file answered by the pre-boot check in `settings.php`
-[V: DDEV web log]. The 404 response has already been sent, so visitors see a correct 404, but
-the PHP error log fills with one TypeError per request. Upstream issue:
-https://www.drupal.org/project/fast_404/issues/3194034 ("Argument 3 passed to
-ServiceUnavailableHttpException::__construct() must be an instance of Exception or null,
-array given"); still present in 3.7.0 (Fast404.php line 302) [V: code]. Options: patch
-(pass the message only), or drop the pre-boot include and let the module's event subscriber
-handle static files after bootstrap (slower). Not changed here; open decision.
+- **Gone since 2026-10-07:** it came from the `fast404_preboot()` call in `settings.php`, which was removed. Missing static files are now answered by the module inside Drupal. Not re-checked in the PHP log after the removal [ASSUMED].
+- **What happened:** logged once per missing static file answered by the pre-boot check [V: DDEV web log]. The 404 had already been sent, so visitors saw a correct 404, but the PHP error log filled with one TypeError per request.
+- **Upstream:** https://www.drupal.org/project/fast_404/issues/3194034 ("Argument 3 passed to ServiceUnavailableHttpException::__construct() must be an instance of Exception or null, array given"). Still present in 3.7.0 (Fast404.php line 302) [V: code].
+- **Fix taken:** dropped the pre-boot call and let the module's event subscriber handle static files after bootstrap (slower, 26-66 ms vs 1.5-3.7 ms with preboot). Source: fast_404 README.txt lines 48-49 ("not fully implemented and not ready for to use"), [#2961512](https://www.drupal.org/project/fast_404/issues/2961512).
+- **Status:** closed; the upstream bug is still open.
 
 ## Themed Fast 404 makes an HTTP request to itself on most requests
 
@@ -67,15 +54,26 @@ every 404 therefore cost an extra HTTP round trip, which on Azure goes to the pu
 
 This recipe still installs it (MANIFEST decision: Themed Fast 404 `^1.0`). Fast 404
 (contrib) and Themed Fast 404 do work together: the settings include points
-`fast404_HTML_error_page` at the file cron writes, so both the pre-boot check and the
-module's path check serve the themed page [V: fast404_static, fast404_path, themed_404].
+`fast404_HTML_error_page` at the file cron writes, so the module's static-file and path checks both serve the themed page [V: fast404_static, fast404_path, themed_404].
 Before production, decide whether to patch the override to read the file from disk.
 
 ## Purge: only node updates are purged
 
-See [azure.md](azure.md#what-gets-purged-path-based-no-tags). `drush p:queue-volume` stays
-0 after saving a term, a menu or a new node [ASSUMED from the hook; only node updates were
-tested].
+`perf_purge_paths` is off or not installed: stock `azure_cdn_purge` queues only an updated
+node's alias. Check `perf_purge_paths.settings:enabled` and see
+[azure.md](azure.md#what-gets-purged-path-based-no-tags) for what the module queues.
+
+## Redis report page shows two warnings
+
+`/admin/reports/redis` shows both of these on a recipe site. Both are expected; do not "fix" them.
+
+- "Using an allkeys eviction policy may drop cache tag checksums ...": the checksums are in the
+  database, not Redis (`azure.md` ruling), so an evicted key is only a cache miss. We now use
+  `volatile-lfu`, so the warning may not appear [ASSUMED: report not re-read after the change].
+- "No cache tags found, make sure that the redis cache tag checksum service is used": same
+  reason. Moving the checksum service to Redis made a Redis outage a site outage (HTTP 500).
+
+[V: redis 8.x-1.11 `ReportController.php`; OIG copy, measured with `allkeys-lru` before the 2026-10-07 change: 0 cache-tag keys in Redis]
 
 ## Purge items fail
 

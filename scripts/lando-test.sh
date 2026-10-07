@@ -14,6 +14,12 @@ MODE=recipes/drupal-performance-recipe/scripts/perf-cache.sh
 run_in() { lando ssh -s appserver -c "cd /app && PERF_CACHE_AUTO=0 EDGE_CHALLENGE_MISSING=${EDGE_CHALLENGE_MISSING:-both} BASE_URL=http://appserver_nginx bash $SCRIPT $*"; }
 mode_in() { lando ssh -s appserver -c "cd /app && BASE_URL=http://appserver_nginx bash $MODE $*"; }
 {
+  # The lab must match the repo before anything runs (scripts/lab-preflight.sh,
+  # run from the repo mount so its checks are always the current ones).
+  if ! lando ssh -s appserver -c "cd /app && bash /opt/perf-recipe-src/scripts/lab-preflight.sh"; then
+    echo "FAIL preflight: the lab does not match the repo; no test was run."
+    exit 1
+  fi
   # Tests need production behaviour: prod-like once for the whole run, then
   # the previous cache mode is restored (docs/cache-modes.md).
   # Wait for the edge (if this app has one) before testing.

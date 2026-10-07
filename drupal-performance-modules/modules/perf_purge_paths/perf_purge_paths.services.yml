@@ -1,0 +1,21 @@
+# The queuer is a cache_tags_invalidator, created with the cache tags service,
+# so it reaches config, the mapper and Purge through closures (PathsQueuer).
+services:
+  _defaults:
+    autowire: true
+
+  logger.channel.perf_purge_paths:
+    parent: logger.channel_base
+    arguments: ['perf_purge_paths']
+
+  perf_purge_paths.mapper:
+    class: Drupal\perf_purge_paths\PathMapper
+  Drupal\perf_purge_paths\PathMapper: '@perf_purge_paths.mapper'
+
+  perf_purge_paths.queuer:
+    class: Drupal\perf_purge_paths\PathsQueuer
+    tags:
+      - { name: cache_tags_invalidator }
+  Drupal\perf_purge_paths\PathsQueuer: '@perf_purge_paths.queuer'
+
+  Drupal\perf_purge_paths\Hook\PerfPurgePathsHooks: ~

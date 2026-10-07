@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Coding standards for the performance modules: Drupal and DrupalPractice
+  (drupal/coder). Run with `composer qa` or `bash scripts/qa.sh phpcs`
+  from the installed package (README.md).
+-->
+<ruleset name="drupal-performance-modules">
+  <description>Drupal and DrupalPractice coding standards.</description>
+
+  <arg name="extensions" value="php,module,inc,install,test,profile,theme,yml"/>
+  <arg name="colors"/>
+  <arg value="sp"/>
+
+  <rule ref="Drupal"/>
+  <rule ref="DrupalPractice"/>
+
+  <file>modules</file>
+  <file>settings</file>
+
+  <!-- Files retired in place (renamed with an __ARCHIVED_ prefix). -->
+  <exclude-pattern>*/__ARCHIVED_*</exclude-pattern>
+</ruleset>

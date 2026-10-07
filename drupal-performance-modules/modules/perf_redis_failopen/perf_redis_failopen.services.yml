@@ -1,0 +1,19 @@
+# The settings include names cache.backend.redis for the Redis bins (unless
+# REDIS_ENABLED=0). This module DECORATES that service, so the fail-open wrapper
+# exists exactly while the module is installed; before and after, the bins run
+# on the plain Redis backend.
+services:
+  _defaults:
+    autowire: true
+
+  logger.channel.perf_redis_failopen:
+    parent: logger.channel_base
+    arguments: ['perf_redis_failopen']
+
+  Drupal\perf_redis_failopen\Cache\RedisHealth: ~
+
+  perf_redis_failopen.cache_factory:
+    class: Drupal\perf_redis_failopen\Cache\FailOpenCacheBackendFactory
+    decorates: cache.backend.redis
+
+  Drupal\perf_redis_failopen\Hook\PerfRedisFailopenHooks: ~

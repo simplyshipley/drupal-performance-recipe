@@ -1,0 +1,24 @@
+<?php
+
+/**
+ * @file
+ * Requirements hook of the Redis fail-open module.
+ */
+
+declare(strict_types=1);
+
+use Drupal\Core\Hook\Attribute\LegacyRequirementsHook;
+use Drupal\perf_redis_failopen\Hook\PerfRedisFailopenHooks;
+
+/**
+ * Implements hook_requirements().
+ *
+ * Drupal 10.6 to 11.2; 11.3 and later run PerfRedisFailopenHooks directly.
+ */
+#[LegacyRequirementsHook]
+function perf_redis_failopen_requirements(string $phase): array {
+  if ($phase !== 'runtime') {
+    return [];
+  }
+  return \Drupal::service(PerfRedisFailopenHooks::class)->runtimeRequirements();
+}

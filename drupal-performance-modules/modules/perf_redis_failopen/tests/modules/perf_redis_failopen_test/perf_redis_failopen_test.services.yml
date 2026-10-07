@@ -1,0 +1,8 @@
+services:
+  cache.backend.redis:
+    class: Drupal\perf_redis_failopen_test\FailingCacheFactory
+    arguments: ['@redis.factory', '@cache_tags.invalidator.checksum', '@serialization.phpserialize']
+
+  Drupal\perf_redis_failopen_test\FailingCacheFactory:
+    alias: perf_redis_failopen.cache_factory.inner
+    public: true

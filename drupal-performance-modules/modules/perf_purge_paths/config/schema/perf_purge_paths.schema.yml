@@ -1,0 +1,7 @@
+perf_purge_paths.settings:
+  type: config_object
+  label: 'Front Door path purge settings'
+  mapping:
+    enabled:
+      type: boolean
+      label: 'Queue Front Door purges when content changes'

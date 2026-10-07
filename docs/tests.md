@@ -1,15 +1,20 @@
 # Test reference
 
-`scripts/test-local.sh` runs inside the web container from the project root. Each check prints
-`PASS`, `FAIL` or `INFO`, then `# summary`. Exit status = number of FAILs. `--list` prints the
-names. All content it creates is SYNTHETIC (titles start "SYNTHETIC").
+For developers reading or running the recipe's test suite. Look up a test by name to see what it does and what PASS means.
 
-Environment: `BASE_URL` (DDEV `http://localhost`, Lando `http://appserver_nginx`),
-`PERF_MOCK_URL`, the same `REDIS_*` variables the site uses (`REDIS_PREFIX` optional: without it the Redis checks match any prefix, which is only accurate if no other site shares the Redis), `DRUSH` (default
-`vendor/bin/drush`).
+`scripts/test-local.sh` runs inside the web container from the project root.
+- Each check prints `PASS`, `FAIL` or `INFO`, then `# summary`.
+- Exit status = number of FAILs.
+- `--list` prints the names.
+- All content it creates is SYNTHETIC (titles start "SYNTHETIC").
 
-Results below are from the final lab runs [V: tmp/ddev/run9.log,
-tmp/lando-run7.log].
+Environment variables:
+- `BASE_URL`: DDEV `http://localhost`, Lando `http://appserver_nginx`.
+- `PERF_MOCK_URL`.
+- The same `REDIS_*` variables the site uses. `REDIS_PREFIX` is optional: without it the Redis checks match any prefix, which is only accurate if no other site shares the Redis.
+- `DRUSH` (default `vendor/bin/drush`).
+
+Results below are from the final lab runs [V: tmp/ddev/run9.log, tmp/lando-run7.log].
 
 | Test | What it does | PASS means | Lab result |
 |---|---|---|---|
@@ -17,14 +22,14 @@ tmp/lando-run7.log].
 | `redis_in_use` | Reads the class of the `render` bin, requests two pages, counts keys with the prefix (SCAN) | Bin class is `Drupal\redis\Cache\PhpRedis` and the key count grew after two uncached requests | PASS both |
 | `drush_cr` | Warms a node page (HIT), counts keys (total, render, page), runs `drush cr`, counts again, requests the page | The page bin's `_redis_last_delete_all` key changed and the page went HIT -> MISS. The INFO line records key counts | PASS both; key count did **not** drop (DDEV 488 -> 512, Lando 469 -> 493; the counts include keys written by the cr itself) |
 | `tag_invalidation` | HIT a node page, change its title in PHP, request again | HIT -> MISS with the new title -> HIT | PASS both |
-| `eviction` | Sets `maxmemory` to used memory + 400 KB and `allkeys-lru` at runtime, requests every published node, reads `evicted_keys`, restores the settings (also on exit/interrupt via a trap) | `evicted_keys` rose and the home page still returns 200 | PASS both (DDEV 0 -> 2551, Lando 0 -> 922) |
-| `redis_down` | Run by the wrappers after `docker stop` of this project's Redis only; requests home, node/1 and /user/login, runs `drush status`, counts `perf_redis_failopen` warnings in dblog | All three pages 200 and at least one warning logged | PASS both (1 warning). Fail-proof: with `PERF_REDIS_FAILOPEN=0` the same test FAILS with HTTP 500 [V: run8-redis.log] |
+| `eviction` | Sets `maxmemory` to used memory + 400 KB and `volatile-lfu` at runtime, requests every published node, reads `evicted_keys`, restores the settings (also on exit/interrupt via a trap) | `evicted_keys` rose and the home page still returns 200 | PASS both with `allkeys-lru` (DDEV 0 -> 2551, Lando 0 -> 922); policy changed to `volatile-lfu` 2026-10-07, not re-run on the labs |
+| `redis_down` | Run by the wrappers after `docker stop` of this project's Redis only; requests home, node/1 and /user/login, runs `drush status`, counts `perf_redis_failopen` warnings in dblog | All three pages 200 and at least one warning logged | PASS both (1 warning). Fail-proof: with perf_redis_failopen uninstalled the same test FAILS with HTTP 500 [V: tmp/jrock-cut/18-lando-failopen-uninstall-proof.log] |
 | `redis_hang` | Run by the wrappers with this project's Redis container `docker pause`d (TCP accepted, no answers); three page requests | All 200; first under 5 s, the next two under 1 s | PASS both (first 2.1 s, then 0.03-0.05 s). Fail-proof: `PERF_REDIS_CONNECT_TIMEOUT=0` -> first request 60.8 s, FAIL [V: run9.log] |
 | `redis_recover` | After Redis is started again, waits the retry interval + 2 s, requests node/2 twice | Redis key count grew and node/2 is `X-Drupal-Cache: HIT` | PASS both |
 | `purge_queue_fills` | Empties the purge queue, saves a node, reads `p:queue-volume` and the queue rows | Volume increased | PASS both: 0 -> 1, item `path:node/1` |
 | `purge_send` | Resets the mock, saves a node, `drush p:queue-work --finish`, reads the mock log | Mock got a token request and `POST /subscriptions/.../afdEndpoints/ep-synthetic/purge` with the node's path in `contentPaths`; queue empty | PASS both: `contentPaths=["/node/1"]` |
 | `purge_retry` | Tells the mock to fail once (500), saves a node, works the queue twice | First run 500 and the item stays queued, second run 202 and queue empty | PASS both |
-| `fast404_static` | Requests a missing `sites/default/files/*.png` | 404, no Drupal cache headers (answered by the settings.php pre-boot check), not nginx's own 404 page | PASS both: about 1-2 ms vs 25-48 ms for an uncached Drupal page |
+| `fast404_static` | Requests a missing `sites/default/files/*.png` | 404 with `X-Drupal-Cache: UNCACHEABLE (no cacheability)` (the Fast 404 module's plain response; Drupal's own 404 would be page-cached), not nginx's own 404 page | PASS on the OIG DDEV copy, 2026-10-07 [V: tmp/readme-defaults-20261007/]: 26-66 ms. The old pre-boot answer took 1.5-3.7 ms; preboot was removed (README says not ready). Not re-run on the labs. With the module not answering `.png` the test fails [V: mutation proof 14-fast404-static-mutation-proof.log] |
 | `fast404_path` | Requests an unknown path | 404 whose body is the static fast 404 page | PASS both: 9-16 ms vs 27-50 ms |
 | `themed_404` | Runs cron, checks `public://page-not-found-en.html`, requests a missing `.css` | The file was written and the missing-file response is byte-identical to it (a normal Drupal 404 fails; shown in the DDEV run5 log) | PASS both (about 14 KB themed page) |
 | `headers_anon` | Requests a node page anonymously twice | Second response `X-Drupal-Cache: HIT` and `Cache-Control` contains `public` and `max-age=900` | PASS both |
@@ -36,9 +41,11 @@ tmp/lando-run7.log].
 
 ### Edge / WAF tests (docs/edge-waf.md)
 
-These need the `edge` service. `PERF_EDGE=0` skips them. **Fail-proof:** `EDGE_SEARCH_PATHS=.` on the edge (search limit on every path) makes `waf_rate_limit` FAIL on `/node?page=N` (search-zone limits counted from the edge error log) [V: tmp/ddev/run11-edge-failproof.log, tmp/ddev/run12-search-failproof.log]. `EDGE_NEGATIVE=1` sends the
-edge requests to the origin (and, for `edge_purge_e2e`, turns off the purge forwarding); all 11
-FAIL in both labs [V: tmp/ddev/edge-failproof.log, tmp/lando-edge-failproof.log].
+These need the `edge` service. `PERF_EDGE=0` skips them.
+
+Fail-proofs:
+- `EDGE_SEARCH_PATHS=.` on the edge (search limit on every path) makes `waf_rate_limit` FAIL on `/node?page=N`. Search-zone limits are counted from the edge error log [V: tmp/ddev/run11-edge-failproof.log, tmp/ddev/run12-search-failproof.log].
+- `EDGE_NEGATIVE=1` sends the edge requests to the origin (and, for `edge_purge_e2e`, turns off the purge forwarding). All 11 FAIL in both labs [V: tmp/ddev/edge-failproof.log, tmp/lando-edge-failproof.log].
 
 | Test | What it does | PASS means | Lab result |
 |---|---|---|---|
@@ -61,22 +68,35 @@ The suite switches to `prod-like` for its run and restores the previous cache mo
 
 ### Cache sync tests (docs/cache-sync.md)
 
-13 `sync_*` tests (alias, listing, alias change, delete, publish cycle, revert, 404-then-create, term/user,
-menu, same-URL file, bulk/chunking, cron processor, wildcard) plus `sync_redis_down` (wrappers, Redis
-stopped). Results and before/after table: [cache-sync.md](cache-sync.md). A third status, `FINDING`,
-marks known gaps left as open decisions; it does not count as FAIL. Fail-proof: `SYNC_NEGATIVE=1`
-(`PERF_PURGE_PATHS=0`) makes the fix-dependent tests FAIL [V: tmp/ddev/sync-failproof.log].
+17 `sync_*` tests (alias, single save, listing, alias change, delete, alias delete, publish cycle, revert, 404-then-create, term/user, menu, same-URL file, file delete, file swap, bulk/chunking, cron processor, wildcard) plus `sync_redis_down` (wrappers, Redis stopped). Results and before/after table: [cache-sync.md](cache-sync.md).
+
+- **`FINDING`:** a third status for known gaps left as open decisions. It does not count as FAIL.
+- **Fail-proof:** `SYNC_NEGATIVE=1` switches path purging off through the settings.php line `$config['perf_purge_paths.settings']['enabled'] = FALSE;`. The lab settings.php sets it when `PERF_LAB_PURGE_OFF=1`. Every test that depends on the module then FAILS: 17. `sync_new_path_404` and `sync_wildcard` do not use it [V: tmp/jrock-build2/ddev-sync-negative.log].
+
+Four tests (`sync_delete`, `sync_alias_delete`, `sync_file_delete`, `sync_file_swap`) need the delete hooks of `perf_purge_paths` (the former `perf_purge_deleted`).
+- With the hooks, stale = FAIL. Without them, stale = FINDING.
+- Each test first checks that the URLs were cached at the edge (`TCP_HIT`, 200) before the delete, so "never cached" cannot pass as "purged".
+
+| Test | What it does | PASS means | Lab result |
+|---|---|---|---|
+| `sync_alias_delete` | Deletes only the `path_alias` entity of a SYNTHETIC node (the node stays), works the queue | `alias` and `alias/` were `TCP_HIT` before; after, neither comes from the edge cache and each is fresh (`TCP_MISS`) or a 404 (Bo's ruling x, 2026-10-06). With the module Drupal answers 404 (`PRIVATE_NOSTORE/404`) | Module on: PASS. Module off: FINDING [V: tmp/lando-deleted-on.log, tmp/lando-deleted-off.log] |
+| `sync_file_delete` | Creates a SYNTHETIC public PNG file entity, caches the file and one image-style URL at the edge, deletes the entity, works the queue | Both URLs answer 404 and none is `TCP_HIT` | Module on: PASS. Module off: FINDING |
+| `sync_file_swap` | Creates a node with a SYNTHETIC image, caches the old file and its image-style URL, swaps the image for a second file, then deletes the old file entity (what cron does with an unused file) | Old URLs answer 404, none `TCP_HIT`; the new file answers 200 with the right bytes (md5) | Module on: PASS. Module off: FINDING |
+
+`sync_delete` itself is unchanged: PASS with the module, FINDING without it. Fail-proof with the
+module on but `SYNC_NEGATIVE=1`: all four FAIL [V: tmp/lando-deleted-failproof.log].
 
 ## Unit tests (fail-open module)
 
-`modules/perf_redis_failopen/tests/src/Unit/FailOpenCacheBackendTest.php`, plain PHPUnit:
-connection error at construction = miss and one warning; a lost delete empties the bin on
-recovery; a record written by another instance during a flush survives it and triggers a second
-flush (token compare-and-delete); non-Redis exceptions are rethrown. 4 tests, 16 assertions
-PASS; phpcs Drupal +
-DrupalPractice clean [V: tmp/ddev/phpcs-phpunit-failopen-v2.log]. The lab ran them with PHPUnit
-10.5 installed in `/tmp/pu` inside the web container and a bootstrap that loads the project's
-`vendor/autoload.php` and the module's PSR-4 paths (the site has no dev dependencies).
+File: `modules/perf_redis_failopen/tests/src/Unit/FailOpenCacheBackendTest.php`, plain PHPUnit. It checks:
+- a connection error at construction = miss and one warning;
+- a lost delete empties the bin on recovery;
+- a record written by another instance during a flush survives it and triggers a second flush (token compare-and-delete);
+- non-Redis exceptions are rethrown.
+
+Result: 4 tests, 16 assertions PASS; phpcs Drupal + DrupalPractice clean [V: tmp/ddev/phpcs-phpunit-failopen-v2.log].
+
+How the lab ran them: PHPUnit 10.5 installed in `/tmp/pu` inside the web container, with a bootstrap that loads the project's `vendor/autoload.php` and the module's PSR-4 paths. The site has no dev dependencies.
 
 ## Not covered
 
@@ -86,3 +106,4 @@ DrupalPractice clean [V: tmp/ddev/phpcs-phpunit-failopen-v2.log]. The lab ran th
   are not in this suite.
 - Valkey 9.1.2: DDEV and Lando 49 PASS / 0 FAIL / 2 FINDING on 2026-10-05 [V: tmp/ddev/run18-valkey.log, tmp/lando-run16-valkey.log; server: tmp/valkey-server-evidence-20261005.txt].
 - The no-Redis path (REDIS_HOST unset) was not run.
+- `perf_purge_deleted`: not run on Drupal 11 (both labs are 10.6.17); the guard for a missing `perf_purge_paths.queuer` service was not run (the labs always include the settings file). The old-alias-on-rename hook has no suite test, only a probe [V: tmp/lando-probe-alias-rename.log]: `sync_alias_change` passes without the module.

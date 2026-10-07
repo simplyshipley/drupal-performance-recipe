@@ -1,0 +1,7 @@
+name: Redis fail-open test
+type: module
+description: 'Provides controlled cache failures for Kernel tests.'
+package: Testing
+core_version_requirement: ^10.6 || ^11
+dependencies:
+  - perf_redis_failopen:perf_redis_failopen

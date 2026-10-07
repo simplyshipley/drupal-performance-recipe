@@ -1,0 +1,3 @@
+# Files retired in place (__ARCHIVED_*) stay in the working tree only: they
+# are left out of dist archives and of Composer path-repository mirrors.
+__ARCHIVED_* export-ignore

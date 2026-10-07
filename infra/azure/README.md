@@ -1,30 +1,29 @@
 # Self-hosted Redis on Azure Container Apps
 
-Ruling (Bo, 2026-09-25): OIG sites use a **self-hosted Redis container** in Azure, not the
-managed service. Only the heavy cache bins use it, and the fail-open wrapper keeps the site up
-when it is down (see `../../docs/azure.md`).
+How to deploy the self-hosted Redis container on Azure Container Apps and connect App Service to it. For DevOps.
 
-**Nothing here has been deployed.** Everything is [ASSUMED] until run in a non-production
-subscription. Verified only: `redis-containerapp.bicep` compiles with `az bicep build`
-(Bicep CLI 0.47.16, no warnings) [V: tmp/bicep-build.log]; the base image `valkey/valkey:9.1.2-alpine3.24`
-exists on Docker Hub [V: pulled 2026-10-05].
+Ruling (Bo, 2026-09-25): OIG sites use a **self-hosted Redis container**, not the managed service. Only the heavy cache bins use it. The fail-open wrapper keeps the site up when Redis is down (see [docs/azure.md](../../docs/azure.md)).
+
+**Nothing here has been deployed.** Everything is [ASSUMED] until run in a non-production subscription. Verified only:
+
+- `redis-containerapp.bicep` compiles with `az bicep build` (Bicep CLI 0.47.16, no warnings) [V: tmp/bicep-build.log].
+- The base image `valkey/valkey:9.1.2-alpine3.24` exists on Docker Hub [V: pulled 2026-10-05].
 
 Before use:
 
-- **FedRAMP scope:** confirm Azure Container Apps (and Log Analytics, Monitor alerts) are in the
-  FedRAMP authorization for your cloud (Azure Government) and record them in the System
-  Security Plan.
-- **Hardened image:** prefer a hardened Redis image (for example the Iron Bank `redis` image from
-  registry1.dso.mil, if your program can use it), mirrored into your own Azure Container
-  Registry and pinned by digest. Set `redisImage` accordingly. Patching the image is on us.
-- One Redis per site (isolation, no shared `FLUSHALL` risk). If sites share one, give each its
-  own `REDIS_PREFIX`.
+- **FedRAMP scope:** confirm Azure Container Apps (and Log Analytics, Monitor alerts) are in the FedRAMP authorization for your cloud (Azure Government). Record them in the System Security Plan.
+- **Hardened image:** prefer a hardened Redis image (for example the Iron Bank `redis` image from registry1.dso.mil, if your program can use it). Mirror it into your own Azure Container Registry and pin it by digest. Set `redisImage` to match. Patching the image is on us.
+- **One Redis per site:** isolation, no shared `FLUSHALL` risk. If sites share one, give each its own `REDIS_PREFIX`.
 
 ## Files
 
-| File | What |
-|---|---|
-| `redis-containerapp.bicep` | Internal Container Apps environment in your VNet, the Redis app (1 replica, internal TCP ingress 6379, no persistence, `maxmemory` + `allkeys-lru`, password from a secret, TCP liveness/readiness probes). **Since 2026-09-28 it runs the custom image from `infra/redis-image` pulled from ACR** ([docs/redis-image.md](../../docs/redis-image.md)); the CLI example below still shows the older stock-image variant, optional restart and memory alerts |
+`redis-containerapp.bicep` creates:
+
+- an internal Container Apps environment in your VNet;
+- the Redis app: 1 replica, internal TCP ingress on 6379, no persistence, `maxmemory` + `volatile-lfu`, password from a secret, TCP liveness and readiness probes;
+- optional restart and memory alerts.
+
+Since 2026-09-28 it runs the custom image from `infra/redis-image`, pulled from ACR ([docs/redis-image.md](../../docs/redis-image.md)). The CLI example below still shows the older stock-image variant.
 
 ## Deploy with Bicep
 
@@ -41,8 +40,10 @@ az deployment group create \
       actionGroupId=<action group id>
 ```
 
-Outputs: `redisHost` (use as `REDIS_HOST`), `environmentDefaultDomain` and
-`environmentStaticIp` (for private DNS).
+Outputs:
+
+- `redisHost`: use as `REDIS_HOST`.
+- `environmentDefaultDomain` and `environmentStaticIp`: for private DNS.
 
 ## Equivalent az CLI steps
 
@@ -57,23 +58,27 @@ az containerapp create -g $RG -n $P-redis --environment $P-cae \
   --ingress internal --transport tcp --target-port 6379 --exposed-port 6379 \
   --secrets redis-password=<from Key Vault> --env-vars REDIS_PASSWORD=secretref:redis-password \
   --command sh -c \
-  --args 'exec redis-server --requirepass "$REDIS_PASSWORD" --maxmemory 768mb --maxmemory-policy allkeys-lru --appendonly no --save "" --protected-mode no'
+  --args 'exec redis-server --requirepass "$REDIS_PASSWORD" --maxmemory 768mb --maxmemory-policy volatile-lfu --appendonly no --save "" --protected-mode no'
 ```
 
-Probes are not settable with plain `az containerapp create` flags; use the Bicep, or
-`az containerapp update --yaml` with the probe block [ASSUMED].
+Probes cannot be set with plain `az containerapp create` flags. Use the Bicep, or `az containerapp update --yaml` with the probe block [ASSUMED].
 
 ## Private DNS
 
-An internal environment's apps resolve under `environmentDefaultDomain`. Create a private DNS
-zone with that name, add a wildcard `*` A record to `environmentStaticIp`, and link the zone to
-the VNet the App Service integrates with [ASSUMED: standard pattern for internal Container Apps
-environments].
+An internal environment's apps resolve under `environmentDefaultDomain` [ASSUMED: standard pattern for internal Container Apps environments].
+
+1. Create a private DNS zone with that name.
+2. Add a wildcard `*` A record pointing to `environmentStaticIp`.
+3. Link the zone to the VNet the App Service integrates with.
 
 ## App Service
 
-1. **VNet integration** of the web app into a subnet of the same (or peered) VNet:
-   `az webapp vnet-integration add -g $RG -n <webapp> --vnet <vnet> --subnet <integration subnet>`.
+1. **VNet integration.** Put the web app in a subnet of the same (or a peered) VNet:
+
+   ```bash
+   az webapp vnet-integration add -g $RG -n <webapp> --vnet <vnet> --subnet <integration subnet>
+   ```
+
 2. **Application settings** (merges; does not remove other settings):
 
    ```bash
@@ -83,23 +88,22 @@ environments].
      REDIS_PREFIX=<site> PERF_FAST404=1 AZURE_CLOUD=usgovernment
    ```
 
-   Keep the defaults `PERF_REDIS_CONNECT_TIMEOUT=1` and `PERF_REDIS_READ_TIMEOUT=2` (unset = those
-   values). Do not set `REDIS_LOCK_FLOOD_TAGS` (keeps lock/flood/cache tags in MySQL) or
-   `PERF_REDIS_FAILOPEN=0` (disables the fail-open wrapper).
-3. Traffic between App Service and the Redis container stays in the VNet and is not TLS
-   (`REDIS_SCHEME=tcp`); Container Apps TCP ingress does not terminate TLS for you
-   [ASSUMED]. If your controls require encryption in transit inside the VNet, run Redis with
-   TLS (redis `--tls-*` options, certificate as a secret) and set `REDIS_SCHEME=tls`
-   (`tls://` through drupal/redis 1.11 is itself [ASSUMED], not lab-tested).
+   Keep the defaults `PERF_REDIS_CONNECT_TIMEOUT=1` and `PERF_REDIS_READ_TIMEOUT=2` (unset gives those values). Do not set:
+
+   - `REDIS_LOCK_FLOOD_TAGS`: it keeps lock, flood and cache tags in MySQL.
+   - `PERF_REDIS_FAILOPEN=0`: it disables the fail-open wrapper.
+
+3. **TLS.** Traffic between App Service and the Redis container stays in the VNet and is not TLS (`REDIS_SCHEME=tcp`). Container Apps TCP ingress does not terminate TLS for you [ASSUMED]. If your controls require encryption inside the VNet:
+   - Run Redis with TLS (redis `--tls-*` options, certificate as a secret).
+   - Set `REDIS_SCHEME=tls`. `tls://` through drupal/redis 1.11 is [ASSUMED], not lab-tested.
 
 ## Sizing
 
-Start with `maxmemory` about 75 percent of the container memory (the Bicep default 768 MB in
-a 1 GiB container). Guide values from the caching guide: small site 256 MB, medium 512 MB to
-1 GB, large or faceted 1 to 2 GB [ASSUMED]. Measure after a crawl: `INFO memory`
-(`used_memory_peak_human`) and `INFO stats` (`evicted_keys`, `keyspace_hits`/`misses`).
-Steady evictions with a low hit rate mean it is too small. Remember `drush cr` does not free
-memory (see troubleshooting).
+- Start with `maxmemory` at about 75 percent of container memory (Bicep default: 768 MB in a 1 GiB container).
+- Guide values from the caching guide [ASSUMED]: small site 256 MB, medium 512 MB to 1 GB, large or faceted 1 to 2 GB.
+- Measure after a crawl: `INFO memory` (`used_memory_peak_human`) and `INFO stats` (`evicted_keys`, `keyspace_hits`/`misses`).
+- Steady evictions with a low hit rate mean it is too small.
+- `drush cr` does not free memory (see [troubleshooting](../../docs/troubleshooting.md)).
 
 ## Monitoring and alerts
 
@@ -108,7 +112,7 @@ memory (see troubleshooting).
 | Container restarts | Container Apps metric `RestartCount` | Any restart (Bicep `restartAlert`) |
 | Memory | Container Apps metric `WorkingSetBytes` | Above 90 percent of container memory (Bicep `memoryAlert`, threshold for 1 GiB) |
 | Evictions, hit rate | `redis-cli INFO stats` (no platform metric) | Scheduled check or exporter; alert on steady `evicted_keys` growth [ASSUMED approach] |
-| Connection errors seen by Drupal | Drupal syslog, channel `perf_redis_failopen` ("Redis unavailable, serving cache misses ...", at most one per 60 s per instance) | Log Analytics query on App Service logs for that text; any hit = Redis outage while the site stayed up |
+| Connection errors seen by Drupal | Drupal syslog, channel `perf_redis_failopen` ("Redis unavailable, serving cache misses ...", about one per 30 s per instance) | Log Analytics query on App Service logs for that text; any hit = Redis outage while the site stayed up. Down longer than 15 minutes: set `REDIS_ENABLED=0` and restart (stops the warnings; dblog keeps only 1,000 rows) |
 | Recovery flush | Drupal log notice "Redis reachable again; emptied bin ..." | Informational |
 
 Metric names are [ASSUMED]; confirm with

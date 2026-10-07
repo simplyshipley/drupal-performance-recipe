@@ -8,7 +8,7 @@ untested. The problem they were measured against is the open delete and menu gap
 | Module | Version | Verdict | Reason in one line |
 |---|---|---|---|
 | `purge_queuer_url` | 8.x-1.2 | **Not adopted** | Registry growth, `LIKE` scans, fan-out on broad tags |
-| `purge_file` | 1.3.1 | **Not adopted** (watch) | The recipe already purges same-URL file replacement; file delete is untested |
+| `purge_file` | 1.3.1 | **Not adopted** (trialled 2026-10-05) | Purges the file URL on delete but not its image-style URLs; `perf_purge_deleted` covers both |
 | `query_string_optimizer` | 1.0.x-dev | **Not adopted** | No security coverage; Front Door already ignores parameter order |
 | `index_now` | 3.1.11 | **Watch** | Likely submits `/node/N`, not the alias, on delete [INFERRED] |
 
@@ -38,14 +38,23 @@ queues every recorded URL with that tag [V: `src/StackMiddleware/UrlRegistrar.ph
 
 Full review: session note `purge-queuer-url-review.md` (outside this repo).
 
-## purge_file 1.3.1: not adopted, watch
+## purge_file 1.3.1: not adopted (trialled 2026-10-05)
 
-Drupal 8 to 11, security covered, about 2,402 installs [REPORTED: drupal.org project page via WebFetch 2026-10-05]. It
-purges file URLs when a file is updated or deleted. The recipe already purges a file replaced at
-the same URL through `perf_purge_paths` (`file:N` tag: the file URL and every image-style
-derivative); test `sync_file` PASSES [V: [cache-sync.md](cache-sync.md#edge-cases-and-results-ddev-lab-2026-09-28)].
-Deleting a file is not tested in the lab. If file delete turns out to leave stale URLs at Front
-Door, evaluate this module then.
+Drupal 8 to 11, security covered, about 2,402 installs [REPORTED: drupal.org project page via WebFetch 2026-10-05]. The
+page also lists 2.0.0-rc1 (2026-09-22) [REPORTED]; it was not trialled. The module purges file URLs
+when a file is inserted, updated or deleted. The recipe already purges a file replaced at the
+same URL through `perf_purge_paths` (`file:N` tag); test `sync_file` PASSES [V: [cache-sync.md](cache-sync.md#edge-cases-and-results-ddev-lab-2026-09-28)].
+
+**Trial** (Lando lab: `composer require drupal/purge_file:^1.3`, tests, then removed again;
+`perf_purge_deleted` off; code read in `purge_file.module`) [V: tmp/lando-purge-file-trial.log,
+tmp/lando-purge-file-trial-tests.log]:
+- **Setup it needs:** it ships `invalidation_type: url`, which the Azure purger rejects (the purger takes `path` and `wildcardpath` only). Set `purge_file.settings` `invalidation_type` to `path`. `workflow: queue` (the default) works with the cron processor, and its queuer enables itself.
+- **Queued format:** `path:sites/default/files/<name>.png`, the same as `perf_purge_paths` (`ltrim($file->createFileUrl(), '/')`). The mock Front Door got `["/sites/default/files/<name>.png"]` and the edge purged it.
+- **File delete:** the file URL is purged (now 404).
+- **Image styles:** the derivative stayed `TCP_HIT` with 200. It queues only the file's own URL, so `sync_file_delete` and `sync_file_swap` report FINDING.
+- **Same-URL replacement:** `sync_file` PASS, unchanged.
+- **Also:** it purges on insert, which the recipe does not need.
+- **Verdict:** not adopted. `perf_purge_deleted` covers the file URL and its image-style URLs ([cache-sync.md](cache-sync.md#open-decisions-for-bo)).
 
 ## query_string_optimizer 1.0.x-dev: not adopted
 

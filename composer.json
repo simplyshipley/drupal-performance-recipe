@@ -9,9 +9,10 @@
         "drupal/purge": "^3.7",
         "drupal/azure_cdn_purge": "1.0.4",
         "drupal/fast_404": "^3.7",
-        "drupal/themed_fast_404": "^1.0"
+        "drupal/themed_fast_404": "^1.0",
+        "simplyshipley/drupal-performance-modules": "^1.0"
     },
     "suggest": {
-        "cweagans/composer-patches": "Needed for Azure Government: apply patches/azure_cdn_purge-3427718-mr6-9859fc45.patch then patches/azure_cdn_purge-3427718-followup-default-cloud.patch, and patches/azure_cdn_purge-wildcardpath-purged.patch + patches/azure_cdn_purge-skip-node-hook-with-perf-purge-paths.patch, from the ROOT composer.json (docs/install.md section 5b)."
+        "cweagans/composer-patches": "Needed for Azure Government: apply patches/azure_cdn_purge-3427718-mr6-9859fc45.patch then patches/azure_cdn_purge-3427718-followup-default-cloud.patch, and patches/azure_cdn_purge-wildcardpath-purged.patch, from the ROOT composer.json (docs/install.md section 5b)."
     }
 }

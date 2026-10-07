@@ -8,7 +8,8 @@
 //   Consumption workload profile [ASSUMED]).
 // - Exactly 1 replica: Drupal needs one shared Redis; more replicas would be
 //   separate, unsynchronised caches.
-// - No persistence (cache only), explicit maxmemory, allkeys-lru.
+// - No persistence (cache only), explicit maxmemory, volatile-lfu (the
+//   image default; redis module README, "Eviction policy").
 // - Password from a Container Apps secret (pass it in from Key Vault).
 // - Image: infra/redis-image (non-root, config rendered from env, dangerous
 //   commands denied by ACL), pulled from ACR with a managed identity.
@@ -33,7 +34,7 @@ param logAnalyticsWorkspaceId string
 param redisPassword string
 
 @description('Container image built from infra/redis-image (docs/redis-image.md), pinned by tag. Placeholder registry name.')
-param redisImage string = '<registry-name>.azurecr.us/perf-redis:valkey-9.1.2-1'
+param redisImage string = '<registry-name>.azurecr.us/services/perf-redis:valkey-9.1.2-1'
 
 @description('ACR login server to pull from, e.g. <registry-name>.azurecr.us. Empty = public image, no registry auth.')
 param acrServer string = ''
@@ -127,7 +128,7 @@ resource redis 'Microsoft.App/containerApps@2024-03-01' = {
             memory: memory
           }
           // The image's entrypoint renders redis.conf from these variables
-          // (no persistence, allkeys-lru, protected mode, ACL: FLUSHALL,
+          // (no persistence, volatile-lfu, protected mode, ACL: FLUSHALL,
           // CONFIG, KEYS, DEBUG... denied for the app user).
           env: [
             {
