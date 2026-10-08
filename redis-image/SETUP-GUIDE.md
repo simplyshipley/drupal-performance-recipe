@@ -17,7 +17,7 @@ bin/docker-deploy 9.1.2-<revision> prod  # later: promote the same build to prod
 
 - Commands, tags, promote and roll back: [README.md](README.md#commands).
 - Hand the version and digest that `docker-deploy` prints to the Azure team: `<registry>.azurecr.us/services/perf-redis:9.1.2-<revision>` and `sha256:...`.
-- Moving `qa` or `prod` doesn't restart the running container. Microsoft Learn doesn't say a restart or a new revision pulls a moved tag again; it says to avoid static tags because of "caching problems" and to "use unique tags for each deployment" ([Containers in Azure Container Apps](https://learn.microsoft.com/en-us/azure/container-apps/containers)). What runs changes when the app's image setting changes to the new version or digest ([HANDOFF.md](HANDOFF.md#the-image)).
+- Moving `qa` or `prod` doesn't restart the running container. Microsoft Learn doesn't say a restart or a new revision pulls a moved tag again; it says to avoid static tags because of "caching problems" and to "use unique tags for each deployment" ([Containers in Azure Container Apps](https://learn.microsoft.com/en-us/azure/container-apps/containers)). Container Apps also can't deploy on its own when a registry tag changes. What runs changes when the app's image is set to the new version (portal, `az containerapp update --image`, or a pipeline the Azure team may start from an ACR webhook on `:qa` or `:prod`). Details and Microsoft Learn sources: [HANDOFF.md](HANDOFF.md#the-image).
 
 ## 2. Configure in Azure (Azure team)
 
