@@ -78,6 +78,15 @@ tooling:
     service: appserver
     description: "Drupal cache mode for local testing: dev | dev-twig | prod-like | off | status | clear (docs/cache-modes.md)"
     cmd: bash tests/performance/scripts/perf-cache.sh
+  perf-report:
+    service: appserver
+    description: "Report to save and share: local vs production config, Redis, edge, purges; prove = short test (lando perf-report > perf-report.txt)"
+    cmd: bash tests/performance/scripts/perf-report.sh
+  perf-edge-keys:
+    service: edge
+    user: nginx
+    description: List the cache keys stored in the local edge (Front Door stand-in)
+    cmd: "grep -rah ^KEY: /var/cache/nginx/edge"
   redis-cli:
     service: cache
     cmd: redis-cli

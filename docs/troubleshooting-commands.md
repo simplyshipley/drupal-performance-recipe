@@ -6,6 +6,20 @@ For causes and fixes in more depth, see [troubleshooting.md](troubleshooting.md)
 - **On a protected system?** You don't need to share output. Match what you see to a case and report the case letter (for example "3-A").
 - **Secrets:** none of these commands print passwords or client secrets. Don't add `--include-overridden` to `drush cget azure_cdn_purge.settings`: it prints the client secret.
 
+**One command:** a report to save and show the team. Read-only, except `prove`.
+
+```bash
+lando perf-report > perf-report.txt          # config, redis, edge, purges
+lando perf-report prove >> perf-report.txt   # short live test (6 tests), PASS/FAIL counts
+lando perf-edge-keys                         # keys stored in the local edge cache
+```
+
+- Check lines start with `PASS`, `FAIL` or `INFO`; the last line counts them. For a `FAIL`, read the matching section below.
+- **config:** the recipe's settings in use locally next to `config/sync` (what deploys); `DRIFT` = not exported or not imported. Then each App Service setting from [azure.md](azure.md) with its local value, and the lab-only settings production must never have.
+- `*SECRET*` and `*PASSWORD*` values print as `set (hidden)`. `prove` creates and deletes a SYNTHETIC node and resets the mock purge log.
+- **Not found?** Copy the `perf-report` and `perf-edge-keys` tooling entries from `lando/lando.perf.yml` into `.lando.yml`.
+- [V: americorps Lando copy, 2026-10-08: 13 PASS, `prove` 6 PASS; a wrong `REDIS_HOST`, a stopped edge and a stopped mock each gave a FAIL; tmp/perf-report-20261008/]
+
 > [!NOTE]
 > Run everything from the site folder. Command names come from the recipe, Drupal core, Drush and the Purge module.
 > The commands in sections 1-6 and the quick health check were run on the Lando lab (Lando 3.26.9) on 2026-10-07; not yet on an OIG Lando site or WSL2. The "If you see" cases come from the code and today's lab findings; not every case has been reproduced. If a command fails, note it here.

@@ -147,7 +147,7 @@ cp recipes/drupal-performance-recipe/lando/redis.conf .lando/redis.conf
 b. Open `recipes/drupal-performance-recipe/lando/lando.perf.yml`.
 
 c. Copy its `services:` entries (`appserver`, `cache`, `mockafd`, `edge`) and `tooling:` entries
-(`perf-test-in`, `perf-cache`, `redis-cli`) into the site's `.lando.yml`. Merge them into the
+(`perf-test-in`, `perf-cache`, `perf-report`, `perf-edge-keys`, `redis-cli`) into the site's `.lando.yml`. Merge them into the
 existing `services:` and `tooling:` sections. Don't add a second `services:` line.
 It already points at `.lando/` and `./tests/performance/`, so no paths need changing.
 
@@ -339,6 +339,7 @@ lando drush sqlq "SELECT type, COUNT(*) FROM watchdog WHERE type IN ('azurecdn',
 - **`endpoint_type`** is `afdEndpoints`.
 - **`headers_anon`** prints `PASS`.
 - **`redis-cli`** shows keys in `db0` after you load a page.
+- **One file for the team:** `lando perf-report > perf-report.txt` ([troubleshooting-commands.md](troubleshooting-commands.md)).
 
 <details>
 <summary><b>If this doesn't go smoothly</b></summary>

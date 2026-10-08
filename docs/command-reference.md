@@ -188,6 +188,9 @@ lando perf-test-in core_404_static core_404_page           # good: PASS on both
 lando perf-test-in cache_mode_dev cache_mode_prod          # good: PASS (switches mode, then back to prod-like)
 lando perf-test-in purge_queue_fills purge_send purge_retry    # good: PASS (needs the mock Front Door service)
 bash tests/performance/scripts/lando-test.sh   # full run incl. Redis down/hang; log in perf-test-lando.log
+lando perf-report > perf-report.txt        # good: last line "... 0 FAIL"; config, Redis, edge, purges in one file
+lando perf-report prove                    # good: "# summary: 6 passed, 0 failed"
+lando perf-edge-keys                       # good: one "KEY: edge:8080/<path>" line per cached page
 ```
 
 - **Lab or throwaway copy only.** Tests create SYNTHETIC nodes and files, empty the purge queue and stop/pause the Redis container. Back up first (`lando db-export`).
