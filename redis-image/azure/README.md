@@ -53,6 +53,10 @@ Outputs:
 - `redisHost`: use as `REDIS_HOST`.
 - `environmentDefaultDomain` and `environmentStaticIp`: for private DNS.
 
+## Deploy when the qa or prod tag moves
+
+Example Azure Pipelines setup, the closest match to App Service's Deployment Center: [pipelines/README.md](pipelines/README.md).
+
 ## Changing settings in the Azure portal
 
 Container Apps has a portal UI, but it works differently from App Service's Configuration page. Source: Microsoft Learn, [environment variables](https://learn.microsoft.com/en-us/azure/container-apps/environment-variables) and [manage secrets](https://learn.microsoft.com/en-us/azure/container-apps/manage-secrets), read 2026-10-08.

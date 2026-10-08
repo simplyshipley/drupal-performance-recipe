@@ -1,0 +1,83 @@
+# EXAMPLE for the team that runs Azure: deploy the Redis container when the
+# qa or prod tag moves in the registry. The closest Container Apps match to an
+# App Service's Deployment Center "continuous deployment" from a registry.
+# See README.md in this folder. Not run yet: everything here is ASSUMED until
+# it runs in your Azure DevOps project.
+#
+# How it works:
+#   bin/docker-deploy 9.1.2-2 qa   -> moves services/perf-redis:qa
+#   ACR container trigger           -> starts this pipeline
+#   the qa stage                    -> points the QA Redis app at that image
+#                                      BY DIGEST (a new revision)
+# prod works the same way; give the "redis-prod" environment an approval
+# check if prod deploys should wait for a person.
+
+trigger: none
+pr: none
+
+resources:
+  containers:
+    - container: redis
+      type: ACR
+      azureSubscription: <arm-service-connection>   # Azure Resource Manager connection (Azure US Government)
+      resourceGroup: <registry-resource-group>
+      registry: <registry-name>                     # e.g. the name before .azurecr.us
+      repository: services/perf-redis
+      trigger:
+        tags:
+          include:
+            - qa
+            - prod
+
+variables:
+  registryServer: <registry-name>.azurecr.us
+
+stages:
+  - stage: qa
+    condition: eq(variables['resources.container.redis.tag'], 'qa')
+    jobs:
+      - deployment: redis_qa
+        environment: redis-qa
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: none
+                - task: AzureCLI@2
+                  displayName: Point the QA Redis app at the new image
+                  inputs:
+                    azureSubscription: <arm-service-connection>
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      set -euo pipefail
+                      IMAGE="$(registryServer)/services/perf-redis@$(resources.container.redis.digest)"
+                      echo "Deploying $IMAGE (tag qa)"
+                      az containerapp update -g <qa-resource-group> -n <qa-redis-app> --image "$IMAGE" --output none
+                      az containerapp revision list -g <qa-resource-group> -n <qa-redis-app> \
+                        --query "[].{revision:name,active:properties.active,image:properties.template.containers[0].image}" -o table
+
+  - stage: prod
+    condition: eq(variables['resources.container.redis.tag'], 'prod')
+    dependsOn: []
+    jobs:
+      - deployment: redis_prod
+        environment: redis-prod
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: none
+                - task: AzureCLI@2
+                  displayName: Point the prod Redis app at the new image
+                  inputs:
+                    azureSubscription: <arm-service-connection>
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      set -euo pipefail
+                      IMAGE="$(registryServer)/services/perf-redis@$(resources.container.redis.digest)"
+                      echo "Deploying $IMAGE (tag prod)"
+                      az containerapp update -g <prod-resource-group> -n <prod-redis-app> --image "$IMAGE" --output none
+                      az containerapp revision list -g <prod-resource-group> -n <prod-redis-app> \
+                        --query "[].{revision:name,active:properties.active,image:properties.template.containers[0].image}" -o table
