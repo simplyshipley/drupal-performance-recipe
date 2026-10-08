@@ -51,7 +51,7 @@ if [[ "$LOGIN_SERVER" == *.azurecr.us ]]; then
   TAGS=$OUT
 else
   # A local test registry (plain HTTP), for example localhost:5055.
-  OUT=$(curl -s -w '\n%{http_code}' "http://$LOGIN_SERVER/v2/$REPO/tags/list")
+  OUT=$(curl -s -w '\n%{http_code}' "http://$LOGIN_SERVER/v2/$REPO/tags/list" || true)
   CODE=${OUT##*$'\n'}
   if [ "$CODE" == "404" ]; then
     TAGS=""
