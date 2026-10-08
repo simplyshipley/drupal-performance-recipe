@@ -262,7 +262,7 @@ Redis and settings:
 - **App settings:** `az webapp config appsettings set` is in [redis-image/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis-image/azure/README.md) (step 2). The repo has no `list` command. **[SECRET]** Do not run `appsettings list` unfiltered: plain-value settings print in full. Key Vault references show the `@Microsoft.KeyVault(...)` text, not the secret. Use the portal (Configuration) to read them.
 - **Redis checks on Azure:** the repo says to measure with `INFO memory` and `INFO stats` (`used_memory_peak_human`, `evicted_keys`, `keyspace_hits`/`misses`) after a crawl. No `az containerapp exec` or log command is in the repo.
 - **Metric names:** `az monitor metrics list-definitions --resource <redis app resource id>` # [not run in this project] good: lists `RestartCount`, `WorkingSetBytes`.
-- **Redis image:** `bash redis-image/image/push.sh <revision>` (or `redis-image/bin/docker-redis <revision>`) tests, builds and pushes `acrcigie.azurecr.us/services/perf-redis:valkey-<version>-<revision>`; it refuses an existing tag. Tested only against a local registry. Without local Docker: `az acr build --registry <registry-name> --image services/perf-redis:valkey-9.1.2-1 redis-image/image` # [not run in this project].
+- **Redis image:** `bash redis-image/image/push.sh <revision>` (or `redis-image/bin/docker-redis <revision>`) tests, builds and pushes `acrcigie.azurecr.us/drupal/redis:valkey-<version>-<revision>`; it refuses an existing tag. Tested only against a local registry. Without local Docker: `az acr build --registry <registry-name> --image drupal/redis:valkey-9.1.2-1 redis-image/image` # [not run in this project].
 
 Dangerous or secret-printing, avoid:
 

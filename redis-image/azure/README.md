@@ -74,7 +74,7 @@ DevOps can create the same thing by hand from the pushed image. These are the se
 | Setting | Value |
 |---|---|
 | Container Apps environment | Your VNet: a subnet delegated to `Microsoft.App/environments`, internal only. TCP ingress needs a VNet environment |
-| Image | `<registry>.azurecr.us/services/perf-redis:9.1.2-<rev>` (a version, not `qa` or `prod`: [HANDOFF.md](../HANDOFF.md#the-image)), pulled with a managed identity that has AcrPull |
+| Image | `<registry>.azurecr.us/drupal/redis:9.1.2-<rev>` (a version, not `qa` or `prod`: [HANDOFF.md](../HANDOFF.md#the-image)), pulled with a managed identity that has AcrPull |
 | CPU / memory | 0.5 / 1Gi |
 | Replicas | min 1, max 1 (the default min is 0, which would scale Redis to zero) |
 | Ingress | TCP, internal (not external), target port 6379, exposed port 6379 |
@@ -97,7 +97,7 @@ az containerapp env create -g $RG -n $P-cae -l $LOC \
   --infrastructure-subnet-resource-id <subnet id> --internal-only true \
   --logs-workspace-id <workspace customer id> --logs-workspace-key <key>
 az containerapp create -g $RG -n $P-redis --environment $P-cae \
-  --image <registry>.azurecr.us/services/perf-redis:9.1.2-1 \
+  --image <registry>.azurecr.us/drupal/redis:9.1.2-1 \
   --user-assigned "$ID" --registry-server <registry>.azurecr.us --registry-identity "$ID" \
   --cpu 0.5 --memory 1Gi --min-replicas 1 --max-replicas 1 \
   --ingress internal --transport tcp --target-port 6379 --exposed-port 6379 \

@@ -9,7 +9,7 @@ ENVIRONMENT=$2
 
 ACR_NAME="${ACR_NAME:-acrcigie}"
 LOGIN_SERVER="${LOGIN_SERVER:-$ACR_NAME.azurecr.us}"
-REPO="${REPO:-services/perf-redis}"
+REPO="${REPO:-drupal/redis}"
 REMOTE="$LOGIN_SERVER/$REPO"
 
 if [ -z "$VERSION" ]; then

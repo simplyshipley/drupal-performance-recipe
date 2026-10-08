@@ -49,5 +49,5 @@ First live run: `bin/docker-deploy <existing version> qa`, then check the pipeli
 
 ## Not using Azure DevOps?
 
-- **GitHub Actions:** a workflow with `workflow_dispatch` inputs (version, environment) that runs the same `az containerapp update --image <registry>/services/perf-redis@<digest>`. The Container Apps deploy action can also "Deploy an existing container image to Container Apps" ([GitHub Actions for Container Apps](https://learn.microsoft.com/en-us/azure/container-apps/github-actions)). Starting it from a tag move needs an ACR webhook scoped to `services/perf-redis:prod` that calls GitHub's API ([ACR webhooks](https://learn.microsoft.com/en-us/azure/container-registry/container-registry-webhook)).
-- **By hand:** portal → the Redis container app → new revision → image `<registry>.azurecr.us/services/perf-redis:<exact version>`.
+- **GitHub Actions:** a workflow with `workflow_dispatch` inputs (version, environment) that runs the same `az containerapp update --image <registry>/drupal/redis@<digest>`. The Container Apps deploy action can also "Deploy an existing container image to Container Apps" ([GitHub Actions for Container Apps](https://learn.microsoft.com/en-us/azure/container-apps/github-actions)). Starting it from a tag move needs an ACR webhook scoped to `drupal/redis:prod` that calls GitHub's API ([ACR webhooks](https://learn.microsoft.com/en-us/azure/container-registry/container-registry-webhook)).
+- **By hand:** portal → the Redis container app → new revision → image `<registry>.azurecr.us/drupal/redis:<exact version>`.

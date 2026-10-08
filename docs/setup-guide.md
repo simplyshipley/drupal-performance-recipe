@@ -121,7 +121,7 @@ Nothing here has run on Azure. Confirm each service is in FedRAMP scope first ([
 
 Follow [redis-image.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis-image/docs/redis-image.md#build-and-test-locally): `docker build`, `bash test-image.sh` (expect 5 PASS), Trivy (expect 0 HIGH/CRITICAL), then push with `bash redis-image/image/push.sh 1` (or `redis-image/bin/docker-redis 1`), which runs the tests, builds for linux/amd64 and pushes.
 - Tag `perf-redis:valkey-9.1.2-1`, server and version plus revision, never `latest`.
-- Check the push: `az acr repository show-tags --name <registry-name> --repository services/perf-redis -o tsv` (assumed)
+- Check the push: `az acr repository show-tags --name <registry-name> --repository drupal/redis -o tsv` (assumed)
 
 ### 3.2 Deploy the Container App
 

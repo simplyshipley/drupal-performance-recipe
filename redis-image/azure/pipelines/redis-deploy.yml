@@ -5,7 +5,7 @@
 # it runs in your Azure DevOps project.
 #
 # How it works:
-#   bin/docker-deploy 9.1.2-2 qa   -> moves services/perf-redis:qa
+#   bin/docker-deploy 9.1.2-2 qa   -> moves drupal/redis:qa
 #   ACR container trigger           -> starts this pipeline
 #   the qa stage                    -> points the QA Redis app at that image
 #                                      BY DIGEST (a new revision)
@@ -24,7 +24,7 @@ resources:
       azureSubscription: <arm-service-connection>   # manual ARM connection, Environment: AzureUSGovernment
       resourceGroup: <registry-resource-group>
       registry: <registry-name>                     # the name before .azurecr.us
-      repository: services/perf-redis
+      repository: drupal/redis
       trigger:
         tags:
           include:
@@ -34,7 +34,7 @@ resources:
       azureSubscription: <arm-service-connection>
       resourceGroup: <registry-resource-group>
       registry: <registry-name>
-      repository: services/perf-redis
+      repository: drupal/redis
       trigger:
         tags:
           include:
@@ -62,7 +62,7 @@ stages:
                     scriptLocation: inlineScript
                     inlineScript: |
                       set -euo pipefail
-                      IMAGE="$(registryServer)/services/perf-redis@$(resources.container.redisqa.digest)"
+                      IMAGE="$(registryServer)/drupal/redis@$(resources.container.redisqa.digest)"
                       echo "Deploying $IMAGE (tag qa)"
                       az containerapp update -g <qa-resource-group> -n <qa-redis-app> --image "$IMAGE" --output none
                       az containerapp revision list -g <qa-resource-group> -n <qa-redis-app> \
@@ -87,7 +87,7 @@ stages:
                     scriptLocation: inlineScript
                     inlineScript: |
                       set -euo pipefail
-                      IMAGE="$(registryServer)/services/perf-redis@$(resources.container.redisprod.digest)"
+                      IMAGE="$(registryServer)/drupal/redis@$(resources.container.redisprod.digest)"
                       echo "Deploying $IMAGE (tag prod)"
                       az containerapp update -g <prod-resource-group> -n <prod-redis-app> --image "$IMAGE" --output none
                       az containerapp revision list -g <prod-resource-group> -n <prod-redis-app> \

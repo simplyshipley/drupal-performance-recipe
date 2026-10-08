@@ -4,7 +4,7 @@ For the team that runs it in Azure. How you deploy it (portal, CLI, Terraform, B
 
 ## The image
 
-- `<registry>.azurecr.us/services/perf-redis:<version>`, for example `9.1.2-1`. The image owner gives you the version and its digest (`sha256:...`); `bin/docker-deploy` prints both.
+- `<registry>.azurecr.us/drupal/redis:<version>`, for example `9.1.2-1`. The image owner gives you the version and its digest (`sha256:...`); `bin/docker-deploy` prints both.
 - Valkey 9.1.2 (Redis-compatible), built from the official `valkey/valkey:9.1.2-alpine3.24`, runs as a non-root user.
 - Tags ([README.md](README.md#tags)):
   - `9.1.2-1`, `9.1.2-2`, ...: one build each, never overwritten.
@@ -18,7 +18,7 @@ For the team that runs it in Azure. How you deploy it (portal, CLI, Terraform, B
   - So `qa` and `prod` record which version each environment should run. Options, your call:
     - Set the app's image to the exact version (`9.1.2-N`) in the portal, with `az containerapp update --image`, or in your pipeline. That creates a new revision.
     - Example pipeline that redeploys when `qa` or `prod` moves (like App Service's Deployment Center): [azure/pipelines/](azure/pipelines/README.md).
-    - Let an ACR webhook scoped to `services/perf-redis:qa` or `:prod` start your pipeline, which then sets the exact version. ACR webhooks can be scoped to `repository:tag` ([ACR webhooks](https://learn.microsoft.com/en-us/azure/container-registry/container-registry-webhook)).
+    - Let an ACR webhook scoped to `drupal/redis:qa` or `:prod` start your pipeline, which then sets the exact version. ACR webhooks can be scoped to `repository:tag` ([ACR webhooks](https://learn.microsoft.com/en-us/azure/container-registry/container-registry-webhook)).
     - For contrast, App Service CI/CD adds an ACR webhook so a push restarts the app and pulls the image ([App Service custom container CI/CD](https://learn.microsoft.com/en-us/azure/app-service/deploy-ci-cd-custom-container)); Container Apps doesn't do that.
 
 ## What the container needs

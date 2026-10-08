@@ -57,7 +57,7 @@ Environment variables for the commands:
 
 - `ACR_NAME`: registry name. Default `acrcigie`, the same registry as the sites' `bin/docker-auth`. `docker-deploy` prints the target before it pushes.
 - `LOGIN_SERVER`: registry host (default `<ACR_NAME>.azurecr.us`). A local test registry such as `localhost:5055` skips the Azure login.
-- `REPO`: repository in the registry (default `services/perf-redis`)
+- `REPO`: repository in the registry (default `drupal/redis`)
 - `SKIP_TESTS=1`: skip the image tests in `docker-build`
 
 ## Test the image

@@ -38,7 +38,7 @@ Short version with build and push troubleshooting: [QUICKSTART.md](QUICKSTART.md
    bin/docker-deploy 9.1.2-1 qa
    ```
 
-   It prints the target registry first and the digest at the end. Afterwards `services/perf-redis` has:
+   It prints the target registry first and the digest at the end. Afterwards `drupal/redis` has:
 
    | Tag | Points to |
    |---|---|
@@ -61,7 +61,7 @@ bin/docker-deploy 9.1.2-1 prod           # roll prod back
 Tested against a local test registry (build, test, deploy to qa, promote, roll back, refused overwrite) [V: lab, 2026-10-08]. The Azure login and the first push to the real registry haven't run yet.
 
 - Commands, tags, promote and roll back: [README.md](README.md#commands).
-- Hand the version and digest that `docker-deploy` prints to the Azure team: `<registry>.azurecr.us/services/perf-redis:9.1.2-<revision>` and `sha256:...`.
+- Hand the version and digest that `docker-deploy` prints to the Azure team: `<registry>.azurecr.us/drupal/redis:9.1.2-<revision>` and `sha256:...`.
 - Moving `qa` or `prod` doesn't restart the running container. Microsoft Learn doesn't say a restart or a new revision pulls a moved tag again; it says to avoid static tags because of "caching problems" and to "use unique tags for each deployment" ([Containers in Azure Container Apps](https://learn.microsoft.com/en-us/azure/container-apps/containers)). Container Apps also can't deploy on its own when a registry tag changes. What runs changes when the app's image is set to the new version (portal, `az containerapp update --image`, or a pipeline the Azure team may start from an ACR webhook on `:qa` or `:prod`). Details and Microsoft Learn sources: [HANDOFF.md](HANDOFF.md#the-image).
 
 ## 2. Configure in Azure (Azure team)

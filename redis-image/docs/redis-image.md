@@ -51,13 +51,13 @@ bin/docker-deploy 9.1.2-1 qa
 ```
 
 - Every command, the tags it leaves, and promote and roll back: [README.md](../README.md#commands).
-- `docker-deploy` logs in like the sites' `bin/docker-auth`, prints the target registry (default `acrcigie`, `ACR_NAME` changes it) and pushes `services/perf-redis:9.1.2-1`. A version already in the registry is pulled, never overwritten. If the registry's tag list can't be read, it stops.
+- `docker-deploy` logs in like the sites' `bin/docker-auth`, prints the target registry (default `acrcigie`, `ACR_NAME` changes it) and pushes `drupal/redis:9.1.2-1`. A version already in the registry is pulled, never overwritten. If the registry's tag list can't be read, it stops.
 - It then moves `9.1.2`, `9.1` and `9` (only for the newest build of that line) and `qa` or `prod`, and prints the digest.
 
 Without local Docker (tests are skipped on this path, and nothing checks for an existing tag or moves the other tags):
 
 ```bash
-az acr build --registry <registry-name> --image services/perf-redis:9.1.2-1 image
+az acr build --registry <registry-name> --image drupal/redis:9.1.2-1 image
 ```
 
 Tested against a local registry (`LOGIN_SERVER=localhost:5055`, linux/amd64): build, deploy to qa, promote to prod, roll back, refused overwrite [V: lab, 2026-10-08]. The Azure login and the ACR tag listing are not yet run against the real registry.
@@ -83,7 +83,7 @@ param namePrefix = '<prefix>'
 param infrastructureSubnetId = '<subnet-id>'
 param logAnalyticsWorkspaceId = '<law-id>'
 param redisPassword = az.getSecret('<subscription-id>', '<rg>', '<kv>', 'redis-password')
-param redisImage = '<registry-name>.azurecr.us/services/perf-redis:9.1.2-1'
+param redisImage = '<registry-name>.azurecr.us/drupal/redis:9.1.2-1'
 param acrServer = '<registry-name>.azurecr.us'
 param acrPullIdentityId = '<uami-resource-id>'
 param maxmemory = '768mb'
