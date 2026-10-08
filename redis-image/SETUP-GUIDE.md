@@ -12,10 +12,51 @@ All commands are bash: run them in WSL2, or the `az` ones in Azure Cloud Shell (
 
 ## 1. Build and push the image (image owner)
 
+### First release
+
+1. **Once:** create the repo from this bundle and clone it inside the WSL file system (for example `~/sites/<repo>`), not under `/mnt/c`.
+2. **Before each session** (WSL2):
+
+   ```bash
+   az cloud set --name AzureUSGovernment && az login
+   docker info > /dev/null && echo "docker ok"
+   ```
+
+   You also need push rights on the registry (AcrPush) and network access to Docker Hub (base image) and the Alpine mirror (tests).
+3. **Build** (needs a clean working tree; runs the 5 image tests; adds and pushes git tag `9.1.2-1`):
+
+   ```bash
+   bin/docker-build 1
+   ```
+
+4. **Optional local check:** `bin/docker-test 9.1.2-1` shows `PONG` twice, the memory limit and `volatile-lfu`; then `bin/docker-test-stop 9.1.2-1`.
+5. **Push to the registry and point `qa` at it:**
+
+   ```bash
+   bin/docker-deploy 9.1.2-1 qa
+   ```
+
+   It prints the target registry first and the digest at the end. Afterwards `services/perf-redis` has:
+
+   | Tag | Points to |
+   |---|---|
+   | `9.1.2-1` | this build (never overwritten) |
+   | `9.1.2`, `9.1`, `9` | the newest build |
+   | `qa` | this build |
+
+6. **Hand over** the version and digest (and [HANDOFF.md](HANDOFF.md)) to the Azure team. Pushing doesn't start or update anything in Azure.
+
+Steps 3 and 5 in one: `bin/docker-build-deploy 1 qa`.
+
+### Later releases
+
 ```bash
-bin/docker-build-deploy <revision> qa    # tests, builds linux/amd64, pushes 9.1.2-<revision>, moves qa
-bin/docker-deploy 9.1.2-<revision> prod  # later: promote the same build to prod, no rebuild
+bin/docker-build-deploy 2 qa             # next build: qa moves to 9.1.2-2, prod stays put
+bin/docker-deploy 9.1.2-2 prod           # promote the same build to prod, no rebuild
+bin/docker-deploy 9.1.2-1 prod           # roll prod back
 ```
+
+Tested against a local test registry (build, test, deploy to qa, promote, roll back, refused overwrite) [V: lab, 2026-10-08]. The Azure login and the first push to the real registry haven't run yet.
 
 - Commands, tags, promote and roll back: [README.md](README.md#commands).
 - Hand the version and digest that `docker-deploy` prints to the Azure team: `<registry>.azurecr.us/services/perf-redis:9.1.2-<revision>` and `sha256:...`.
