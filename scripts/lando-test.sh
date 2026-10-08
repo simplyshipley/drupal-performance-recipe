@@ -9,14 +9,19 @@ OUT="${PERF_OUT:-perf-test-lando.log}"
 APP=$(awk -F': *' '/^name:/{print $2; exit}' .lando.yml)
 PROJECT=$(printf '%s' "$APP" | tr -d '_.-' | tr '[:upper:]' '[:lower:]')
 CACHE=$(docker ps -a --filter "label=com.docker.compose.project=$PROJECT" --filter "label=com.docker.compose.service=cache" --format '{{.Names}}' | head -1)
-SCRIPT=recipes/drupal-performance-recipe/scripts/test-local.sh
-MODE=recipes/drupal-performance-recipe/scripts/perf-cache.sh
+# This script's folder relative to the app root: the scripts run in appserver.
+DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); DIR=${DIR#"$PWD"/}
+[[ "$DIR" != /* ]] || { echo "FAIL: run from the app root, with the scripts inside it (bash tests/performance/scripts/lando-test.sh)."; exit 1; }
+SCRIPT=$DIR/test-local.sh
+MODE=$DIR/perf-cache.sh
 run_in() { lando ssh -s appserver -c "cd /app && PERF_CACHE_AUTO=0 ${EDGE_CHALLENGE_MISSING:+EDGE_CHALLENGE_MISSING=$EDGE_CHALLENGE_MISSING} ${BASE_URL:+BASE_URL=$BASE_URL} bash $SCRIPT $*"; }
 mode_in() { lando ssh -s appserver -c "cd /app && bash $MODE $*"; }
 {
   # The lab must match the repo before anything runs (scripts/lab-preflight.sh,
   # run from the repo mount so its checks are always the current ones).
-  if ! lando ssh -s appserver -c "cd /app && bash /opt/perf-recipe-src/scripts/lab-preflight.sh"; then
+  # A site has no repo mount, so nothing to compare: skipped. No quotes in
+  # the command: lando ssh -c strips them (a quoted echo broke the if).
+  if ! lando ssh -s appserver -c "cd /app && if [ -d /opt/perf-recipe-src ]; then bash /opt/perf-recipe-src/scripts/lab-preflight.sh; else echo preflight skipped: no recipe repo mount, not a lab; fi"; then
     echo "FAIL preflight: the lab does not match the repo; no test was run."
     exit 1
   fi

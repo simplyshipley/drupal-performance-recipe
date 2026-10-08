@@ -7,8 +7,8 @@
 #     patches.lock.json = the ones applied to the installed package. Applied is
 #     checked on a copy: the declared stack must come off cleanly (last patch
 #     first), and no other known patch file may still be in what is left.
-# (b) The installed copies of the modules package and of the recipe are the
-#     repo's current files (__ARCHIVED_* ignored).
+# (b) The installed copies of the modules package, the recipe and
+#     tests/performance/ (each if there) match the repo (__ARCHIVED_* ignored).
 #
 # Prints one "FAIL preflight: ..." line per problem and exits 1, or prints
 # "preflight OK" and exits 0.
@@ -43,8 +43,13 @@ done
 for pair in "drupal-performance-modules web/modules/custom/drupal-performance-modules simplyshipley/drupal-performance-modules" \
             ". recipes/drupal-performance-recipe simplyshipley/drupal-performance-recipe"; do
   read -r from to pkg <<<"$pair"
+  [[ "$to" == recipes/* && ! -d "$to" ]] && continue
   out=$(diff -rq -x '__ARCHIVED_*' -x .git -x .claude -x .DS_Store "$SRC/$from" "$to" 2>&1) || no "$to is not the repo's current code: $(head -3 <<<"$out" | tr '\n' ' ')Fix: composer reinstall $pkg (composer update $pkg if it is not installed)."
 done
+for sub in edge mock-afd scripts docs; do
+  [[ -d tests/performance ]] || break
+  out=$(diff -rq -x '__ARCHIVED_*' -x __pycache__ -x .DS_Store "$SRC/$sub" "tests/performance/$sub" 2>&1) || no "tests/performance/$sub is not the repo's current copy: $(head -3 <<<"$out" | tr '\n' ' ')Fix: copy $sub/ again from the repo."
+done
 
-[[ $bad == 0 ]] && echo "preflight OK: patches declared = locked = applied ($(wc -l <<<"$d") patches); package and recipe copy match $SRC"
+[[ $bad == 0 ]] && echo "preflight OK: patches declared = locked = applied ($(wc -l <<<"$d") patches); installed copies match $SRC"
 exit "$bad"

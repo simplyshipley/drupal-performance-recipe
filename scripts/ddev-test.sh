@@ -4,17 +4,22 @@
 # project's Redis container, runs the check, starts Redis again.
 # Output is printed and saved to $PERF_OUT (default ./perf-test-ddev.log).
 set -uo pipefail
+DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 cd "${DDEV_APPROOT:-$(pwd)}"
 NAME=$(ddev describe -j | php -r '$j=json_decode(stream_get_contents(STDIN),true); echo $j["raw"]["name"];' 2>/dev/null || true)
 [[ -z "$NAME" ]] && NAME=$(awk -F': *' '/^name:/{print $2; exit}' .ddev/config.yaml)
 OUT="${PERF_OUT:-perf-test-ddev.log}"
-SCRIPT=recipes/drupal-performance-recipe/scripts/test-local.sh
-MODE=recipes/drupal-performance-recipe/scripts/perf-cache.sh
+# This script's folder relative to the app root: the scripts run in the web container.
+DIR=${DIR#"$PWD"/}
+[[ "$DIR" != /* ]] || { echo "FAIL: the scripts must be inside the project (tests/performance/scripts)."; exit 1; }
+SCRIPT=$DIR/test-local.sh
+MODE=$DIR/perf-cache.sh
 fails=0
 {
   # The lab must match the repo before anything runs (scripts/lab-preflight.sh,
   # run from the repo mount so its checks are always the current ones).
-  if ! ddev exec "bash /opt/perf-recipe-src/scripts/lab-preflight.sh"; then
+  # A site has no repo mount, so nothing to compare: skipped.
+  if ! ddev exec "if [ -d /opt/perf-recipe-src ]; then bash /opt/perf-recipe-src/scripts/lab-preflight.sh; else echo preflight skipped: no recipe repo mount, not a lab; fi"; then
     echo "FAIL preflight: the lab does not match the repo; no test was run."
     exit 1
   fi

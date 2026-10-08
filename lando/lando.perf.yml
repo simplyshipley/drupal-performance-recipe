@@ -1,6 +1,8 @@
 # Performance recipe services for Lando 3.2x (drupal10/drupal11 recipe).
 # Save as .lando.local.yml (merged automatically) or paste into .lando.yml.
-# Paths assume the recipe is installed at recipes/drupal-performance-recipe.
+# Paths are the site's own copies, so the recipe folder can be deleted after
+# `drush recipe`: copy edge/, mock-afd/, scripts/ and docs/ into
+# tests/performance/, and lando/nginx-fast404.conf.tpl and redis.conf into .lando/.
 #
 # Lando's proxy stays on (https://<app>.lndo.site). Only a machine that also
 # runs DDEV needs LANDO_PROXY=OFF (both want ports 80/443).
@@ -13,7 +15,7 @@ services:
       # Pass missing static files to Drupal (Fast 404) instead of nginx's own
       # 404. Copy of Lando 3.26.9's drupal10 vhost + one try_files line.
       # Needs `lando rebuild` to apply.
-      vhosts: recipes/drupal-performance-recipe/lando/nginx-fast404.conf.tpl
+      vhosts: .lando/nginx-fast404.conf.tpl
     overrides:
       environment:
         REDIS_HOST: cache
@@ -42,12 +44,12 @@ services:
       image: valkey/valkey:9.1.2-alpine3.24
       command: valkey-server /usr/local/etc/valkey/valkey.conf --protected-mode no
       volumes:
-        - ./recipes/drupal-performance-recipe/lando/redis.conf:/usr/local/etc/valkey/valkey.conf:ro
+        - ./.lando/redis.conf:/usr/local/etc/valkey/valkey.conf:ro
   mockafd:
     type: compose
     services:
       build:
-        context: ./recipes/drupal-performance-recipe/mock-afd
+        context: ./tests/performance/mock-afd
       image: perf-mock-afd:local
       command: python3 -u /opt/mock/mock_afd.py
       environment:
@@ -60,7 +62,7 @@ services:
     type: compose
     services:
       build:
-        context: ./recipes/drupal-performance-recipe/edge
+        context: ./tests/performance/edge
       image: perf-edge:local
       command: /docker-entrypoint.sh nginx -g "daemon off;"
       environment:
@@ -71,11 +73,11 @@ tooling:
   perf-test-in:
     service: appserver
     description: Run the performance tests inside appserver (settings in perf-test.env; scripts/lando-test.sh adds Redis-down)
-    cmd: bash recipes/drupal-performance-recipe/scripts/test-local.sh
+    cmd: bash tests/performance/scripts/test-local.sh
   perf-cache:
     service: appserver
     description: "Drupal cache mode for local testing: dev | dev-twig | prod-like | off | status | clear (docs/cache-modes.md)"
-    cmd: bash recipes/drupal-performance-recipe/scripts/perf-cache.sh
+    cmd: bash tests/performance/scripts/perf-cache.sh
   redis-cli:
     service: cache
     cmd: redis-cli
