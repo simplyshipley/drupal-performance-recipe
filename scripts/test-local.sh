@@ -828,7 +828,9 @@ warm() { local u; for u in "$@"; do curl -s -o /dev/null "$EDGE_REAL$u"; curl -s
 after() { local u h; for u in "$@"; do h=$(hdr "$EDGE_REAL$u"); printf '%s=%s/%s ' "$u" "$(hget "$h" x-cache)" "$(hget "$h" status)"; done; }
 all_miss() { [[ "$1" != *TCP_HIT* && "$1" == *TCP_MISS* ]]; }
 queued() { php_eval 'print implode(" ", array_map(fn($d) => ($x = unserialize($d)) ? ($x[0] . ":" . $x[2]) : "?", \Drupal::database()->query("SELECT data FROM {purge_queue}")->fetchCol()));' | tail -1; }
-new_node() { php_eval "\$n = \Drupal\node\Entity\Node::create(['type' => 'article', 'title' => 'SYNTHETIC sync $1 ' . mt_rand(), 'status' => ${3:-1}, 'promote' => 1, 'path' => ['alias' => '$2', 'pathauto' => 0]]); \$n->save(); print \$n->id();" | tail -1; }
+# Content moderation: status alone does not publish (the node is saved as a draft, 403).
+PUB='if ($n->hasField("moderation_state") && $n->isPublished()) { $n->set("moderation_state", "published"); }'
+new_node() { php_eval "\$n = \Drupal\node\Entity\Node::create(['type' => 'article', 'title' => 'SYNTHETIC sync $1 ' . mt_rand(), 'status' => ${3:-1}, 'promote' => 1, 'path' => ['alias' => '$2', 'pathauto' => 0]]); $PUB \$n->save(); print \$n->id();" | tail -1; }
 # deleted_mod: "on" when the perf_purge_paths module (which carries the alias and
 # file delete/rename hooks) is installed.
 deleted_mod() { php_eval 'print \Drupal::moduleHandler()->moduleExists("perf_purge_paths") ? "on" : "off";' | tail -1; }
@@ -879,7 +881,7 @@ t_sync_single_save() {
 t_sync_listing() {
   local nid res t body
   sync_begin; warm / /node /rss.xml "/?page=0"
-  nid=$(sphp "\$n = \Drupal\node\Entity\Node::create(['type' => 'article', 'title' => 'SYNTHETIC sync listing ' . mt_rand(), 'status' => 1, 'promote' => 1]); \$n->save(); print \$n->id();" | tail -1)
+  nid=$(sphp "\$n = \Drupal\node\Entity\Node::create(['type' => 'article', 'title' => 'SYNTHETIC sync listing ' . mt_rand(), 'status' => 1, 'promote' => 1]); $PUB \$n->save(); print \$n->id();" | tail -1)
   t=$(php_eval "print \Drupal\node\Entity\Node::load($nid)->label();" | tail -1)
   sync_work; res=$(after / /node /rss.xml "/?page=0"); body=$(curl -s "$EDGE_REAL/"); sync_end
   if all_miss "$res" && [[ "$body" == *"$t"* ]]; then say PASS sync_listing "new node/$nid: front page, /node, /rss.xml (and ?page=0 variant) purged and the new title is on the front page: $res"
@@ -1099,14 +1101,15 @@ t_sync_cron() {
   sync_begin; r=$(rnd); a="/synthetic-sync-cron-$r"; nid=$(new_node cron "$a"); sync_work; warm "$a"
   sphp "\$n = \Drupal\node\Entity\Node::load($nid); \$n->setTitle('SYNTHETIC sync cron ' . mt_rand()); \$n->save();" >/dev/null
   res=$(after "$a"); warm "$a"
-  # Another cron (automated_cron from a page request) may hold the lock; its
-  # search_cron can take ~50 s in the lab. drush cron would then skip.
+  # Only purge_processor_cron's hook_cron (Purge's part of cron), never a full
+  # cron: on a copy of a real site every module's cron job would run. Waits
+  # while another cron (automated_cron from a page request) holds the lock.
   local waited=0
   while [[ "$(php_eval 'print \Drupal::lock()->lockMayBeAvailable("cron") ? "free" : "held";' | tail -1)" == held && $waited -lt 180 ]]; do sleep 5; waited=$((waited+5)); done
-  dr cron >/dev/null; local res2; res2=$(after "$a")
+  php_eval '\Drupal::moduleHandler()->invoke("purge_processor_cron", "cron");' >/dev/null; local res2; res2=$(after "$a")
   lr=$(php_eval 'print \Drupal::moduleHandler()->moduleExists("purge_processor_lateruntime") ? "on" : "off";' | tail -1); sync_end
-  if [[ "$res" == *TCP_HIT* && "$res2" == *TCP_MISS* ]]; then say PASS sync_cron "before any processor ran the edge still served the old page ($res); drush cron (purge_processor_cron) purged it ($res2). Waited ${waited}s for another cron run to finish. Late-runtime processor: $lr"
-  else say FAIL sync_cron "before processing: $res; after drush cron: $res2 (waited ${waited}s for the cron lock)"; fi
+  if [[ "$res" == *TCP_HIT* && "$res2" == *TCP_MISS* ]]; then say PASS sync_cron "before any processor ran the edge still served the old page ($res); purge_processor_cron's cron hook (no full cron) purged it ($res2). Waited ${waited}s for another cron run to finish. Late-runtime processor: $lr"
+  else say FAIL sync_cron "before processing: $res; after purge_processor_cron's cron hook: $res2 (waited ${waited}s for the cron lock)"; fi
 }
 
 t_sync_wildcard() {
@@ -1154,12 +1157,12 @@ if [[ "${PERF_CACHE_AUTO:-1}" == 1 ]]; then
 fi
 # At exit, also after a failed test or Ctrl-C: restore the cache mode and the
 # page max-age the run started with (tests set 300 or 0), delete the run's
-# SYNTHETIC nodes and terms (with their aliases, menu links and redirects).
+# SYNTHETIC nodes, terms, users and files (with aliases, menu links and redirects).
 cleanup() {
   trap '' INT  # a second Ctrl-C must not cut the cleanup short
   perf_cache_restore
   [[ "$SYNC_PREV_MAXAGE" =~ ^[0-9]+$ ]] && sync_end
-  echo "# cleanup: deleted SYNTHETIC $(php_eval 'foreach (["node" => ["title", "created"], "taxonomy_term" => ["name", "changed"]] as $type => [$label, $time]) {
+  echo "# cleanup: deleted SYNTHETIC $(php_eval 'foreach (["node" => ["title", "created"], "taxonomy_term" => ["name", "changed"], "user" => ["name", "created"], "file" => ["filename", "created"]] as $type => [$label, $time]) {
       if (!\Drupal::entityTypeManager()->hasDefinition($type)) { continue; }
       $s = \Drupal::entityTypeManager()->getStorage($type);
       $ids = $s->getQuery()->accessCheck(FALSE)->condition($label, "SYNTHETIC", "STARTS_WITH")->condition($time, '"$RUN_START"', ">=")->execute();

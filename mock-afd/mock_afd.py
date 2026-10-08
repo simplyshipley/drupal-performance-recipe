@@ -15,10 +15,10 @@ azure_cdn_purge 1.0.4 hard-codes both hosts (src/Plugin/Purge/Purger/
 AzurePurger.php lines 145 and 165), so Drupal cannot be pointed at another URL
 through the module's config. Instead the lab sets Drupal core's
 `http_client_config` proxy setting to this service. Guzzle then sends
-`CONNECT host:443` here; this service answers the CONNECT itself, wraps the
-socket in TLS with a self-signed certificate and serves the request locally.
-Nothing is forwarded: the mock never opens an outbound connection, so real
-Azure is never contacted.
+`CONNECT host:443` here. For the four Azure hosts above this service answers
+the CONNECT itself, wraps the socket in TLS with a self-signed certificate and
+serves the request locally, so real Azure is never contacted. A CONNECT to any
+other host is tunnelled untouched (stage_file_proxy fetching production files).
 
 Plain HTTP requests to the same paths also work (for curl tests).
 
@@ -45,8 +45,10 @@ Every request is appended as one JSON object per line to $MOCK_LOG
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import socket
 import ssl
 import sys
 import threading
@@ -59,6 +61,9 @@ LOG_PATH = os.environ.get("MOCK_LOG", "/data/requests.jsonl")
 CERT = os.environ.get("MOCK_CERT", "/opt/mock/cert.pem")
 KEY = os.environ.get("MOCK_KEY", "/opt/mock/key.pem")
 PORT = int(os.environ.get("MOCK_PORT", "8080"))
+# The Azure hosts faked here (the certificate's names); other CONNECTs tunnel.
+FAKE_HOSTS = {"login.microsoftonline.com", "login.microsoftonline.us",
+              "management.azure.com", "management.usgovcloudapi.net"}
 
 _lock = threading.Lock()
 _fail_plan = {"remaining": 0, "status": 500}
@@ -101,6 +106,16 @@ def _tls_context() -> ssl.SSLContext:
     return ctx
 
 
+def _pipe(src: socket.socket, dst: socket.socket) -> None:
+    """Copy bytes one way until either side closes, then shut both down."""
+    with contextlib.suppress(OSError):
+        while data := src.recv(65536):
+            dst.sendall(data)
+    for sock in (src, dst):
+        with contextlib.suppress(OSError):
+            sock.shutdown(socket.SHUT_RDWR)
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     tunnel_host = ""  # set on the handler that serves a CONNECT tunnel
@@ -128,8 +143,31 @@ class Handler(BaseHTTPRequestHandler):
     def _host(self) -> str:
         return self.tunnel_host or (self.headers.get("Host") or "")
 
+    def _tunnel(self, host: str, port: int) -> None:
+        """Pass a CONNECT to a non-Azure host through untouched (no TLS interception)."""
+        try:
+            upstream = socket.create_connection((host, port), timeout=10)
+        except OSError as exc:
+            _log({"kind": "tunnel_error", "target": self.path, "error": str(exc)})
+            self.send_error(502)
+            return
+        _log({"kind": "tunnel", "target": self.path})
+        upstream.settimeout(None)
+        self.send_response(200, "Connection Established")
+        self.end_headers()
+        back = threading.Thread(target=_pipe, args=(upstream, self.connection), daemon=True)
+        back.start()
+        _pipe(self.connection, upstream)
+        back.join()
+        upstream.close()
+        self.close_connection = True
+
     def do_CONNECT(self) -> None:  # noqa: N802
         target = self.path
+        host, _, port = target.rpartition(":")
+        if host.lower() not in FAKE_HOSTS:
+            self._tunnel(host, int(port or 443))
+            return
         _log({"kind": "connect", "target": target})
         self.send_response(200, "Connection Established")
         self.end_headers()

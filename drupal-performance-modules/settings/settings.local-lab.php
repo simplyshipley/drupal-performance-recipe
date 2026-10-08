@@ -8,7 +8,7 @@
  * settings.php AFTER settings.performance.php (README.md, "Local labs"):
  *
  * @code
- * include $app_root . '/modules/custom/drupal-performance-modules/settings/example.settings.local-lab.php';
+ * include $app_root . '/modules/custom/drupal-performance-modules/settings/settings.local-lab.php';
  * @endcode
  *
  * Each part acts only inside DDEV or Lando; anywhere else it is ignored and
@@ -48,6 +48,11 @@ if ($perf_env('PERF_EDGE_PROXY_HOST') !== NULL) {
       $settings['reverse_proxy_trusted_headers'] = Request::HEADER_X_FORWARDED_FOR
         | Request::HEADER_X_FORWARDED_HOST
         | Request::HEADER_X_FORWARDED_PROTO;
+      // The edge forwards X-Forwarded-Host <edge>:<port>. A site that limits
+      // host names (OIG settings.base.php) must accept it; an empty list allows all.
+      if (!empty($settings['trusted_host_patterns'])) {
+        $settings['trusted_host_patterns'][] = '^' . preg_quote((string) $perf_env('PERF_EDGE_PROXY_HOST')) . '$';
+      }
     }
     // Echo the Front Door origin headers this request carried, so the lab
     // tests can prove what the origin received (origin_headers test).
@@ -72,7 +77,7 @@ if ($perf_env('PERF_EDGE_PROXY_HOST') !== NULL) {
     }
   }
   else {
-    error_log('example.settings.local-lab.php: PERF_EDGE_PROXY_HOST ignored (not a DDEV or Lando environment).');
+    error_log('settings.local-lab.php: PERF_EDGE_PROXY_HOST ignored (not a DDEV or Lando environment).');
   }
 }
 
@@ -87,7 +92,7 @@ if ($perf_env('PERF_MOCK_AFD_PROXY') !== NULL) {
     $settings['http_client_config']['verify'] = FALSE;
   }
   else {
-    error_log('example.settings.local-lab.php: PERF_MOCK_AFD_PROXY ignored (not a DDEV or Lando environment).');
+    error_log('settings.local-lab.php: PERF_MOCK_AFD_PROXY ignored (not a DDEV or Lando environment).');
   }
 }
 
@@ -105,7 +110,7 @@ if ($perf_mode === '') {
   $perf_mode = (string) $perf_env('PERF_CACHE_MODE', '');
 }
 if ($perf_mode !== '' && !in_array($perf_mode, ['dev', 'dev-twig', 'prod-like'], TRUE)) {
-  error_log('example.settings.local-lab.php: unknown cache mode "' . $perf_mode . '" ignored (use dev, dev-twig or prod-like).');
+  error_log('settings.local-lab.php: unknown cache mode "' . $perf_mode . '" ignored (use dev, dev-twig or prod-like).');
   $perf_mode = '';
 }
 // The dev and dev-twig modes switch caches and Twig debug off/on: only
@@ -117,7 +122,7 @@ if ($perf_mode !== '' && !in_array($perf_mode, ['dev', 'dev-twig', 'prod-like'],
 // because unsetting IS_DDEV_PROJECT would also drop DDEV's database settings.
 $perf_local = (getenv('IS_DDEV_PROJECT') === 'true' || getenv('LANDO') === 'ON') && getenv('PERF_CACHE_GUARD_SIMULATE_REMOTE') !== '1';
 if (in_array($perf_mode, ['dev', 'dev-twig'], TRUE) && !$perf_local) {
-  error_log('example.settings.local-lab.php: cache mode "' . $perf_mode . '" refused outside DDEV/Lando; site settings apply.');
+  error_log('settings.local-lab.php: cache mode "' . $perf_mode . '" refused outside DDEV/Lando; site settings apply.');
   $settings['perf_cache_mode_refused'] = $perf_mode;
   $perf_mode = '';
 }

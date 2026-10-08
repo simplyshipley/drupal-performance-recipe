@@ -85,7 +85,7 @@
  *                           Explicit host URLs (override AZURE_CLOUD).
  *
  * Local labs (DDEV/Lando): the local edge, the mock Front Door proxy and the
- * cache modes are in example.settings.local-lab.php, required after this file
+ * cache modes are in settings.local-lab.php, required after this file
  * (README.md, "Local labs").
  */
 

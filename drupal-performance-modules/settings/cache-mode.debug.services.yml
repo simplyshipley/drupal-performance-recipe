@@ -1,4 +1,4 @@
-# Cache mode "dev" / "dev-twig" (example.settings.local-lab.php, PERF_CACHE_MODE).
+# Cache mode "dev" / "dev-twig" (settings.local-lab.php, PERF_CACHE_MODE).
 # Loaded after every other container YAML, so these values win over
 # sites/development.services.yml and services.yml.
 parameters:

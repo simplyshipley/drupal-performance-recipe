@@ -1,4 +1,4 @@
-# Cache mode "prod-like" (example.settings.local-lab.php, PERF_CACHE_MODE).
+# Cache mode "prod-like" (settings.local-lab.php, PERF_CACHE_MODE).
 # Loaded last, so it switches off Twig debugging even if services.yml or
 # sites/development.services.yml turned it on. Values = Drupal core defaults.
 parameters:
