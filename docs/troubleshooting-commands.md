@@ -50,7 +50,10 @@ lando drush pm:list --status=enabled | grep -E 'redis|purge|azure|perf_|fast404|
 
 - **1-A: `drush status` can't connect to the database.** `lando start`, then `lando logs -s database`.
 - **1-B: `fast404` or `themed_fast_404` still enabled.** They were removed from the recipe: `lando drush pm:uninstall themed_fast_404 fast404 -y`, then `lando composer remove drupal/themed_fast_404 drupal/fast_404`.
-- **1-C: `ENVIRONMENT` blank:** OIG's `settings.base.php` treats the site as **prod** (`get_env('ENVIRONMENT') ?: 'prod'`). That loads `settings.prod.php` and lets `block_inactive_users` send emails. Set your team's local value in `.lando.yml`, then `lando rebuild -y`.
+- **1-C: environment is not `local`.**
+  - **On Lando (OIG):** `settings.base.php` sets `ENVIRONMENT` to `local` itself when `LANDO=ON` and `LANDO_INFO` is set (`settings.base.php:34-37`). You do not set it in `.lando.yml`. If it is not `local`, Lando's variables are not reaching PHP: `lando rebuild -y`.
+  - **Other setups:** a blank `ENVIRONMENT` is treated as **prod** (`get_env('ENVIRONMENT') ?: 'prod'`, `settings.base.php:88`). That loads `settings.prod.php` and lets `block_inactive_users` send emails. Set your team's local value, then restart.
+  - Source: OIG `docroot/sites/default/settings.base.php` in oig-americorps, read 2026-10-08.
 
 ## 2. Settings are loaded
 
@@ -62,13 +65,13 @@ lando drush php:eval "print_r(\Drupal\Core\Site\Settings::get('cache')['bins'] ?
 
 - **Good:**
   - `settings.base.php` is loaded with `include_once`.
-  - `require __DIR__ . '/settings.performance.php';` is the **last** line.
+  - `require __DIR__ . '/settings.performance.php';` comes after `settings.base.php`. On Lando, the `settings.local-lab.php` include comes right after it.
   - `REDIS_HOST` prints `cache`.
   - The bins list shows `render`, `page`, `dynamic_page_cache`, `data`, `entity` and `menu` on `cache.backend.redis`.
 **If you see**
 
 - **2-A: `include` instead of `include_once` for `settings.base.php`.** Change it to `include_once`, or `drush recipe` fails with "Cannot redeclare `config_is_exported()`".
-- **2-B: the `require` is not the last line.** Move it to the end of `settings.php`.
+- **2-B: the `require` is before `settings.base.php`, or the Lando include is missing.** Rule: `settings.performance.php` is required after `settings.base.php`; on Lando the `settings.local-lab.php` include comes right after it (quickstart step 4).
 - **2-C: `REDIS_HOST` prints nothing.** The variable isn't reaching PHP: check `.lando.yml` → `appserver` → `overrides` → `environment`, then `lando rebuild -y`.
 - **2-D: bins list empty:** `REDIS_HOST` is unset, `REDIS_ENABLED` is `0`, or the phpredis extension is missing:
 
@@ -276,7 +279,7 @@ git log --oneline -3 -- config/sync/purge.plugins.yml config/sync/azure_cdn_purg
 - **`The configuration 'purge.plugins' exists already ...`:** leftover Purge config. If the site never used Purge in production, back up, uninstall the Purge modules, then run the recipe again:
 
   ```bash
-  lando db-export before-purge-reset.sql.gz
+  lando db-export before-purge-reset.sql
   lando drush pm:uninstall purge_ui purge_processor_cron purge_drush azure_cdn_purge purge -y
   ```
 

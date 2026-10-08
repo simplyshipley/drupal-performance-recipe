@@ -145,7 +145,7 @@ make_test_node() {
   p=$(node_path "$TEST_NID" | tail -1); s=$(status_of "$BASE_URL$p")
   [[ "$TEST_NID" =~ ^[0-9]+$ && "$s" == 200 ]] || say FAIL test_node "SYNTHETIC test node '$TEST_NID' ($p) answers $s to anonymous visitors (want 200), so tests that edit content cannot pass"
 }
-node_path() { php_eval "print \Drupal::service('path_alias.manager')->getAliasByPath('/node/$1');"; }
+node_path() { php_eval "print \Drupal::service('path_alias.manager')->getAliasByPath('/node/$1');" | tail -1; }
 touch_node() { php_eval "\$n = \Drupal\node\Entity\Node::load($1); \$n->setTitle('SYNTHETIC perf test ' . time() . ' ' . mt_rand()); \$n->save(); print \$n->label();"; }
 
 # --- Tests -------------------------------------------------------------------

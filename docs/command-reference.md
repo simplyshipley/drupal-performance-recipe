@@ -45,7 +45,7 @@ lando drush watchdog:show --type=purge --count=20                # good: no erro
 ```bash
 lando logs -s appserver                      # good: no PHP fatal errors
 lando logs -s cache                          # good: "Ready to accept connections"
-lando db-export before-change.sql.gz         # good: file written; take one before any risky step
+lando db-export before-change.sql            # good: file written (uncompressed SQL whatever the name); take one before any risky step
 lando rebuild -y                             # good: all services start again
 ```
 

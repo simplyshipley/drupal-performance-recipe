@@ -17,6 +17,7 @@ For developers reading or running the recipe's test suite. Look up a test by nam
   - `PERF_TEST_PATH`: default `/`. Avoid pages with webforms or registration/password forms: Honeypot's time limit disables page caching there.
   - `PERF_EDGE`: `1` also runs the edge tests, `0` skips them.
 - **Order:** a variable on the command line wins over the file.
+- **Per developer:** `perf-test.env` is not committed; add it to `.gitignore`. The committed template is `tests/performance/scripts/perf-test.env.example`.
 - **Fallback** when nothing is set: `http://appserver_nginx` (Lando's internal web server).
 - **Certificate error on https** on a machine: use `http://<project>.lndo.site`.
 - Source: Our choice (ruling 2026-10-07).
@@ -81,7 +82,7 @@ The suite switches to `prod-like` for its run and restores the previous cache mo
 
 ### Cache sync tests (docs/cache-sync.md)
 
-17 `sync_*` tests (alias, single save, listing, alias change, delete, alias delete, publish cycle, revert, 404-then-create, term/user, menu, same-URL file, file delete, file swap, bulk/chunking, cron processor, wildcard) plus `sync_redis_down` (wrappers, Redis stopped). Results and before/after table: [cache-sync.md](cache-sync.md).
+17 `sync_*` tests (alias, single save, listing, alias change, delete, alias delete, publish cycle, revert, 404-then-create, term/user, menu, same-URL file, file delete, file swap, bulk/chunking, cron processor, wildcard) plus `sync_redis_down` (wrappers, Redis stopped). `sync_cron` no longer runs a full `drush cron`; it only processes the purge queue. Results and before/after table: [cache-sync.md](cache-sync.md).
 
 - **`FINDING`:** a third status for known gaps left as open decisions. It does not count as FAIL.
 - **Kernel test for the new-alias hook:** `AliasAndFileHooksTest::testCreatingNodeQueuesItsNewAlias` (commit 223d6ba). Mutation-proven: it fails without the hook attribute and without the `queuePaths()` call [V: tmp/drop-fast404-20261007/ log 20]. Edge proof: `TCP_HIT`/404 became `TCP_MISS`/200 after the purge, and without the hook stayed `TCP_HIT`/404 [V: tmp/drop-fast404-20261007/16-probe-published-new-path.log]. `sync_new_path_404` is the suite test for this case.
@@ -99,6 +100,13 @@ Four tests (`sync_delete`, `sync_alias_delete`, `sync_file_delete`, `sync_file_s
 
 `sync_delete` itself is unchanged: PASS with the module, FINDING without it. Fail-proof with the
 module on but `SYNC_NEGATIVE=1`: all four FAIL [V: tmp/lando-deleted-failproof.log].
+
+### On sites with an editorial workflow (OIG)
+
+- **Problem:** new nodes start as drafts, so an anonymous request got 403 and the cache tests had nothing to measure.
+- **What the suite does:** it publishes its SYNTHETIC test node, including the moderation state [V: tmp/americorps-lando-fixes-20261008/ log 15, americorps on Lando].
+- **Cleanup:** removes the test users and files it created, as well as the node.
+- Source: Our choice (Bo, 2026-10-08), after the americorps quick-start run [V: tmp/americorps-lando-quickstart-20261008/].
 
 ## Unit tests (fail-open module)
 

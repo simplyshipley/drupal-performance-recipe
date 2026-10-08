@@ -68,6 +68,7 @@ git -C ../drupal-performance-recipe archive HEAD edge mock-afd scripts docs | ta
 
 - **Check:** `docroot/modules/custom/drupal-performance-modules/modules/perf_purge_paths` and `tests/performance/mock-afd` exist.
 - `git archive` copies only tracked files, without the `.git` folder.
+- **OIG's `.gitignore` also ignores `INSTALL.*`,** so `tests/performance/docs/install.md` is not committed on Mac/Windows git unless you add it by force (step 8): `git add -f tests/performance/docs/install.md`. [V: tmp/americorps-lando-quickstart-20261008/, OIG `.gitignore`]
 - **Two copies, two lifetimes:** `recipes/drupal-performance-recipe/` is deleted in step 6. `tests/performance/` stays, is committed, and belongs to the site (like `tests/behat` and `tests/phpunit`). Our choice (Bo, 2026-10-07).
 
 <details>
@@ -109,13 +110,14 @@ cp recipes/drupal-performance-recipe/patches/azure_cdn_purge-*.patch patches/
 }
 ```
 
-c. Reinstall the module so the patches apply:
+c. Apply the patches:
 
 ```bash
-lando composer reinstall drupal/azure_cdn_purge
+lando composer update drupal/azure_cdn_purge
 ```
 
-- **Check:** the output lists the three patches as applied, from `patches/`.
+- **Check:** the output lists the three patches as applied, from `patches/`. The version stays `1.0.4`.
+- **Why `update`, not `reinstall`:** with `cweagans/composer-patches` 1.x (OIG sites) `update` applies the patches and refreshes the lock file's hash. `composer reinstall` fails there with "Package is not installed" [V: tmp/americorps-lando-quickstart-20261008/ logs 15, 16e]. Use `reinstall` only with composer-patches 2.x, or when only the contents of a patch file changed.
 - **Why:** the first two make purging work on Azure Government (OIG). The third makes wildcard purges (`/news*`, `/*`) actually reach Azure. Details: [azure.md](azure.md#azure-government-patched-azure_cdn_purge).
 - After this, teammates' `composer install` and the Docker build apply the patches automatically.
 
@@ -184,10 +186,12 @@ d. Create the mock's data folder, keep it out of git, and rebuild:
 
 ```bash
 mkdir -p .lando-mock-afd-data
-echo "/.lando-mock-afd-data/" >> .gitignore
+printf '\n/.lando-mock-afd-data/\n/perf-test.env\n/docroot/sites/default/perf-cache-mode\n' >> .gitignore
 lando rebuild -y
 ```
 
+- **Why `printf` with a leading newline:** OIG's `.gitignore` has no final newline, so `echo ... >> .gitignore` glued the rule onto the last line [V: tmp/americorps-lando-quickstart-20261008/ log 19].
+- **The three rules:** the mock's data folder, and two per-developer files (`perf-test.env` in step 9, the cache-mode switch).
 - Adds Valkey (Redis), a mock Front Door and a local Front Door cache. All local only.
 - `mockafd` and `edge` build from `./tests/performance/mock-afd` and `./tests/performance/edge` (step 1), so they keep working after the recipe folder is removed.
 - The `AZURE_CDN_*` values in that file are SYNTHETIC placeholders for the mock. They're safe to commit.
@@ -227,18 +231,19 @@ require __DIR__ . '/settings.performance.php';
 - **It's the site's own settings file now,** like `settings.php`. It runs on every environment, Prod included. Every feature in it switches on only when its environment variable is set.
 - **Why the end:** Our choice (Bo ruling 2026-10-07). Its first source, the fast_404 README, is gone with that module. On OIG sites the end is still after `settings.base.php`, so nothing in `settings.config.php`, `settings.{env}.php` or `settings.global.php` is lost.
 - **It's a `require`,** so a missing file stops the site loudly instead of silently running without Redis.
-- **Never include `example.settings.local-lab.php`** (same folder in the modules package) unguarded. It sends outbound requests to the mock Front Door. Step c includes it for Lando only.
+- **Never include `settings.local-lab.php`** (same folder in the modules package) unguarded. It sends outbound requests to the mock Front Door. Step c includes it for Lando only.
 
-c. Add a Lando-only include **after** the `require` line, so local purges go to the mock Front Door and the local edge is trusted:
+c. Add a Lando-only include **right after** the `require` line (so the order is: `settings.base.php`, then `settings.performance.php`, then `settings.local-lab.php`), so local purges go to the mock Front Door and the local edge is trusted:
 
 ```php
 // Local Lando only: send purges to the mock Front Door and trust the local edge.
 if (getenv('LANDO') === 'ON') {
-  include $app_root . '/modules/custom/drupal-performance-modules/settings/example.settings.local-lab.php';
+  include $app_root . '/modules/custom/drupal-performance-modules/settings/settings.local-lab.php';
 }
 ```
 
-- **Why:** only `example.settings.local-lab.php` reads `PERF_MOCK_AFD_PROXY`, and nothing else includes it. Without this block, a local node save would send purges to the real Microsoft hosts, with the SYNTHETIC credentials from `.lando.yml`. [from code, not run on an OIG site]
+- **Why the name has no `example.` prefix:** OIG's `.gitignore` ignores `example.*` (line 42). Under its old `example.` prefix the file was never committed, so teammates' local purges went to the real Microsoft hosts [V: tmp/americorps-lando-quickstart-20261008/ log 36]. Our choice (Bo, 2026-10-08).
+- **Why:** only `settings.local-lab.php` reads `PERF_MOCK_AFD_PROXY`, and nothing else includes it. Without this block, a local node save would send purges to the real Microsoft hosts, with the SYNTHETIC credentials from `.lando.yml`. [from code, not run on an OIG site]
 - **Safe on Prod:** the block runs only when `LANDO=ON`, which Lando sets and production does not. The file also checks `LANDO` / `IS_DDEV_PROJECT` itself. [from code, not run on an OIG site]
 - **Tested:** on the SYNTHETIC Lando lab, purges reached the mock with no watchdog errors [V: tmp/recipe-removable-20261007/12, 13b].
 
@@ -288,7 +293,7 @@ lando drush cr
   - **Cause:** recipes are strict by default (core `Recipe/ConfigConfigurator.php`, `strict` defaults to TRUE). The site already has `purge.plugins`, from an earlier partial run or because it already uses Purge.
   - **Strict on purpose:** stale or half-finished Purge config stops the run instead of being kept silently. Our choice (Bo, 2026-10-07).
   - **Check committed config first:** `git log -- config/sync/purge.plugins.yml`.
-  - **Leftover local config (site never used Purge in production):** back up (`lando db-export before-purge-reset.sql.gz`), uninstall the Purge modules so all their config goes, then rerun the recipe:
+  - **Leftover local config (site never used Purge in production):** back up (`lando db-export before-purge-reset.sql`), uninstall the Purge modules so all their config goes, then rerun the recipe:
 
     ```bash
     lando drush pm:list --status=enabled | grep -E 'purge|azure'
@@ -325,10 +330,11 @@ Then check that purges reach the mock, not Microsoft: save any node, then
 
 ```bash
 lando drush p:queue-work
-lando drush watchdog:show --type=azurecdn --count=5
+lando drush sqlq "SELECT type, COUNT(*) FROM watchdog WHERE type IN ('azurecdn','purge') AND severity <= 4 GROUP BY type"
 ```
 
-- **Expected:** no error rows. [from code, not run on an OIG site]
+- **Expected:** empty output = clean. Purge errors can be logged under `purge`, not only `azurecdn`, so the query checks both.
+- **Why not `watchdog:show --type=azurecdn`:** with no rows it fails with "Unrecognized message type" [V: tmp/americorps-lando-quickstart-20261008/ log 29].
 
 - **`endpoint_type`** is `afdEndpoints`.
 - **`headers_anon`** prints `PASS`.
@@ -339,21 +345,33 @@ lando drush watchdog:show --type=azurecdn --count=5
 
 - **`headers_anon` FAILS.** Drupal is probably in a development cache mode. Run `lando perf-cache prod-like`, then test again.
 - **No keys in Redis.** `lando drush php:eval "print getenv('REDIS_HOST');"` should print `cache`. Also check `/admin/reports/status` for "Redis fail-open".
-- **`azurecdn` rows with connection or auth errors.** The step 4c block is missing, or `LANDO` is not `ON`. Check: `lando drush php:eval "print getenv('PERF_MOCK_AFD_PROXY');"` prints `http://mockafd:8080`.
+- **`azurecdn` rows with connection or auth errors.** (Also check `purge` rows: the step 7 query covers both.) The step 4c block is missing, or `LANDO` is not `ON`. Check: `lando drush php:eval "print getenv('PERF_MOCK_AFD_PROXY');"` prints `http://mockafd:8080`.
 - **`lando redis-cli` not found.** Use `lando exec cache -- valkey-cli info keyspace`.
 
 </details>
 
 ## 8. Export config and commit
 
+a. Export, then look at what changed in `config/sync` **before** adding it:
+
 ```bash
 lando drush cex -y
+git status config/sync
+```
+
+- **Why:** on Lando the `local` config split is active, so `cex` can drop production-only config. On americorps it removed the `stage_file_proxy` settings [V: tmp/americorps-lando-quickstart-20261008/ log 34].
+- **Commit only the recipe's config** (Purge, `azure_cdn_purge`, Redis). Revert the rest: `git checkout -- <path>`.
+
+b. Add and commit:
+
+```bash
 git add docroot/modules/custom/drupal-performance-modules tests/performance patches .lando \
   composer.json composer.lock .lando.yml .gitignore docroot/sites/default/settings.php \
   docroot/sites/default/settings.performance.php config/sync
 git commit -m "Add the Drupal performance recipe (Redis, Front Door purge)"
 ```
 
+- **Mac (Apple silicon):** OIG's Playwright service can make `lando start` exit 1 (msedge is not available on arm64). The site still runs [V: tmp/americorps-lando-quickstart-20261008/ log 04].
 - **Credentials aren't in the export.** Azure values come from environment variables, so the exported `azure_cdn_purge.settings` has empty credentials.
 
 **Your teammates then run:**
@@ -378,8 +396,8 @@ lando drush cr
 ## 9. Run the full test suite (optional)
 
 > [!WARNING]
-> For **lab or throwaway copies only**. It creates one SYNTHETIC node per run (deleted at the end), empties the
-> purge queue and sends purges. Back up first: `lando db-export before-tests.sql.gz`.
+> For **lab or throwaway copies only**. It creates one SYNTHETIC node per run (published through the editorial workflow, deleted at the end), empties the
+> purge queue and sends purges. Back up first: `lando db-export before-tests.sql`.
 
 ```bash
 cp tests/performance/scripts/perf-test.env.example perf-test.env
@@ -387,6 +405,7 @@ cp tests/performance/scripts/perf-test.env.example perf-test.env
 bash tests/performance/scripts/lando-test.sh
 ```
 
+- **Per developer:** `perf-test.env` is not committed (step 3d ignores it). The committed template is `tests/performance/scripts/perf-test.env.example`.
 - **Settings file:** copy `perf-test.env.example` to `perf-test.env` at the site root and set `BASE_URL` to `https://<project>.lndo.site` (`<project>` = the Lando app name). Details: [tests.md](tests.md#settings-file-perf-testenv).
 
 - **Expected:** `PASS` lines and `0 FAIL`. `FINDING` lines are known open items, not failures.
@@ -426,8 +445,9 @@ The site has no recipe folder, so update from the clone.
 3. Compare the new settings file with the site's copy, and bring over any changes you want:
    `diff docroot/modules/custom/drupal-performance-modules/settings/settings.performance.php docroot/sites/default/settings.performance.php`
 4. Compare `.lando.yml` with the clone's `lando/lando.perf.yml`: `diff ../drupal-performance-recipe/lando/lando.perf.yml .lando.yml`. The site's own entries will differ; look at the recipe's entries.
-5. If a patch changed, run `lando composer reinstall drupal/azure_cdn_purge`.
-6. Run `lando rebuild -y` if you changed `.lando.yml` or the `.lando/` files.
+5. If a patch changed: with composer-patches 1.x (OIG sites) run `lando composer update drupal/azure_cdn_purge`; with 2.x, `lando composer reinstall drupal/azure_cdn_purge`.
+6. Run `lando rebuild -y` if you changed `.lando.yml`, the `.lando/` files, or `tests/performance/mock-afd/` or `edge/` (the running containers keep the old code until a rebuild).
+   - **Updating from before 2026-10-08:** the Lando-only include was renamed. In `settings.php`, change `example.settings.local-lab.php` to `settings.local-lab.php`.
 7. Review `git diff`, test, and commit.
 
 **Is my copy current?** Four checks (expected result after each):

@@ -103,7 +103,7 @@ Core's Fast 404 is set in `docroot/sites/default/settings.config.php` (`system.p
 - **Simplest reset for leftover local config:** uninstall the Purge modules (removes all their config), then rerun the recipe:
 
   ```bash
-  lando db-export before-purge-reset.sql.gz
+  lando db-export before-purge-reset.sql
   lando drush pm:uninstall purge_ui purge_processor_cron purge_drush azure_cdn_purge purge -y
   ```
 - **Step 1, check committed config:**
@@ -146,6 +146,16 @@ node's alias. Check `perf_purge_paths.settings:enabled` and see
 the token or purge call, and logs the message to the `azurecdn` channel [V: purge_retry;
 code]. Set `devel: true` in `azure_cdn_purge.settings` to log the token and purge responses.
 Note that `devel` logs the full token response.
+
+## Edge on OIG: HTTP 400 from the `edge` host
+
+- **Cause:** OIG's trusted host patterns reject the local `edge` host [V: tmp/americorps-lando-quickstart-20261008/ log 43].
+- **Fix:** `settings.local-lab.php` trusts it when `PERF_EDGE_PROXY_HOST` is set (`edge` in `.lando.yml`). Check the step 4c include is in `settings.php`. No `settings.local.php` workaround is needed [V: tmp/americorps-lando-fixes-20261008/ log 15].
+
+## Tests on a site with an editorial workflow: 403 on the test node
+
+- **Cause:** new nodes are drafts, so anonymous requests get 403.
+- **Fix:** the suite publishes its SYNTHETIC test node, including the moderation state (see [tests.md](tests.md)) [V: tmp/americorps-lando-fixes-20261008/ log 15].
 
 ## Lando serves nginx's own 404 for missing files
 

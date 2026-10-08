@@ -53,7 +53,7 @@ Switching a mode does these steps:
 
 ## Include order (why it wins)
 
-The cache-mode block is in `settings/example.settings.local-lab.php`, which must be the **last**
+The cache-mode block is in `settings/settings.local-lab.php`, which must be the **last**
 include in `settings.php`: after `settings.ddev.php`, `settings.local.php`, any
 `settings.ddev.redis.php` and `settings.performance.php` (README.md, "Local labs"). So:
 

@@ -95,7 +95,7 @@ These counts were measured with azure_cdn_purge's node hook removed by perf_purg
 | Menu link / block content shown on every page | `sync_menu_block` | FAIL | **FINDING** with the default: every page stays stale until the HTML TTL. **PASS** with `PERF_PURGE_SITEWIDE_PATHS=/*`. See open decision 2. |
 | File replaced at the same URL (file entity saved) | `sync_file` | FAIL: old bytes for the static TTL | **PASS** |
 | Bulk: 60 nodes in one drush call | `sync_bulk` | PASS: 60 items, 2 requests of ≤50 paths | PASS: 124 items, 3 requests of ≤50 paths, queue empty |
-| Processing: cron vs drush vs late runtime | `sync_cron` | PASS | PASS: stale until cron or drush runs. The late-runtime processor is not installed. See open decision 3. |
+| Processing: cron vs drush vs late runtime | `sync_cron` | PASS | PASS: stale until a processor runs. The test runs only `purge_processor_cron`'s cron hook, never a full cron (2026-10-08). The late-runtime processor is not installed. See open decision 3. |
 | Wildcard purge (`news/*`) | `sync_wildcard` | FAIL: marked done, no API call | **PASS** (patch) |
 | Save while Redis is down (fail-open) | `sync_redis_down` (wrappers, Redis stopped) | – | See the full-suite logs |
 | Purge API returns 5xx | `purge_retry` (existing) | – | PASS: the item stays queued and is retried |
@@ -137,7 +137,7 @@ These counts were measured with azure_cdn_purge's node hook removed by perf_purg
 
 ## Cron contention (found 2026-09-29, Lando)
 
-In the Lando lab a full-suite `sync_cron` FAILED:
+In the Lando lab a full-suite `sync_cron` FAILED (when it still ran a full `drush cron`; since 2026-10-08 it runs only Purge's cron hook):
 - `drush cron` did nothing because another cron run held the lock. Watchdog shows many "Attempting to re-run cron while it is already running".
 - The holder was an `automated_cron` run that a page request started at 20:47:38Z.
 - Measured with `drush cron -v`: `search_cron()` took **46.7 s**, indexing the lab's backlog of synthetic nodes. A run like that blocks the purge processor until it finishes.

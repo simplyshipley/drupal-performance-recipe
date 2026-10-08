@@ -71,9 +71,10 @@ objects, while one purge clears the matching path on all of them.
 | `BLOCKING_PARANOIA`, `ANOMALY_INBOUND` | 1, 5 | CRS paranoia level and anomaly threshold (DRS: PL1, threshold 5) |
 
 Drupal side (lab only, honoured only in DDEV/Lando):
-- `PERF_EDGE_PROXY_HOST=edge` makes `settings/example.settings.local-lab.php` resolve the edge container and
+- `PERF_EDGE_PROXY_HOST=edge` makes `settings/settings.local-lab.php` resolve the edge container and
   trust only its IPs as a reverse proxy. Drupal then logs the real client IP, and a client
   cannot spoof `X-Forwarded-For`.
+- **OIG sites:** their trusted host patterns reject the local `edge` host (HTTP 400, [V: tmp/americorps-lando-quickstart-20261008/ log 43]). With `PERF_EDGE_PROXY_HOST` set, `settings.local-lab.php` trusts it [V: tmp/americorps-lando-fixes-20261008/ log 15].
 - It also echoes the Front Door headers the origin received in `X-Perf-Edge-Seen`.
 - In Azure, use `DRUPAL_REVERSE_PROXY` and `DRUPAL_REVERSE_PROXY_ADDRESSES` instead (see [azure.md](azure.md)).
 

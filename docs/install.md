@@ -121,7 +121,7 @@ Notes:
 
 > [!NOTE]
 > **Composer-patches 1.x** (OIG sites use `^1.6.5`): add the three patches under `extra.patches` and
-> run `composer reinstall drupal/azure_cdn_purge`. The exact block is in
+> run `composer update drupal/azure_cdn_purge` (`reinstall` fails there with "Package is not installed"). The exact block is in
 > [quickstart-lando.md](quickstart-lando.md#2-add-the-contrib-modules-and-patches) step 2.
 > The commands below are for **2.x**.
 
