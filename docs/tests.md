@@ -104,9 +104,9 @@ module on but `SYNC_NEGATIVE=1`: all four FAIL [V: tmp/lando-deleted-failproof.l
 ### On sites with an editorial workflow (OIG)
 
 - **Problem:** new nodes start as drafts, so an anonymous request got 403 and the cache tests had nothing to measure.
-- **What the suite does:** it publishes its SYNTHETIC test node, including the moderation state [V: tmp/americorps-lando-fixes-20261008/ log 15, americorps on Lando].
+- **What the suite does:** it publishes its SYNTHETIC test node, including the moderation state [V: OIG site copy on Lando, 2026-10-08].
 - **Cleanup:** removes the test users and files it created, as well as the node.
-- Source: Our choice (Bo, 2026-10-08), after the americorps quick-start run [V: tmp/americorps-lando-quickstart-20261008/].
+- Source: Our choice (Bo, 2026-10-08), after the quick-start run on an OIG site copy [V: OIG site copy on Lando, 2026-10-08].
 
 ## Unit tests (fail-open module)
 

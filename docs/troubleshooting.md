@@ -93,7 +93,7 @@ Core's Fast 404 is set in `docroot/sites/default/settings.config.php` (`system.p
   include_once __DIR__ . "/settings.base.php";
   ```
 
-  americorps already does.
+  Some OIG sites already do.
 - **Proper upstream fix:** a `function_exists()` guard in oig-distro-assets' `settings.base.php`.
 
 ## `The configuration 'purge.plugins' exists already and does not match the recipe's configuration`
@@ -149,13 +149,13 @@ Note that `devel` logs the full token response.
 
 ## Edge on OIG: HTTP 400 from the `edge` host
 
-- **Cause:** OIG's trusted host patterns reject the local `edge` host [V: tmp/americorps-lando-quickstart-20261008/ log 43].
-- **Fix:** `settings.local-lab.php` trusts it when `PERF_EDGE_PROXY_HOST` is set (`edge` in `.lando.yml`). Check the step 4c include is in `settings.php`. No `settings.local.php` workaround is needed [V: tmp/americorps-lando-fixes-20261008/ log 15].
+- **Cause:** OIG's trusted host patterns reject the local `edge` host [V: OIG site copy on Lando, 2026-10-08].
+- **Fix:** `settings.local-lab.php` trusts it when `PERF_EDGE_PROXY_HOST` is set (`edge` in `.lando.yml`). Check the step 4c include is in `settings.php`. No `settings.local.php` workaround is needed [V: OIG site copy on Lando, 2026-10-08].
 
 ## Tests on a site with an editorial workflow: 403 on the test node
 
 - **Cause:** new nodes are drafts, so anonymous requests get 403.
-- **Fix:** the suite publishes its SYNTHETIC test node, including the moderation state (see [tests.md](tests.md)) [V: tmp/americorps-lando-fixes-20261008/ log 15].
+- **Fix:** the suite publishes its SYNTHETIC test node, including the moderation state (see [tests.md](tests.md)) [V: OIG site copy on Lando, 2026-10-08].
 
 ## Lando serves nginx's own 404 for missing files
 

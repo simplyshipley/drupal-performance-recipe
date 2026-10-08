@@ -18,7 +18,7 @@ lando perf-edge-keys                         # keys stored in the local edge cac
 - **config:** the recipe's settings in use locally next to `config/sync` (what deploys); `DRIFT` = not exported or not imported. Then each App Service setting from [azure.md](azure.md) with its local value, and the lab-only settings production must never have.
 - `*SECRET*` and `*PASSWORD*` values print as `set (hidden)`. `prove` creates and deletes a SYNTHETIC node and resets the mock purge log.
 - **Not found?** Copy the `perf-report` and `perf-edge-keys` tooling entries from `lando/lando.perf.yml` into `.lando.yml`.
-- [V: americorps Lando copy, 2026-10-08: 13 PASS, `prove` 6 PASS; a wrong `REDIS_HOST`, a stopped edge and a stopped mock each gave a FAIL; tmp/perf-report-20261008/]
+- [V: OIG site copy on Lando, 2026-10-08: 13 PASS, `prove` 6 PASS; a wrong `REDIS_HOST`, a stopped edge and a stopped mock each gave a FAIL]
 
 > [!NOTE]
 > Run everything from the site folder. Command names come from the recipe, Drupal core, Drush and the Purge module.
@@ -67,7 +67,7 @@ lando drush pm:list --status=enabled | grep -E 'redis|purge|azure|perf_|fast404|
 - **1-C: environment is not `local`.**
   - **On Lando (OIG):** `settings.base.php` sets `ENVIRONMENT` to `local` itself when `LANDO=ON` and `LANDO_INFO` is set (`settings.base.php:34-37`). You do not set it in `.lando.yml`. If it is not `local`, Lando's variables are not reaching PHP: `lando rebuild -y`.
   - **Other setups:** a blank `ENVIRONMENT` is treated as **prod** (`get_env('ENVIRONMENT') ?: 'prod'`, `settings.base.php:88`). That loads `settings.prod.php` and lets `block_inactive_users` send emails. Set your team's local value, then restart.
-  - Source: OIG `docroot/sites/default/settings.base.php` in oig-americorps, read 2026-10-08.
+  - Source: OIG `docroot/sites/default/settings.base.php` on an OIG site, read 2026-10-08.
 
 ## 2. Settings are loaded
 
@@ -192,7 +192,7 @@ lando redis-cli info stats | grep -E 'evicted_keys|keyspace_hits|keyspace_misses
      | 6 or 7 `NO` | `lando drush pm:enable redis perf_redis_failopen -y`, then `lando drush cr` |
      | 9 `FAILED` | PHP can't reach the `cache` service: `lando logs -s cache`, then `lando restart` |
 
-     [V: tested 2026-10-08 on the americorps DDEV copy: normal run, `REDIS_HOST` unset and a wrong host each show the broken line; tmp/redis-check-20261008/]
+     [V: tested 2026-10-08 on an OIG site copy (DDEV): normal run, `REDIS_HOST` unset and a wrong host each show the broken line]
 
      **Line 1 `NOT SET`:**
 

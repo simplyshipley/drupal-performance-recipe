@@ -39,7 +39,7 @@ Everything is committed to the **site repo**, so your team and the Docker build 
 - **DDEV on the same machine?** Only then: run `ddev poweroff` while you use Lando, or run Lando with `LANDO_PROXY=OFF` (tests then need `BASE_URL=http://appserver_nginx` in `perf-test.env`).
 - **GitHub access** to `simplyshipley/drupal-performance-recipe` (only the person adding it needs this).
 
-The steps use `oig-americorps` as the site. Use your site's folder name.
+Replace `<site>` with your site's folder name.
 
 <details>
 <summary><b>If this doesn't go smoothly</b></summary>
@@ -59,7 +59,7 @@ The steps use `oig-americorps` as the site. Use your site's folder name.
 cd ~/sites
 git clone https://github.com/simplyshipley/drupal-performance-recipe.git
 
-cd oig-americorps
+cd <site>
 mkdir -p recipes/drupal-performance-recipe docroot/modules/custom tests/performance
 git -C ../drupal-performance-recipe archive HEAD | tar -x -C recipes/drupal-performance-recipe
 mv recipes/drupal-performance-recipe/drupal-performance-modules docroot/modules/custom/
@@ -68,7 +68,7 @@ git -C ../drupal-performance-recipe archive HEAD edge mock-afd scripts docs | ta
 
 - **Check:** `docroot/modules/custom/drupal-performance-modules/modules/perf_purge_paths` and `tests/performance/mock-afd` exist.
 - `git archive` copies only tracked files, without the `.git` folder.
-- **OIG's `.gitignore` also ignores `INSTALL.*`,** so `tests/performance/docs/install.md` is not committed on Mac/Windows git unless you add it by force (step 8): `git add -f tests/performance/docs/install.md`. [V: tmp/americorps-lando-quickstart-20261008/, OIG `.gitignore`]
+- **OIG's `.gitignore` also ignores `INSTALL.*`,** so `tests/performance/docs/install.md` is not committed on Mac/Windows git unless you add it by force (step 8): `git add -f tests/performance/docs/install.md`. [V: OIG site copy on Lando, 2026-10-08, OIG `.gitignore`]
 - **Two copies, two lifetimes:** `recipes/drupal-performance-recipe/` is deleted in step 6. `tests/performance/` stays, is committed, and belongs to the site (like `tests/behat` and `tests/phpunit`). Our choice (Bo, 2026-10-07).
 
 <details>
@@ -117,7 +117,7 @@ lando composer update drupal/azure_cdn_purge
 ```
 
 - **Check:** the output lists the three patches as applied, from `patches/`. The version stays `1.0.4`.
-- **Why `update`, not `reinstall`:** with `cweagans/composer-patches` 1.x (OIG sites) `update` applies the patches and refreshes the lock file's hash. `composer reinstall` fails there with "Package is not installed" [V: tmp/americorps-lando-quickstart-20261008/ logs 15, 16e]. Use `reinstall` only with composer-patches 2.x, or when only the contents of a patch file changed.
+- **Why `update`, not `reinstall`:** with `cweagans/composer-patches` 1.x (OIG sites) `update` applies the patches and refreshes the lock file's hash. `composer reinstall` fails there with "Package is not installed" [V: OIG site copy on Lando, 2026-10-08]. Use `reinstall` only with composer-patches 2.x, or when only the contents of a patch file changed.
 - **Why:** the first two make purging work on Azure Government (OIG). The third makes wildcard purges (`/news*`, `/*`) actually reach Azure. Details: [azure.md](azure.md#azure-government-patched-azure_cdn_purge).
 - After this, teammates' `composer install` and the Docker build apply the patches automatically.
 
@@ -190,7 +190,7 @@ printf '\n/.lando-mock-afd-data/\n/perf-test.env\n/docroot/sites/default/perf-ca
 lando rebuild -y
 ```
 
-- **Why `printf` with a leading newline:** OIG's `.gitignore` has no final newline, so `echo ... >> .gitignore` glued the rule onto the last line [V: tmp/americorps-lando-quickstart-20261008/ log 19].
+- **Why `printf` with a leading newline:** OIG's `.gitignore` has no final newline, so `echo ... >> .gitignore` glued the rule onto the last line [V: OIG site copy on Lando, 2026-10-08].
 - **The three rules:** the mock's data folder, and two per-developer files (`perf-test.env` in step 9, the cache-mode switch).
 - Adds Valkey (Redis), a mock Front Door and a local Front Door cache. All local only.
 - `mockafd` and `edge` build from `./tests/performance/mock-afd` and `./tests/performance/edge` (step 1), so they keep working after the recipe folder is removed.
@@ -204,7 +204,7 @@ lando rebuild -y
   - Run `docker pull valkey/valkey:9.1.2-alpine3.24` by itself to see the real error.
   - Configure Docker's proxy settings, if the VM has a corporate proxy.
   - For a Redis-only first try, leave out `mockafd` and `edge`. Purge tests then won't run.
-- **The site already has `.lando/nginx.conf.tpl`.** americorps has one committed, but no Lando file points to it, so it isn't used today. It differs from the recipe's template in three places: an older Drupal 7 style `rewrite`, no `expires max` on CSS/JS aggregates, and its own `try_files` for static files. Options:
+- **The site already has `.lando/nginx.conf.tpl`.** Some OIG sites have one committed, but no Lando file points to it, so it isn't used today. It differs from the recipe's template in three places: an older Drupal 7 style `rewrite`, no `expires max` on CSS/JS aggregates, and its own `try_files` for static files. Options:
   - **Keep both (default):** use `.lando/nginx-fast404.conf.tpl` as above, and leave the old file alone.
   - **One file:** copy the recipe's template over `.lando/nginx.conf.tpl` and point `vhosts:` at that. Check first that nobody depends on the old one.
 - **The site's own nginx rules stopped working.** The `vhosts:` line replaces Lando's nginx config with this template (Lando's own plus one line that lets missing files reach Drupal). Add the site's rules to `.lando/nginx-fast404.conf.tpl`, or leave the `vhosts:` line out. Without it nginx answers missing image/CSS files itself, so core's Fast 404 never sees them, which is harmless locally.
@@ -242,7 +242,7 @@ if (getenv('LANDO') === 'ON') {
 }
 ```
 
-- **Why the name has no `example.` prefix:** OIG's `.gitignore` ignores `example.*` (line 42). Under its old `example.` prefix the file was never committed, so teammates' local purges went to the real Microsoft hosts [V: tmp/americorps-lando-quickstart-20261008/ log 36]. Our choice (Bo, 2026-10-08).
+- **Why the name has no `example.` prefix:** OIG's `.gitignore` ignores `example.*` (line 42). Under its old `example.` prefix the file was never committed, so teammates' local purges went to the real Microsoft hosts [V: OIG site copy on Lando, 2026-10-08]. Our choice (Bo, 2026-10-08).
 - **Why:** only `settings.local-lab.php` reads `PERF_MOCK_AFD_PROXY`, and nothing else includes it. Without this block, a local node save would send purges to the real Microsoft hosts, with the SYNTHETIC credentials from `.lando.yml`. [from code, not run on an OIG site]
 - **Safe on Prod:** the block runs only when `LANDO=ON`, which Lando sets and production does not. The file also checks `LANDO` / `IS_DDEV_PROJECT` itself. [from code, not run on an OIG site]
 - **Tested:** on the SYNTHETIC Lando lab, purges reached the mock with no watchdog errors [V: tmp/recipe-removable-20261007/12, 13b].
@@ -287,7 +287,7 @@ lando drush cr
 - **A module isn't found.** Run `lando drush cr` again, then the recipe.
 - **`PHP Fatal error: Cannot redeclare config_is_exported()` (previously declared in `.../settings.base.php:6`).**
   - **Cause:** drush boots Drupal, then core's `RecipeCommand` boots it again and re-reads `settings.php` (`core/lib/Drupal/Core/Command/BootableCommandTrait.php` calls `Settings::initialize()`).
-  - **Fix:** in the site's `settings.php` use `include_once __DIR__ . "/settings.base.php";` (americorps already does).
+  - **Fix:** in the site's `settings.php` use `include_once __DIR__ . "/settings.base.php";` (some OIG sites already do).
   - **Upstream fix:** a `function_exists()` guard in oig-distro-assets' `settings.base.php`.
 - **`The configuration 'purge.plugins' exists already and does not match the recipe's configuration`.**
   - **Cause:** recipes are strict by default (core `Recipe/ConfigConfigurator.php`, `strict` defaults to TRUE). The site already has `purge.plugins`, from an earlier partial run or because it already uses Purge.
@@ -334,7 +334,7 @@ lando drush sqlq "SELECT type, COUNT(*) FROM watchdog WHERE type IN ('azurecdn',
 ```
 
 - **Expected:** empty output = clean. Purge errors can be logged under `purge`, not only `azurecdn`, so the query checks both.
-- **Why not `watchdog:show --type=azurecdn`:** with no rows it fails with "Unrecognized message type" [V: tmp/americorps-lando-quickstart-20261008/ log 29].
+- **Why not `watchdog:show --type=azurecdn`:** with no rows it fails with "Unrecognized message type" [V: OIG site copy on Lando, 2026-10-08].
 
 - **`endpoint_type`** is `afdEndpoints`.
 - **`headers_anon`** prints `PASS`.
@@ -360,7 +360,7 @@ lando drush cex -y
 git status config/sync
 ```
 
-- **Why:** on Lando the `local` config split is active, so `cex` can drop production-only config. On americorps it removed the `stage_file_proxy` settings [V: tmp/americorps-lando-quickstart-20261008/ log 34].
+- **Why:** on Lando the `local` config split is active, so `cex` can drop production-only config. On an OIG site copy it removed the `stage_file_proxy` settings [V: OIG site copy on Lando, 2026-10-08].
 - **Commit only the recipe's config** (Purge, `azure_cdn_purge`, Redis). Revert the rest: `git checkout -- <path>`.
 
 b. Add and commit:
@@ -372,7 +372,7 @@ git add docroot/modules/custom/drupal-performance-modules tests/performance patc
 git commit -m "Add the Drupal performance recipe (Redis, Front Door purge)"
 ```
 
-- **Mac (Apple silicon):** OIG's Playwright service can make `lando start` exit 1 (msedge is not available on arm64). The site still runs [V: tmp/americorps-lando-quickstart-20261008/ log 04].
+- **Mac (Apple silicon):** OIG's Playwright service can make `lando start` exit 1 (msedge is not available on arm64). The site still runs [V: OIG site copy on Lando, 2026-10-08].
 - **Credentials aren't in the export.** Azure values come from environment variables, so the exported `azure_cdn_purge.settings` has empty credentials.
 
 **Your teammates then run:**
@@ -431,7 +431,7 @@ The site has no recipe folder, so update from the clone.
 2. Re-copy what changed into the site, from the site root:
 
    ```bash
-   cd ~/sites/oig-americorps
+   cd ~/sites/<site>
    rm -rf docroot/modules/custom/drupal-performance-modules tests/performance
    mkdir -p tests/performance
    git -C ../drupal-performance-recipe archive HEAD drupal-performance-modules | tar -x -C docroot/modules/custom

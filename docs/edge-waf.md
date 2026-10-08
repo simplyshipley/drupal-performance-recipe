@@ -74,7 +74,7 @@ Drupal side (lab only, honoured only in DDEV/Lando):
 - `PERF_EDGE_PROXY_HOST=edge` makes `settings/settings.local-lab.php` resolve the edge container and
   trust only its IPs as a reverse proxy. Drupal then logs the real client IP, and a client
   cannot spoof `X-Forwarded-For`.
-- **OIG sites:** their trusted host patterns reject the local `edge` host (HTTP 400, [V: tmp/americorps-lando-quickstart-20261008/ log 43]). With `PERF_EDGE_PROXY_HOST` set, `settings.local-lab.php` trusts it [V: tmp/americorps-lando-fixes-20261008/ log 15].
+- **OIG sites:** their trusted host patterns reject the local `edge` host (HTTP 400, [V: OIG site copy on Lando, 2026-10-08]). With `PERF_EDGE_PROXY_HOST` set, `settings.local-lab.php` trusts it [V: OIG site copy on Lando, 2026-10-08].
 - It also echoes the Front Door headers the origin received in `X-Perf-Edge-Seen`.
 - In Azure, use `DRUPAL_REVERSE_PROXY` and `DRUPAL_REVERSE_PROXY_ADDRESSES` instead (see [azure.md](azure.md)).
 

@@ -103,7 +103,7 @@ What you get:
 - `azure_cdn_purge` hard-codes `login.microsoftonline.com` and `management.azure.com` [V: AzurePurger.php lines 145, 165]. No module setting can point it elsewhere.
 - So the lab sets core's `http_client_config` (via `PERF_MOCK_AFD_PROXY`). Guzzle then sends every outbound request as an HTTP proxy `CONNECT` to the mock.
 - The mock fakes only the Azure sign-in and management hosts (commercial and Government), answering with a self-signed certificate (verification is off in the lab only), so no purge reaches Azure.
-- Every other host is passed through as a plain tunnel, so Stage File Proxy can still fetch images from production [V: tmp/americorps-lando-fixes-20261008/ log 13].
+- Every other host is passed through as a plain tunnel, so Stage File Proxy can still fetch images from production [V: OIG site copy on Lando, 2026-10-08].
 - **Side effect:** the suite's missing-file checks are also fetched from production by Stage File Proxy (GETs of SYNTHETIC file names that answer 404), the same as browsing a missing image locally.
 - Side effect: every other outbound Drupal HTTP call in the lab also hits the mock (for example update checks). Localhost is excluded.
 
