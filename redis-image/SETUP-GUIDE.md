@@ -8,6 +8,8 @@ Labels:
 
 Replace `<rg>`, `<app>` (the Redis container app), `<webapp>` (the site's App Service) and `<registry>`.
 
+All commands are bash: run them in WSL2, or the `az` ones in Azure Cloud Shell (Bash). The `bin/docker-*` commands need Docker, so they stay in WSL2.
+
 ## 1. Build and push the image (image owner)
 
 ```bash

@@ -18,7 +18,10 @@ Cache-only Valkey image for the Drupal sites on Azure Container Apps, with `bin/
 
 - AcrPush on the registry (or the repository write role, if your registry uses ABAC repository permissions)
 - Network access to Docker Hub, the Alpine mirror and the ACR
-- On Windows, clone inside WSL with Linux git. `.gitattributes` keeps every file LF; a CRLF checkout breaks the scripts and the image.
+- **Where to run things:** everything here is bash.
+  - `bin/docker-*`: in WSL2, with the repo cloned inside the Linux file system (for example `~/sites/`), not under `/mnt/c`. WSL's git checks out LF line endings.
+  - `az` commands in the guides: WSL2 or Azure Cloud Shell (Bash). Cloud Shell is already signed in, so skip `az login`; it has no Docker, so the `bin/docker-*` commands stay in WSL2.
+  - `.gitattributes` keeps every file LF even if someone clones with Git for Windows (a CRLF checkout breaks the scripts and the image).
 
 ## Tags
 
