@@ -38,6 +38,7 @@ s_config() {
   echo "# LOCAL: cache mode, bins and front page headers (perf-cache.sh status)"
   bash "$DIR/perf-cache.sh" status 2>&1 | sed 's/^/  /'
   echo "# Recipe config: LOCAL (in use now) vs PRODUCTION (config/sync, what deploys)"
+  echo "# PRODUCTION here = config/sync only. A prod config split or settings.prod.php \$config line would change it: check those before quoting a production value."
   php_eval "$(cat <<'PHP'
 // Drift uses the same view as drush config:status: active config after config splits.
 [$sync, $export] = [\Drupal::service("config.storage.sync"), \Drupal::service("config.storage.export")];
