@@ -1,0 +1,55 @@
+#!/bin/bash
+set -e
+
+# Change to one directory above the script
+cd "$(dirname "$0")/.." || exit
+
+REVISION=$1
+
+if [ -n "$(git status -s)" ]; then
+  echo "Working directory must be clean. Stash or commit your changes, then try again."
+  exit 1
+fi
+
+# Valkey version from the Dockerfile: FROM valkey/valkey:9.1.2-alpine3.24 -> 9.1.2
+BASE=$(sed -n 's/^FROM valkey\/valkey:\([0-9.]*\)-.*/\1/p' image/Dockerfile)
+[ -n "$BASE" ] || { echo "Could not read the Valkey version from the FROM line in image/Dockerfile."; exit 1; }
+
+if git remote get-url origin > /dev/null 2>&1; then
+  git fetch --tags
+else
+  echo "No 'origin' remote: using local git tags only, and the new tag will not be pushed."
+fi
+
+if [ -z "$REVISION" ]; then
+  LAST=$(git tag -l "$BASE-*" | sed "s/^$BASE-//" | grep -E '^[0-9]+$' | sort -n | tail -n 1)
+  REVISION=$((LAST + 1))
+
+  read -r -p "Enter the image revision for Valkey $BASE [$REVISION]: " NEW_REVISION
+  REVISION=${NEW_REVISION:-$REVISION}
+fi
+
+[[ "$REVISION" =~ ^[0-9]+$ ]] || { echo "The revision must be a number (1, 2, 3, ...)."; exit 1; }
+
+VERSION="$BASE-$REVISION"
+
+# SKIP_TESTS=1 skips the image tests.
+[ -n "$SKIP_TESTS" ] || bash image/test-image.sh
+
+# Container Apps runs linux/amd64; a Mac with Apple silicon would otherwise build arm64.
+echo "Building perf-redis:$VERSION for linux/amd64..."
+docker build --platform linux/amd64 --tag "perf-redis:$VERSION" \
+  --label "org.opencontainers.image.version=$VERSION" \
+  --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" \
+  --label "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  image
+
+if [ -z "$(git tag -l "$VERSION")" ]; then
+  echo "Tagging release in git repository..."
+  git tag -a "$VERSION" -m "Release $VERSION"
+  git remote get-url origin > /dev/null 2>&1 && git push origin "$VERSION"
+else
+  echo "Git tag $VERSION already exists. This build can't be deployed as $VERSION if that version is already in the registry."
+fi
+
+echo "Built perf-redis:$VERSION. Next: bin/docker-test $VERSION, then bin/docker-deploy $VERSION"

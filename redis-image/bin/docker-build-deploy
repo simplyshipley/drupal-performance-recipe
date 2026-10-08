@@ -1,0 +1,28 @@
+#!/bin/bash
+set -e
+
+# Change to one directory above the script
+cd "$(dirname "$0")/.." || exit
+
+REVISION=$1
+ENVIRONMENT=$2
+
+BASE=$(sed -n 's/^FROM valkey\/valkey:\([0-9.]*\)-.*/\1/p' image/Dockerfile)
+
+if [ -z "$REVISION" ]; then
+  git remote get-url origin > /dev/null 2>&1 && git fetch --tags
+  LAST=$(git tag -l "$BASE-*" | sed "s/^$BASE-//" | grep -E '^[0-9]+$' | sort -n | tail -n 1)
+  REVISION=$((LAST + 1))
+
+  read -r -p "Enter the image revision for Valkey $BASE [$REVISION]: " NEW_REVISION
+  REVISION=${NEW_REVISION:-$REVISION}
+fi
+
+if [ -z "$ENVIRONMENT" ]; then
+  ENVIRONMENT="qa"
+  read -r -p "Environment to deploy to (qa or prod), or 'n' to skip [qa]: " NEW_ENVIRONMENT
+  ENVIRONMENT=${NEW_ENVIRONMENT:-$ENVIRONMENT}
+fi
+
+bash ./bin/docker-build "$REVISION"
+bash ./bin/docker-deploy "$BASE-$REVISION" "$ENVIRONMENT"

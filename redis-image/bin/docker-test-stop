@@ -1,0 +1,18 @@
+#!/bin/bash
+set -e
+
+# Change to one directory above the script
+cd "$(dirname "$0")/.." || exit
+
+VERSION=$1
+
+if [ -z "$VERSION" ]; then
+  BASE=$(sed -n 's/^FROM valkey\/valkey:\([0-9.]*\)-.*/\1/p' image/Dockerfile)
+  VERSION=$(git tag -l "$BASE-*" | sort -V | tail -n 1)
+fi
+
+CONTAINER="perf-redis-test-$VERSION"
+
+echo "Stopping $CONTAINER..."
+[ -n "$(docker ps -q -f "name=^$CONTAINER$")" ] && docker stop "$CONTAINER" > /dev/null
+echo "Stopped. 'bin/docker-test $VERSION' starts it again."

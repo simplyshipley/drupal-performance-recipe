@@ -1,0 +1,103 @@
+#!/bin/bash
+set -e
+
+# Change to one directory above the script
+cd "$(dirname "$0")/.." || exit
+
+VERSION=$1
+ENVIRONMENT=$2
+
+ACR_NAME="${ACR_NAME:-acrcigie}"
+LOGIN_SERVER="${LOGIN_SERVER:-$ACR_NAME.azurecr.us}"
+REPO="${REPO:-services/perf-redis}"
+REMOTE="$LOGIN_SERVER/$REPO"
+
+if [ -z "$VERSION" ]; then
+  BASE=$(sed -n 's/^FROM valkey\/valkey:\([0-9.]*\)-.*/\1/p' image/Dockerfile)
+  git remote get-url origin > /dev/null 2>&1 && git fetch --tags
+  VERSION=$(git tag -l "$BASE-*" | sort -V | tail -n 1)
+
+  read -r -p "Enter the image version to deploy [$VERSION]: " NEW_VERSION
+  VERSION=${NEW_VERSION:-$VERSION}
+fi
+
+if [[ ! "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)-[0-9]+$ ]]; then
+  echo "The version must look like 9.1.2-1 (Valkey version, then the image revision)."
+  exit 1
+fi
+X=${BASH_REMATCH[1]} XY=${BASH_REMATCH[1]}.${BASH_REMATCH[2]} XYZ=${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}
+
+if [ -z "$ENVIRONMENT" ]; then
+  ENVIRONMENT="qa"
+  read -r -p "Environment to deploy to (qa or prod), or 'n' to skip [qa]: " NEW_ENVIRONMENT
+  ENVIRONMENT=${NEW_ENVIRONMENT:-$ENVIRONMENT}
+fi
+
+case "$ENVIRONMENT" in
+  qa | prod) ;;
+  n) ENVIRONMENT="" ;;
+  *) echo "The environment must be qa, prod or n."; exit 1 ;;
+esac
+
+echo "Target registry: $REMOTE"
+bash ./bin/docker-auth
+
+# Tags already in the registry. Fail closed: any error other than "repository not found" stops here.
+if [[ "$LOGIN_SERVER" == *.azurecr.us ]]; then
+  if ! OUT=$(az acr repository show-tags --name "$ACR_NAME" --repository "$REPO" -o tsv 2>&1); then
+    echo "$OUT" | grep -qi "not found" || { echo "Could not list the tags in $REMOTE: $OUT"; exit 1; }
+    OUT=""
+  fi
+  TAGS=$OUT
+else
+  # A local test registry (plain HTTP), for example localhost:5055.
+  OUT=$(curl -s -w '\n%{http_code}' "http://$LOGIN_SERVER/v2/$REPO/tags/list")
+  CODE=${OUT##*$'\n'}
+  if [ "$CODE" == "404" ]; then
+    TAGS=""
+  elif [ "$CODE" == "200" ]; then
+    TAGS=$(echo "${OUT%$'\n'*}" | grep -o '"tags":\[[^]]*\]' | sed 's/"tags":\[//; s/\]//; s/"//g' | tr ',' '\n')
+  else
+    echo "Could not list the tags in $REMOTE (HTTP $CODE)."
+    exit 1
+  fi
+fi
+
+if echo "$TAGS" | grep -qx "$VERSION"; then
+  # Already pushed: never overwrite it. Use the registry's image (promotion or rollback, no rebuild).
+  echo "$VERSION is already in the registry: pulling it instead of pushing."
+  docker pull "$REMOTE:$VERSION"
+
+  if docker image inspect "perf-redis:$VERSION" > /dev/null 2>&1 &&
+    [ "$(docker image inspect -f '{{.Id}}' "perf-redis:$VERSION")" != "$(docker image inspect -f '{{.Id}}' "$REMOTE:$VERSION")" ]; then
+    echo "Refusing: the local perf-redis:$VERSION is a different build from $REMOTE:$VERSION. Build a new revision."
+    exit 1
+  fi
+else
+  docker image inspect "perf-redis:$VERSION" > /dev/null 2>&1 || { echo "perf-redis:$VERSION is not built here or in the registry. Run bin/docker-build first."; exit 1; }
+  echo "Pushing $REMOTE:$VERSION..."
+  docker tag "perf-redis:$VERSION" "$REMOTE:$VERSION"
+  docker push "$REMOTE:$VERSION"
+fi
+
+# Move 9.1.2, 9.1 and 9 only when this version is the newest of that line (a rollback leaves them).
+for ALIAS in "$XYZ" "$XY" "$X"; do
+  NEWEST=$(printf '%s\n' "$TAGS" "$VERSION" | grep -E "^${ALIAS//./\\.}(\.[0-9]+)*-[0-9]+$" | sort -V | tail -n 1)
+  if [ "$NEWEST" == "$VERSION" ]; then
+    docker tag "$REMOTE:$VERSION" "$REMOTE:$ALIAS"
+    docker push -q "$REMOTE:$ALIAS"
+  else
+    echo "Leaving :$ALIAS on $NEWEST, which is newer than $VERSION."
+  fi
+done
+
+if [ -n "$ENVIRONMENT" ]; then
+  docker tag "$REMOTE:$VERSION" "$REMOTE:$ENVIRONMENT"
+  docker push -q "$REMOTE:$ENVIRONMENT"
+fi
+
+DIGEST=$(docker image inspect -f '{{range .RepoDigests}}{{println .}}{{end}}' "$REMOTE:$VERSION" | grep "^$REMOTE@" | head -n 1)
+
+echo "Finished: $REMOTE:$VERSION${ENVIRONMENT:+ is now :$ENVIRONMENT}"
+echo "Digest: $DIGEST"
+echo "Give this tag and digest to the team that deploys it. Moving a tag doesn't restart the running container (HANDOFF.md)."

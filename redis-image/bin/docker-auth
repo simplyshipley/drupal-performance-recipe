@@ -1,0 +1,21 @@
+#!/bin/bash
+set -e
+
+# Change to one directory above the script
+cd "$(dirname "$0")/.." || exit
+
+ACR_NAME="${ACR_NAME:-acrcigie}"
+LOGIN_SERVER="${LOGIN_SERVER:-$ACR_NAME.azurecr.us}"
+
+if [[ "$LOGIN_SERVER" != *.azurecr.us ]]; then
+  echo "$LOGIN_SERVER is not an Azure Government registry: skipping the Azure login."
+  exit 0
+fi
+
+if [ "$(az cloud show --query name -o tsv)" != "AzureUSGovernment" ]; then
+  echo "Run first: az cloud set --name AzureUSGovernment && az login"
+  exit 1
+fi
+
+TOKEN=$(az acr login -n "$ACR_NAME" --expose-token --output tsv --query accessToken)
+docker login "$LOGIN_SERVER" --username 00000000-0000-0000-0000-000000000000 --password-stdin <<< "$TOKEN"
