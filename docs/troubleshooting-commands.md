@@ -170,7 +170,7 @@ lando redis-cli info stats | grep -E 'evicted_keys|keyspace_hits|keyspace_misses
 
      | Line shows | Fix |
      |---|---|
-     | 1 `NOT SET` | `REDIS_HOST: cache` is missing from `.lando.yml` → `appserver` → `overrides` → `environment`, or Lando wasn't rebuilt: `lando rebuild -y` |
+     | 1 `NOT SET` | `REDIS_HOST: cache` is missing from `.lando.yml` → `appserver` → `overrides` → `environment`, is indented wrong, or Lando wasn't rebuilt. See "Line 1 `NOT SET`" below. |
      | 2 `NO` | The PHP image has no phpredis: `lando exec appserver -- php -m \| grep -i redis` |
      | 3 `NO` | `lando composer require drupal/redis` (quick start step 2a) |
      | 4 `0` | `REDIS_ENABLED=0` is set somewhere: remove it |
@@ -179,6 +179,17 @@ lando redis-cli info stats | grep -E 'evicted_keys|keyspace_hits|keyspace_misses
      | 9 `FAILED` | PHP can't reach the `cache` service: `lando logs -s cache`, then `lando restart` |
 
      [V: tested 2026-10-08 on the americorps DDEV copy: normal run, `REDIS_HOST` unset and a wrong host each show the broken line; tmp/redis-check-20261008/]
+
+     **Line 1 `NOT SET`:**
+
+     ```bash
+     lando exec appserver -- printenv REDIS_HOST PERF_MOCK_AFD_PROXY
+     grep -n -E '^ *(environment|REDIS_HOST|PERF_MOCK_AFD_PROXY):' .lando.yml
+     ```
+
+     - **`PERF_MOCK_AFD_PROXY` prints but `REDIS_HOST` doesn't:** the environment block works, so the `REDIS_HOST` line itself is wrong. In the `grep` output it must start in the same column as `PERF_MOCK_AFD_PROXY` (8 spaces, 2 more than `environment:`). A line indented differently is not part of `environment` and is ignored without an error [REPORTED: Bo's Lando site, 2026-10-08, an indent error in `.lando.yml`]. Fix the indent, then `lando rebuild -y`.
+     - **Neither prints:** the whole block is missing or misplaced, or Lando wasn't rebuilt. Check the nesting `services` → `appserver` → `overrides` → `environment`, then `lando rebuild -y`.
+
   3. All lines good but `lando redis-cli` still shows nothing: `redis-cli` is looking at a different Redis. Compare line 1 with the tooling's `service:` in `.lando.yml` (`cache`).
 - **4-D: `evicted_keys` climbing fast.** `maxmemory` is too small for the site. Normal under a crawl; on Azure, raise `REDIS_MAXMEMORY` in the Redis container.
 - **4-E: `lando redis-cli` not found:**
