@@ -5,6 +5,9 @@ Everything is committed to the **site repo**, so your team and the Docker build 
 `git pull` and `composer install`. For the full reference, see [setup-guide.md](setup-guide.md).
 
 > [!NOTE]
+> Links to `README.md`, `infra/`, `lando/` and `drupal-performance-modules/` point to the recipe repo on GitHub, because those folders are not copied into the site. The links to other `docs/` pages work in the site's `tests/performance/docs/` copy.
+
+> [!NOTE]
 > Written for a Windows VM with WSL2 (Ubuntu). It also works on a Mac.
 > The commands come from the tested Lando lab. This exact sequence has not yet been run on an OIG
 > Lando site or on WSL2.
@@ -14,12 +17,16 @@ Everything is committed to the **site repo**, so your team and the Docker build 
 | Path | What |
 |---|---|
 | `docroot/modules/custom/drupal-performance-modules/` | The two modules |
-| `recipes/drupal-performance-recipe/` | The recipe, its config, patches, local test services and docs |
+| `tests/performance/` | Site-owned copy of the local test kit: `edge/`, `mock-afd/`, `scripts/`, `docs/` |
+| `patches/` | The three `azure_cdn_purge` patches |
+| `.lando/` | `nginx-fast404.conf.tpl` and `redis.conf` |
 | `composer.json`, `composer.lock` | The contrib modules (redis, purge, azure_cdn_purge) |
-| `.lando.yml` | Local Redis, mock Front Door and edge services |
+| `.lando.yml` | Local Redis, mock Front Door and edge services (paths point at `tests/performance/` and `.lando/`) |
 | `docroot/sites/default/settings.performance.php` | The recipe's settings (Redis, purge credentials), owned by the site |
 | `docroot/sites/default/settings.php` | One `require` line |
 | `config/sync/` | The config the recipe creates |
+
+`recipes/drupal-performance-recipe/` is only needed to run `drush recipe` (step 5). Step 6 removes it, so it is not committed.
 
 ---
 
@@ -29,7 +36,7 @@ Everything is committed to the **site repo**, so your team and the Docker build 
 - **Docker:** Docker Desktop with WSL integration, or Docker Engine inside WSL.
 - **Lando:** installed inside WSL.
 - **Work inside WSL:** keep code under `~/sites/`, not `/mnt/c/`.
-- **DDEV on the same machine?** Only then: run `ddev poweroff` while you use Lando, or run Lando with `LANDO_PROXY=OFF` (tests then fall back to `http://appserver_nginx`).
+- **DDEV on the same machine?** Only then: run `ddev poweroff` while you use Lando, or run Lando with `LANDO_PROXY=OFF` (tests then need `BASE_URL=http://appserver_nginx` in `perf-test.env`).
 - **GitHub access** to `simplyshipley/drupal-performance-recipe` (only the person adding it needs this).
 
 The steps use `oig-americorps` as the site. Use your site's folder name.
@@ -46,20 +53,22 @@ The steps use `oig-americorps` as the site. Use your site's folder name.
 
 ---
 
-## 1. Copy the recipe and modules into the site
+## 1. Copy the recipe, modules and test kit into the site
 
 ```bash
 cd ~/sites
 git clone https://github.com/simplyshipley/drupal-performance-recipe.git
 
 cd oig-americorps
-mkdir -p recipes/drupal-performance-recipe docroot/modules/custom
+mkdir -p recipes/drupal-performance-recipe docroot/modules/custom tests/performance
 git -C ../drupal-performance-recipe archive HEAD | tar -x -C recipes/drupal-performance-recipe
 mv recipes/drupal-performance-recipe/drupal-performance-modules docroot/modules/custom/
+git -C ../drupal-performance-recipe archive HEAD edge mock-afd scripts docs | tar -x -C tests/performance
 ```
 
-- **Check:** `docroot/modules/custom/drupal-performance-modules/modules/perf_purge_paths` exists.
+- **Check:** `docroot/modules/custom/drupal-performance-modules/modules/perf_purge_paths` and `tests/performance/mock-afd` exist.
 - `git archive` copies only tracked files, without the `.git` folder.
+- **Two copies, two lifetimes:** `recipes/drupal-performance-recipe/` is deleted in step 6. `tests/performance/` stays, is committed, and belongs to the site (like `tests/behat` and `tests/phpunit`). Our choice (Bo, 2026-10-07).
 
 <details>
 <summary><b>If this doesn't go smoothly</b></summary>
@@ -82,15 +91,20 @@ lando composer require drupal/redis:^1.11 drupal/purge:^3.7 drupal/azure_cdn_pur
 
 - These are the versions the recipe needs (from its `composer.json` files).
 
-b. Add the `azure_cdn_purge` patches to the site's `composer.json`, inside `"extra"`. OIG sites use
+b. Copy the three patches into the site's own `patches/` folder (the recipe folder is removed later), and add them to the site's `composer.json`, inside `"extra"`. OIG sites use
 `cweagans/composer-patches` 1.x, which reads them from `extra.patches`. Keep this order:
+
+```bash
+mkdir -p patches
+cp recipes/drupal-performance-recipe/patches/azure_cdn_purge-*.patch patches/
+```
 
 ```json
 "patches": {
     "drupal/azure_cdn_purge": {
-        "#3427718 MR !6: Azure cloud selector (Government)": "recipes/drupal-performance-recipe/patches/azure_cdn_purge-3427718-mr6-9859fc45.patch",
-        "Follow-up to #3427718: commercial default, host overrides, scope from cloud": "recipes/drupal-performance-recipe/patches/azure_cdn_purge-3427718-followup-default-cloud.patch",
-        "Send wildcardpath invalidations to Azure": "recipes/drupal-performance-recipe/patches/azure_cdn_purge-wildcardpath-purged.patch"
+        "#3427718 MR !6: Azure cloud selector (Government)": "patches/azure_cdn_purge-3427718-mr6-9859fc45.patch",
+        "Follow-up to #3427718: commercial default, host overrides, scope from cloud": "patches/azure_cdn_purge-3427718-followup-default-cloud.patch",
+        "Send wildcardpath invalidations to Azure": "patches/azure_cdn_purge-wildcardpath-purged.patch"
     }
 }
 ```
@@ -101,7 +115,7 @@ c. Reinstall the module so the patches apply:
 lando composer reinstall drupal/azure_cdn_purge
 ```
 
-- **Check:** the output lists the three patches as applied.
+- **Check:** the output lists the three patches as applied, from `patches/`.
 - **Why:** the first two make purging work on Azure Government (OIG). The third makes wildcard purges (`/news*`, `/*`) actually reach Azure. Details: [azure.md](azure.md#azure-government-patched-azure_cdn_purge).
 - After this, teammates' `composer install` and the Docker build apply the patches automatically.
 
@@ -123,6 +137,7 @@ a. Copy the two Lando config files into the site's `.lando/` folder, next to `ph
 `mysql.cnf`. The site then owns them, and a recipe update can't change your Lando setup by surprise:
 
 ```bash
+mkdir -p .lando
 cp recipes/drupal-performance-recipe/lando/nginx-fast404.conf.tpl .lando/nginx-fast404.conf.tpl
 cp recipes/drupal-performance-recipe/lando/redis.conf .lando/redis.conf
 ```
@@ -132,7 +147,7 @@ b. Open `recipes/drupal-performance-recipe/lando/lando.perf.yml`.
 c. Copy its `services:` entries (`appserver`, `cache`, `mockafd`, `edge`) and `tooling:` entries
 (`perf-test-in`, `perf-cache`, `redis-cli`) into the site's `.lando.yml`. Merge them into the
 existing `services:` and `tooling:` sections. Don't add a second `services:` line.
-Change the two paths to the `.lando/` copies (marked below).
+It already points at `.lando/` and `./tests/performance/`, so no paths need changing.
 
 The result looks like this (existing entries kept, recipe entries added):
 
@@ -142,7 +157,7 @@ services:
     # ...
   appserver:             # from lando.perf.yml
     config:
-      vhosts: .lando/nginx-fast404.conf.tpl          # changed: was recipes/.../lando/
+      vhosts: .lando/nginx-fast404.conf.tpl
     overrides:
       environment:
         REDIS_HOST: cache
@@ -153,7 +168,7 @@ services:
       image: valkey/valkey:9.1.2-alpine3.24
       command: valkey-server /usr/local/etc/valkey/valkey.conf --protected-mode no
       volumes:
-        - ./.lando/redis.conf:/usr/local/etc/valkey/valkey.conf:ro   # changed: was ./recipes/.../lando/
+        - ./.lando/redis.conf:/usr/local/etc/valkey/valkey.conf:ro
   mockafd:               # from lando.perf.yml
     # ...
   edge:                  # from lando.perf.yml
@@ -174,7 +189,7 @@ lando rebuild -y
 ```
 
 - Adds Valkey (Redis), a mock Front Door and a local Front Door cache. All local only.
-- `mockafd` and `edge` still build from `recipes/drupal-performance-recipe/` (they're whole folders with a Dockerfile). Leave those paths as they are.
+- `mockafd` and `edge` build from `./tests/performance/mock-afd` and `./tests/performance/edge` (step 1), so they keep working after the recipe folder is removed.
 - The `AZURE_CDN_*` values in that file are SYNTHETIC placeholders for the mock. They're safe to commit.
 
 <details>
@@ -212,7 +227,20 @@ require __DIR__ . '/settings.performance.php';
 - **It's the site's own settings file now,** like `settings.php`. It runs on every environment, Prod included. Every feature in it switches on only when its environment variable is set.
 - **Why the end:** Our choice (Bo ruling 2026-10-07). Its first source, the fast_404 README, is gone with that module. On OIG sites the end is still after `settings.base.php`, so nothing in `settings.config.php`, `settings.{env}.php` or `settings.global.php` is lost.
 - **It's a `require`,** so a missing file stops the site loudly instead of silently running without Redis.
-- **Never include `example.settings.local-lab.php`** (same folder in the modules package) outside a local lab. It sends outbound requests to the mock Front Door.
+- **Never include `example.settings.local-lab.php`** (same folder in the modules package) unguarded. It sends outbound requests to the mock Front Door. Step c includes it for Lando only.
+
+c. Add a Lando-only include **after** the `require` line, so local purges go to the mock Front Door and the local edge is trusted:
+
+```php
+// Local Lando only: send purges to the mock Front Door and trust the local edge.
+if (getenv('LANDO') === 'ON') {
+  include $app_root . '/modules/custom/drupal-performance-modules/settings/example.settings.local-lab.php';
+}
+```
+
+- **Why:** only `example.settings.local-lab.php` reads `PERF_MOCK_AFD_PROXY`, and nothing else includes it. Without this block, a local node save would send purges to the real Microsoft hosts, with the SYNTHETIC credentials from `.lando.yml`. [from code, not run on an OIG site]
+- **Safe on Prod:** the block runs only when `LANDO=ON`, which Lando sets and production does not. The file also checks `LANDO` / `IS_DDEV_PROJECT` itself. [from code, not run on an OIG site]
+- **Tested:** on the SYNTHETIC Lando lab, purges reached the mock with no watchdog errors [V: tmp/recipe-removable-20261007/12, 13b].
 
 > [!IMPORTANT]
 > **Git doesn't keep the read-only permission.** It only stores the executable bit, so a fresh clone
@@ -274,13 +302,33 @@ lando drush cr
 
 </details>
 
-## 6. Check it works
+## 6. Remove the recipe folder
+
+```bash
+rm -rf recipes/drupal-performance-recipe
+```
+
+- **Why:** a recipe is only needed while `drush recipe` runs. The config it created is in the database and, after step 8, in `config/sync/`. The patches, test kit and Lando files are already copied into the site.
+- **Keep the clone:** `~/sites/drupal-performance-recipe` stays on your machine for updates (see the end of this page).
+- **Check:** `ls recipes/` no longer lists `drupal-performance-recipe`, and `lando composer install` still works.
+- Verified on the SYNTHETIC lab with the folder removed: composer install, the three patches from `patches/`, and the full test suite (55 PASS / 0 FAIL / 1 FINDING) [V: tmp/recipe-removable-20261007/12, 13b].
+
+## 7. Check it works
 
 ```bash
 lando drush cget azure_cdn_purge.settings endpoint_type
 lando perf-test-in headers_anon
 lando redis-cli info keyspace
 ```
+
+Then check that purges reach the mock, not Microsoft: save any node, then
+
+```bash
+lando drush p:queue-work
+lando drush watchdog:show --type=azurecdn --count=5
+```
+
+- **Expected:** no error rows. [from code, not run on an OIG site]
 
 - **`endpoint_type`** is `afdEndpoints`.
 - **`headers_anon`** prints `PASS`.
@@ -291,15 +339,16 @@ lando redis-cli info keyspace
 
 - **`headers_anon` FAILS.** Drupal is probably in a development cache mode. Run `lando perf-cache prod-like`, then test again.
 - **No keys in Redis.** `lando drush php:eval "print getenv('REDIS_HOST');"` should print `cache`. Also check `/admin/reports/status` for "Redis fail-open".
+- **`azurecdn` rows with connection or auth errors.** The step 4c block is missing, or `LANDO` is not `ON`. Check: `lando drush php:eval "print getenv('PERF_MOCK_AFD_PROXY');"` prints `http://mockafd:8080`.
 - **`lando redis-cli` not found.** Use `lando exec cache -- valkey-cli info keyspace`.
 
 </details>
 
-## 7. Export config and commit
+## 8. Export config and commit
 
 ```bash
 lando drush cex -y
-git add docroot/modules/custom/drupal-performance-modules recipes/drupal-performance-recipe \
+git add docroot/modules/custom/drupal-performance-modules tests/performance patches .lando \
   composer.json composer.lock .lando.yml .gitignore docroot/sites/default/settings.php \
   docroot/sites/default/settings.performance.php config/sync
 git commit -m "Add the Drupal performance recipe (Redis, Front Door purge)"
@@ -321,20 +370,21 @@ lando drush cr
 <summary><b>If this doesn't go smoothly</b></summary>
 
 - **`git add` picks up more than expected.** Run `git status` first and add only the paths above.
-- **Keep the lab-only folders out of the Docker image (optional).** `edge/`, `mock-afd/`, `ddev/`, `infra/` and `docs/` under `recipes/drupal-performance-recipe/` aren't needed on Azure. Add them to `.dockerignore` if you want a smaller image.
+- **Keep the test kit out of the Docker image.** Add `tests/performance/` to `.dockerignore`. Never add `patches/`: the build's `composer install` needs it.
+- **`recipes/` shows up in `git status`.** Step 6 wasn't run. The recipe folder must not be committed.
 
 </details>
 
-## 8. Run the full test suite (optional)
+## 9. Run the full test suite (optional)
 
 > [!WARNING]
 > For **lab or throwaway copies only**. It creates one SYNTHETIC node per run (deleted at the end), empties the
 > purge queue and sends purges. Back up first: `lando db-export before-tests.sql.gz`.
 
 ```bash
-cp recipes/drupal-performance-recipe/scripts/perf-test.env.example perf-test.env
+cp tests/performance/scripts/perf-test.env.example perf-test.env
 # edit perf-test.env: BASE_URL=https://<project>.lndo.site
-bash recipes/drupal-performance-recipe/scripts/lando-test.sh
+bash tests/performance/scripts/lando-test.sh
 ```
 
 - **Settings file:** copy `perf-test.env.example` to `perf-test.env` at the site root and set `BASE_URL` to `https://<project>.lndo.site` (`<project>` = the Lando app name). Details: [tests.md](tests.md#settings-file-perf-testenv).
@@ -347,7 +397,7 @@ bash recipes/drupal-performance-recipe/scripts/lando-test.sh
 
 - **`bot_challenge` FAILS.** Expected with a strict edge setting (`EDGE_CHALLENGE_MISSING=either`). See [edge-waf.md](edge-waf.md).
 - **The Redis-down test leaves Redis stopped.** Run `lando start` to bring `cache` back.
-- **Many FAILs at once.** Usually step 6 isn't passing yet. Fix that first.
+- **Many FAILs at once.** Usually step 7 isn't passing yet. Fix that first.
 
 </details>
 
@@ -355,20 +405,26 @@ bash recipes/drupal-performance-recipe/scripts/lando-test.sh
 
 ## Updating to a newer recipe version
 
+The site has no recipe folder, so update from the clone.
+
 1. Pull the recipe repo: `git -C ~/sites/drupal-performance-recipe pull`.
-2. Delete `recipes/drupal-performance-recipe/` and `docroot/modules/custom/drupal-performance-modules/` in the site.
-3. Repeat step 1 (`archive` and `mv`), then `lando drush cr`.
-4. Compare the new settings file with the site's copy, and bring over any changes you want:
-   `diff docroot/modules/custom/drupal-performance-modules/settings/settings.performance.php docroot/sites/default/settings.performance.php`
-5. Refresh the Lando files from `recipes/drupal-performance-recipe/lando/`:
+2. Re-copy what changed into the site, from the site root:
 
    ```bash
-   cp recipes/drupal-performance-recipe/lando/redis.conf .lando/redis.conf
-   cp recipes/drupal-performance-recipe/lando/nginx-fast404.conf.tpl .lando/nginx-fast404.conf.tpl
+   cd ~/sites/oig-americorps
+   mv docroot/modules/custom/drupal-performance-modules ../drupal-performance-modules.old
+   git -C ../drupal-performance-recipe archive HEAD drupal-performance-modules | tar -x -C docroot/modules/custom
+   git -C ../drupal-performance-recipe archive HEAD edge mock-afd scripts docs | tar -x -C tests/performance
+   cp ../drupal-performance-recipe/lando/redis.conf ../drupal-performance-recipe/lando/nginx-fast404.conf.tpl .lando/
+   cp ../drupal-performance-recipe/patches/azure_cdn_purge-*.patch patches/
+   lando drush cr
    ```
 
-   Then re-check the entries in `.lando.yml` against `recipes/drupal-performance-recipe/lando/lando.perf.yml`.
-6. If you removed environment variables from `.lando.yml`, or changed the Lando files, run `lando rebuild -y`.
+3. Compare the new settings file with the site's copy, and bring over any changes you want:
+   `diff docroot/modules/custom/drupal-performance-modules/settings/settings.performance.php docroot/sites/default/settings.performance.php`
+4. Compare `.lando.yml` with the clone's `lando/lando.perf.yml`: `diff ../drupal-performance-recipe/lando/lando.perf.yml .lando.yml`. The site's own entries will differ; look at the recipe's entries.
+5. If a patch changed, run `lando composer reinstall drupal/azure_cdn_purge`.
+6. Run `lando rebuild -y` if you changed `.lando.yml` or the `.lando/` files.
 7. Review `git diff`, test, and commit.
 
 **Is my copy current?** Four checks (expected result after each):

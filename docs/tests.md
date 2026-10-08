@@ -10,7 +10,7 @@ For developers reading or running the recipe's test suite. Look up a test by nam
 
 ## Settings file (perf-test.env)
 
-- **Where:** the site root (in Lando `/app/perf-test.env`). Copy `recipes/drupal-performance-recipe/scripts/perf-test.env.example`.
+- **Where:** the site root (in Lando `/app/perf-test.env`). Copy `tests/performance/scripts/perf-test.env.example` (in the recipe repo: `scripts/perf-test.env.example`).
 - **Format:** `KEY=VALUE` lines, no quotes; `#` lines are comments. No secrets.
 - **Keys:**
   - `BASE_URL`: `https://<project>.lndo.site` (`<project>` = the Lando app name).

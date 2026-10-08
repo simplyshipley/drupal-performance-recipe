@@ -15,7 +15,7 @@ Followed on the SYNTHETIC lab `perflab106lando` (Lando 3.26.9, drupal10 recipe, 
 - **Random ports are fine:** none of the recipe's services publishes a host port. Lando's own web server and `database` bind random 127.0.0.1 high ports (for example 32814, 32813) [V: `docker ps`]. They do not collide with DDEV.
 - **`node` tooling:** Lando 3.26.9 rewrites a tooling `cmd` that starts with `node` (lando/lando#3460). The recipe's tooling uses `bash -c` / `redis-cli`, not `node`.
 - **Missing static files:** Lando's default drupal10 nginx vhost answers missing `.js/.css/.png/...` files itself, so Drupal's Fast 404 never sees them [V: first Lando run, the old `fast404_static` test was answered by nginx; the replacement is `core_404_static`].
-  - The recipe's snippet swaps in `lando/nginx-fast404.conf.tpl` (the file name is unchanged; it also gives aggregates and image styles a lifetime for the edge) (Lando's template plus `try_files $uri @rewrite;` in that block).
+  - The recipe's snippet swaps in `.lando/nginx-fast404.conf.tpl` (from `lando/` in the recipe repo) (the file name is unchanged; it also gives aggregates and image styles a lifetime for the edge) (Lando's template plus `try_files $uri @rewrite;` in that block).
   - Set it under `services.appserver.config.vhosts`. A top-level `config.vhosts` in `.lando.local.yml` was ignored [V].
   - Vhost changes need `lando rebuild`.
 - **Relative paths** in `.lando.yml` resolve from the app root. DDEV's compose files resolve from `.ddev/`.
@@ -66,16 +66,23 @@ require $app_root . '/modules/custom/drupal-performance-modules/settings/setting
 
 ## 2. Add the services
 
+Lab setup: the site keeps its own copies, so the recipe folder can be removed after `drush recipe` (Our choice, Bo, 2026-10-07). From the recipe clone (here `../repo`):
+
 ```bash
-cp recipes/drupal-performance-recipe/lando/lando.perf.yml .lando.local.yml
+mkdir -p tests/performance .lando
+git -C ../repo archive HEAD edge mock-afd scripts docs | tar -x -C tests/performance
+cp ../repo/lando/nginx-fast404.conf.tpl ../repo/lando/redis.conf .lando/
+cp ../repo/lando/lando.perf.yml .lando.local.yml
 mkdir -p .lando-mock-afd-data
 lando rebuild -y
 ```
 
+`lando.perf.yml` already points the vhost and `redis.conf` at `.lando/`, and the mock, edge and tooling at `./tests/performance/`.
+
 `lando.perf.yml` adds:
 
-- `cache`: Valkey 9.1.2 as a `type: compose` service (Lando has no Valkey type), loading `lando/redis.conf` (256 MB, volatile-lfu, no persistence). Lab only: no password, protected mode off ([lando.perf.yml](../lando/lando.perf.yml), the `cache` service).
-- `mockafd`: `type: compose`, built from `mock-afd/`, command `python3 -u /opt/mock/mock_afd.py`, log in `.lando-mock-afd-data/`.
+- `cache`: Valkey 9.1.2 as a `type: compose` service (Lando has no Valkey type), loading `.lando/redis.conf` (256 MB, volatile-lfu, no persistence). Lab only: no password, protected mode off ([lando.perf.yml](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/lando/lando.perf.yml), the `cache` service).
+- `mockafd`: `type: compose`, built from `tests/performance/mock-afd/`, command `python3 -u /opt/mock/mock_afd.py`, log in `.lando-mock-afd-data/`.
 - appserver environment: `REDIS_HOST=cache`, `PERF_MOCK_AFD_PROXY=http://mockafd:8080`, SYNTHETIC `AZURE_CDN_*`.
 - the nginx vhost above, and tooling `lando perf-test-in` and `lando redis-cli`.
 
@@ -99,21 +106,21 @@ lando drush si standard --db-url=mysql://drupal10:drupal10@database/drupal10
 
 ## Cache mode (dev vs prod-like)
 
-1. The tooling is in `lando/lando.perf.yml`. Run `lando rebuild` after copying it.
+1. The tooling is in `lando.perf.yml` (`lando/` in the recipe repo). Run `lando rebuild` after copying it.
 2. Add `web/sites/default/perf-cache-mode` to `.gitignore`.
 3. Switch modes with `lando perf-cache dev|dev-twig|prod-like|off|status`.
 
-`scripts/lando-test.sh` switches to prod-like and restores your mode afterwards. See [cache-modes.md](cache-modes.md).
+`tests/performance/scripts/lando-test.sh` switches to prod-like and restores your mode afterwards. See [cache-modes.md](cache-modes.md).
 
 ## 4. Run the tests
 
 ```bash
-bash recipes/drupal-performance-recipe/scripts/lando-test.sh           # all + Redis-down
-bash recipes/drupal-performance-recipe/scripts/lando-test.sh purge_send  # named tests
+bash tests/performance/scripts/lando-test.sh           # all + Redis-down
+bash tests/performance/scripts/lando-test.sh purge_send  # named tests
 lando perf-test-in headers_anon                          # in-container only
 ```
 
-Tests read the site address from `perf-test.env` (see [tests.md](tests.md#settings-file-perf-testenv)). Default: `BASE_URL=https://<project>.lndo.site`, where `<project>` is the Lando app name. Verified on the lab: `https://perflab106lando.lndo.site` works from inside the appserver container with a trusted certificate [V: tmp/lando-proxy-on-20261007/ logs 04b, 08]. If https fails with a certificate error on a machine, use `http://<project>.lndo.site`.
+Tests read the site address from `perf-test.env` (see [tests.md](tests.md#settings-file-perf-testenv)). Default: `BASE_URL=https://<project>.lndo.site`, where `<project>` is the Lando app name. Lab only, with `LANDO_PROXY=OFF`: the `.lndo.site` address does not exist, so set `BASE_URL=http://appserver_nginx` in `perf-test.env` [from code and the lab proxy-off runs, 2026-10-07]. Verified on the lab: `https://perflab106lando.lndo.site` works from inside the appserver container with a trusted certificate [V: tmp/lando-proxy-on-20261007/ logs 04b, 08]. If https fails with a certificate error on a machine, use `http://<project>.lndo.site`.
 
 `lando-test.sh` runs from the host, because the Redis-down test needs `docker stop`/`start`. It finds this app's `cache` container by its compose labels and writes `perf-test-lando.log` (or `$PERF_OUT`).
 

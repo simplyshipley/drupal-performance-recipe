@@ -1,7 +1,7 @@
 # Contrib modules evaluated
 
 What was checked, and why each module is or is not in the recipe. Research date 2026-10-05.
-Evidence labels as in the [README](../README.md): [V: source] = read in the module's source code, [REPORTED] = relayed from an issue thread or a page summary, [INFERRED] = reasoning,
+Evidence labels as in the [README](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/README.md): [V: source] = read in the module's source code, [REPORTED] = relayed from an issue thread or a page summary, [INFERRED] = reasoning,
 untested. The problem they were measured against is the open delete and menu gaps in
 [cache-sync.md](cache-sync.md#open-decisions-for-bo).
 

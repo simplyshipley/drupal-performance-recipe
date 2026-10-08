@@ -83,7 +83,7 @@ Drupal side (lab only, honoured only in DDEV/Lando):
 - **Trigger:** a GET/HEAD request with a browser user agent (`Chrome/`, `Firefox/`, `Safari/`, `Edg/`) that has **neither** `Sec-Fetch-Mode` **nor** `Accept-Language`, on an HTML route. `EDGE_CHALLENGE_MISSING=either` challenges when just one is missing; tested in the Lando lab on 2026-10-05 (49 PASS / 0 FAIL / 2 FINDING; see README).
 - **Test strict mode (Lando only):**
   1. Set `EDGE_CHALLENGE_MISSING: either` under the edge service's `environment:` in `.lando.local.yml`.
-  2. Run `lando rebuild -y`, then `EDGE_CHALLENGE_MISSING=either bash recipes/drupal-performance-recipe/scripts/lando-test.sh`.
+  2. Run `lando rebuild -y`, then `EDGE_CHALLENGE_MISSING=either bash tests/performance/scripts/lando-test.sh`.
 - **DDEV and `lando perf-test-in`:** they do not pass the variable, so `bot_challenge` FAILS against a strict edge there.
 - **Why both is the default:** real browsers can lack `Sec-Fetch-Mode` (Chrome before 76, Firefox before 90, Safari before 16.4), and privacy tools may strip it. Evidence: MDN browser-compat-data `http/headers/Sec-Fetch-Mode.json` (https://raw.githubusercontent.com/mdn/browser-compat-data/main/http/headers/Sec-Fetch-Mode.json, read 2026-09-29): Chrome 76, Edge mirrors Chrome, Firefox 90, Safari 16.4, Safari iOS mirrors Safari.
 - **Session cookie:** requests with a Drupal session cookie (the same `S?SESS` match as the cache bypass) are never challenged, so logged-in editors are not affected. Test: `bot_challenge`; fail-proof `BOT_COOKIE_NEGATIVE=1` [V: tmp/ddev/bot-cookie-failproof.log].
@@ -120,8 +120,8 @@ aggregates a one-year lifetime, as production does.
 
 ## Setup: Lando
 
-1. Copy `recipes/drupal-performance-recipe/lando/lando.perf.yml` to `.lando.local.yml`. It adds the `edge` service, the `mockafd` purge forwarding and the appserver variables.
-2. Run `lando rebuild -y`. (Only if DDEV is also installed: `ddev poweroff` first, or see [lando.md](lando.md#if-ddev-is-also-installed-lando-footguns).)
+1. Copy `lando/lando.perf.yml` from the recipe clone to `.lando.local.yml` (or merge it into `.lando.yml`; [quickstart-lando.md](quickstart-lando.md) step 3). It adds the `edge` service, the `mockafd` purge forwarding and the appserver variables.
+2. The build contexts point at `tests/performance/edge` and `tests/performance/mock-afd`: copy them first (quickstart step 1). Run `lando rebuild -y`. (Only if DDEV is also installed: `ddev poweroff` first, or see [lando.md](lando.md#if-ddev-is-also-installed-lando-footguns).)
 3. Reach the edge from the appserver: `lando ssh -s appserver -c "curl -sI http://edge:8080/"`.
 
 The vhost template now sends `expires max` for `sites/*/files/{css,js,styles}`, as Drupal's

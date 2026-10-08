@@ -79,9 +79,9 @@ The tests need no particular content.
 ### 1c. Run the tests
 
 - DDEV: `ddev perf-test`, or named tests: `ddev perf-test purge_send headers_anon`. A full run stops and restarts this project's Redis.
-- Lando, from the app root: `bash recipes/drupal-performance-recipe/scripts/lando-test.sh`
+- Lando, from the app root: `bash tests/performance/scripts/lando-test.sh`
 - Strict bot challenge, Lando only: set the edge to `either`, then run with `EDGE_CHALLENGE_MISSING=either`. DDEV and `lando perf-test-in` do not pass it, so `bot_challenge` FAILS there against a strict edge ([edge-waf.md](edge-waf.md#bot-header-consistency-challenge-and-security-headers-2026-09-29)).
-- Expected on DDEV and Lando: 53 PASS / 0 FAIL / 1 FINDING ([README](../README.md#lab-results-2026-10-05-perf_purge_deleted)). A `FINDING` is an open decision, not a failure ([tests.md](tests.md)).
+- Expected on DDEV and Lando: 53 PASS / 0 FAIL / 1 FINDING ([README](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/README.md#lab-results-2026-10-05-perf_purge_deleted)). A `FINDING` is an open decision, not a failure ([tests.md](tests.md)).
 - The test wrappers switch to prod-like and restore your mode. To switch by hand: `ddev perf-cache dev|dev-twig|prod-like|off|status` or `lando perf-cache ...`. Add `web/sites/*/perf-cache-mode` to `.gitignore` ([cache-modes.md](cache-modes.md)).
 
 ## Phase 2: Install into an existing site
@@ -115,7 +115,7 @@ There is no upgrade path. Apply this recipe to a site that has not run an older 
 
 ## Phase 3: Azure
 
-Nothing here has run on Azure. Confirm each service is in FedRAMP scope first ([infra/azure/README.md](../infra/azure/README.md)).
+Nothing here has run on Azure. Confirm each service is in FedRAMP scope first ([infra/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/infra/azure/README.md)).
 
 ### 3.1 Build, test, scan and push the Redis image
 
@@ -136,7 +136,7 @@ Outputs: `redisHost`, `environmentDefaultDomain`, `environmentStaticIp`. Full co
 
 ### 3.3 Networking
 
-1. VNet-integrate the App Service: `az webapp vnet-integration add -g $RG -n <webapp> --vnet <vnet> --subnet <integration subnet>` ([infra/azure/README.md](../infra/azure/README.md#app-service)).
+1. VNet-integrate the App Service: `az webapp vnet-integration add -g $RG -n <webapp> --vnet <vnet> --subnet <integration subnet>` ([infra/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/infra/azure/README.md#app-service)).
 2. Private DNS zone named after `environmentDefaultDomain`, wildcard `*` A record to `environmentStaticIp`, linked to the integrated VNet (assumed).
 3. NSG: allow inbound TCP 6379 from the App Service integration subnet to the Container Apps subnet. Keep the platform and outbound purge rules (assumed: the repo has no NSG recipe).
 
@@ -201,7 +201,7 @@ Proposed, not yet run on Azure. Use a non-production subscription. Each check mi
 1. Disable `automated_cron`. Run cron from a scheduler; work the purge queue every 1 to 5 minutes with `drush p:queue-work --finish` ([cache-sync.md](cache-sync.md#recommended-settings)).
 2. Leave `PERF_CACHE_MODE` unset in production ([cache-modes.md](cache-modes.md#guard-and-gitignore)).
 3. Rebuild the Redis image when the base tag gets fixes: rescan, tag `valkey-9.1.2-2` and up, push, redeploy the Bicep with the new `redisImage`.
-4. Monitor restarts, memory, evictions and connection errors ([infra/azure/README.md](../infra/azure/README.md#monitoring-and-alerts)).
+4. Monitor restarts, memory, evictions and connection errors ([infra/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/infra/azure/README.md#monitoring-and-alerts)).
 5. Roll back:
    - Redis image: redeploy the Bicep with the previous `redisImage`. The cache holds no persistent data (`save ""`, `appendonly no`).
    - Purge: `$config['perf_purge_paths.settings']['enabled'] = FALSE;` in `settings.php` ([install.md](install.md#8-turn-caching-off-per-environment)).

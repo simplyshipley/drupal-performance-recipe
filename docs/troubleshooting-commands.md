@@ -154,7 +154,7 @@ lando redis-cli info stats | grep -E 'evicted_keys|keyspace_hits|keyspace_misses
 **If you see**
 
 - **4-A: no `PONG`.** The `cache` service is down: `lando logs -s cache`, then `lando restart`. The site keeps working without Redis (fail-open), just slower.
-- **4-B: policy `allkeys-lru`.** The site still has the old `redis.conf`: copy `recipes/drupal-performance-recipe/lando/redis.conf` to `.lando/redis.conf`, then `lando rebuild -y`.
+- **4-B: policy `allkeys-lru`.** The site still has the old `redis.conf`: copy `lando/redis.conf` from the recipe clone to `.lando/redis.conf`, then `lando rebuild -y`.
 - **4-C: `db0` empty after loading pages.** Drupal isn't using Redis: see 2-C and 2-D.
 - **4-D: `evicted_keys` climbing fast.** `maxmemory` is too small for the site. Normal under a crawl; on Azure, raise `REDIS_MAXMEMORY` in the Redis container.
 - **4-E: `lando redis-cli` not found:**

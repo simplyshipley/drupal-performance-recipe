@@ -53,19 +53,15 @@ az login
 bash infra/redis-image/push.sh 1
 ```
 
-From an OIG site, use the wrapper next to the other `bin/docker-*` scripts. It calls `push.sh` from the installed recipe and asks for the revision if you leave it out.
+From an OIG site, run `push.sh` from the recipe clone (the recipe folder is removed from the site after `drush recipe`, so the site does not have `infra/`):
 
-a. Copy it once:
+```bash
+az cloud set --name AzureUSGovernment
+az login
+bash ~/sites/drupal-performance-recipe/infra/redis-image/push.sh 1
+```
 
-   ```bash
-   cp recipes/drupal-performance-recipe/bin/docker-redis bin/docker-redis
-   ```
-
-b. Run it from the site root:
-
-   ```bash
-   ./bin/docker-redis 1
-   ```
+- The optional wrapper `bin/docker-redis` in the recipe repo looks for `recipes/drupal-performance-recipe/infra/redis-image/push.sh` in the site, so it only works while that folder is still there. [from code, not run after the folder removal]
 
 Without local Docker:
 

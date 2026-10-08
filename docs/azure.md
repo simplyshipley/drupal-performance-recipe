@@ -6,7 +6,7 @@ Nothing here was run against Azure. Everything is [ASSUMED] unless it names lab 
 
 > **Redis ruling (Bo, 2026-09-25), replacing the earlier open decision:**
 > - OIG sites use a **self-hosted Redis container** (Azure Container Apps, see
->   [infra/azure/README.md](../infra/azure/README.md)), not the managed service.
+>   [infra/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/infra/azure/README.md)), not the managed service.
 > - **Only the heavy bins** go to Redis: `render`, `page`, `dynamic_page_cache`, `data`,
 >   `entity`, `menu` (override with `REDIS_BINS`). `bootstrap`, `config`, `discovery` and
 >   `container` stay on core's default (database behind APCu), and the cache-tag checksum,
@@ -197,7 +197,7 @@ Door must honour origin cache headers and bypass the cache for `SESS*` cookies [
 ## Redis: self-hosted container (ruled)
 
 Deploy steps (Bicep, az CLI, private DNS, VNet integration, sizing, monitoring) are in
-[infra/azure/README.md](../infra/azure/README.md). Rules:
+[infra/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/infra/azure/README.md). Rules:
 
 - Set an explicit `maxmemory`, `volatile-lfu`, no persistence. Source: redis README, "Eviction policy" and "Redis RDB snapshots".
 - Permanent Drupal items get a one-year TTL in Redis (`31536000` s) [V: lab key TTLs]. `drush cr`

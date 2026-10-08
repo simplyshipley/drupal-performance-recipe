@@ -6,7 +6,7 @@ For developers changing a setting: check here before you change it.
 - **Follows** = the README or doc says to do this.
 - **Our choice** = we do something else on purpose; the ruling date and reason are in the row.
 - README paths below are the modules' own files (`web/modules/contrib/<module>/`).
-- Line numbers are from the versions in the table in the [README](../README.md#what-it-installs).
+- Line numbers are from the versions in the table in the [README](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/README.md#what-it-installs).
 
 ## Redis
 

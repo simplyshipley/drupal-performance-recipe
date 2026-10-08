@@ -67,7 +67,7 @@ The recipe no longer installs `drupal/fast_404` or `drupal/themed_fast_404` (Our
 
 4. Delete the cron-written pages `public://page-not-found-*.html`.
 5. Drop the env vars `PERF_FAST404`, `FAST404_RESPECT_REDIRECT` and `THEMED_FAST404_BASE_URL` from `.lando.yml`, then `lando rebuild -y`.
-6. Refresh `.lando/redis.conf` and `.lando/nginx-fast404.conf.tpl` from `recipes/drupal-performance-recipe/lando/` and re-check `.lando.yml` against `lando/lando.perf.yml` ([quickstart-lando.md](quickstart-lando.md#updating-to-a-newer-recipe-version)).
+6. Refresh `.lando/redis.conf` and `.lando/nginx-fast404.conf.tpl` from `lando/` in the recipe clone and re-check `.lando.yml` against its `lando/lando.perf.yml` ([quickstart-lando.md](quickstart-lando.md#updating-to-a-newer-recipe-version)).
 7. Export the config:
 
    ```bash

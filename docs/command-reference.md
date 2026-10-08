@@ -187,7 +187,7 @@ lando perf-test-in redis_bins redis_in_use drush_cr eviction   # good: PASS on e
 lando perf-test-in core_404_static core_404_page           # good: PASS on both
 lando perf-test-in cache_mode_dev cache_mode_prod          # good: PASS (switches mode, then back to prod-like)
 lando perf-test-in purge_queue_fills purge_send purge_retry    # good: PASS (needs the mock Front Door service)
-bash recipes/drupal-performance-recipe/scripts/lando-test.sh   # full run incl. Redis down/hang; log in perf-test-lando.log
+bash tests/performance/scripts/lando-test.sh   # full run incl. Redis down/hang; log in perf-test-lando.log
 ```
 
 - **Lab or throwaway copy only.** Tests create SYNTHETIC nodes and files, empty the purge queue and stop/pause the Redis container. Back up first (`lando db-export`).
@@ -198,7 +198,7 @@ bash recipes/drupal-performance-recipe/scripts/lando-test.sh   # full run incl. 
   - **Cache sync:** `sync_*` ([cache-sync.md](cache-sync.md))
   - **Wrappers only:** `redis_down sync_redis_down redis_recover redis_hang`
 
-Settings file: the scripts read `perf-test.env` at the site root (copy `recipes/drupal-performance-recipe/scripts/perf-test.env.example`). Keys: `BASE_URL`, `PERF_TEST_PATH`, `PERF_EDGE`. Details: [tests.md](tests.md#settings-file-perf-testenv).
+Settings file: the scripts read `perf-test.env` at the site root (copy `tests/performance/scripts/perf-test.env.example`). Keys: `BASE_URL`, `PERF_TEST_PATH`, `PERF_EDGE`. Details: [tests.md](tests.md#settings-file-perf-testenv).
 
 Environment variables the scripts read:
 
@@ -256,7 +256,7 @@ Client IP test (2 minutes, no commands): wrong password once at `/user/login`, t
 
 Redis and settings:
 
-- **App settings:** `az webapp config appsettings set` is in [infra/azure/README.md](../infra/azure/README.md) (step 2). The repo has no `list` command. **[SECRET]** Do not run `appsettings list` unfiltered: plain-value settings print in full. Key Vault references show the `@Microsoft.KeyVault(...)` text, not the secret. Use the portal (Configuration) to read them.
+- **App settings:** `az webapp config appsettings set` is in [infra/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/infra/azure/README.md) (step 2). The repo has no `list` command. **[SECRET]** Do not run `appsettings list` unfiltered: plain-value settings print in full. Key Vault references show the `@Microsoft.KeyVault(...)` text, not the secret. Use the portal (Configuration) to read them.
 - **Redis checks on Azure:** the repo says to measure with `INFO memory` and `INFO stats` (`used_memory_peak_human`, `evicted_keys`, `keyspace_hits`/`misses`) after a crawl. No `az containerapp exec` or log command is in the repo.
 - **Metric names:** `az monitor metrics list-definitions --resource <redis app resource id>` # [not run in this project] good: lists `RestartCount`, `WorkingSetBytes`.
 - **Redis image:** `bash infra/redis-image/push.sh <revision>` (or `./bin/docker-redis <revision>`) tests, builds and pushes `acrcigie.azurecr.us/services/perf-redis:valkey-<version>-<revision>`; it refuses an existing tag. Tested only against a local registry. Without local Docker: `az acr build --registry <registry-name> --image services/perf-redis:valkey-9.1.2-1 infra/redis-image` # [not run in this project].
@@ -265,13 +265,13 @@ Dangerous or secret-printing, avoid:
 
 - **[SECRET]** `drush cget azure_cdn_purge.settings --include-overridden` prints the client secret. Use the section 5 form.
 - **[SECRET]** `printenv` / `env` in the container prints every secret. Check one variable: `drush php:eval "print getenv('REDIS_HOST');"`.
-- **[SECRET]** `az keyvault secret show` prints the value ([infra/azure/README.md](../infra/azure/README.md) uses it only inside a deploy).
+- **[SECRET]** `az keyvault secret show` prints the value ([infra/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/infra/azure/README.md) uses it only inside a deploy).
 
 Source: `docs/azure.md`, `docs/redis-image.md`, `infra/azure/README.md`, `infra/redis-image/push.sh`, `docs/caching-guide.md`.
 
 ## 8. Module tests
 
-For the two modules (`perf_purge_paths`, `perf_redis_failopen`), run from the installed package in a site with the dev tools ([tests.md](tests.md), [drupal-performance-modules/scripts/qa.sh](../drupal-performance-modules/scripts/qa.sh)):
+For the two modules (`perf_purge_paths`, `perf_redis_failopen`), run from the installed package in a site with the dev tools ([tests.md](tests.md), [drupal-performance-modules/scripts/qa.sh](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/drupal-performance-modules/scripts/qa.sh)):
 
 ```bash
 bash scripts/qa.sh phpunit    # good: OK (N tests, M assertions); Kernel tests need SIMPLETEST_DB (a throwaway schema)
