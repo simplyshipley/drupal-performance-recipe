@@ -13,7 +13,7 @@ OUT="${OUT:-$(mktemp -d)}"
 # non-root valkey user then can't reach the mounted test certificates.
 chmod 0755 "$OUT"
 say() { printf '%s %s: %s\n' "$1" "$2" "$3"; [[ "$1" == FAIL ]] && FAILS=$((FAILS+1)); return 0; }
-cleanup() { for c in prt-single prt-shared prt-tls prt-bad prt-aclfile; do docker container remove -f "$c" >/dev/null 2>&1; done; docker network remove "$NET" >/dev/null 2>&1; }
+cleanup() { for c in prt-single prt-shared prt-tls prt-bad prt-aclfile prt-certgen; do docker container remove -f "$c" >/dev/null 2>&1; done; docker network remove "$NET" >/dev/null 2>&1; }
 trap cleanup EXIT
 cleanup
 docker build -q -t "$IMG" . >/dev/null || { echo "FAIL build"; exit 1; }
