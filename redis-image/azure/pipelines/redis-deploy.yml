@@ -17,16 +17,27 @@ pr: none
 
 resources:
   containers:
-    - container: redis
+    # One resource per environment, so resources.triggeringAlias says which
+    # tag moved (documented in "Resources in YAML pipelines").
+    - container: redisqa
       type: ACR
-      azureSubscription: <arm-service-connection>   # Azure Resource Manager connection (Azure US Government)
+      azureSubscription: <arm-service-connection>   # manual ARM connection, Environment: AzureUSGovernment
       resourceGroup: <registry-resource-group>
-      registry: <registry-name>                     # e.g. the name before .azurecr.us
+      registry: <registry-name>                     # the name before .azurecr.us
       repository: services/perf-redis
       trigger:
         tags:
           include:
             - qa
+    - container: redisprod
+      type: ACR
+      azureSubscription: <arm-service-connection>
+      resourceGroup: <registry-resource-group>
+      registry: <registry-name>
+      repository: services/perf-redis
+      trigger:
+        tags:
+          include:
             - prod
 
 variables:
@@ -34,7 +45,7 @@ variables:
 
 stages:
   - stage: qa
-    condition: eq(variables['resources.container.redis.tag'], 'qa')
+    condition: eq(variables['resources.triggeringAlias'], 'redisqa')
     jobs:
       - deployment: redis_qa
         environment: redis-qa
@@ -51,14 +62,14 @@ stages:
                     scriptLocation: inlineScript
                     inlineScript: |
                       set -euo pipefail
-                      IMAGE="$(registryServer)/services/perf-redis@$(resources.container.redis.digest)"
+                      IMAGE="$(registryServer)/services/perf-redis@$(resources.container.redisqa.digest)"
                       echo "Deploying $IMAGE (tag qa)"
                       az containerapp update -g <qa-resource-group> -n <qa-redis-app> --image "$IMAGE" --output none
                       az containerapp revision list -g <qa-resource-group> -n <qa-redis-app> \
                         --query "[].{revision:name,active:properties.active,image:properties.template.containers[0].image}" -o table
 
   - stage: prod
-    condition: eq(variables['resources.container.redis.tag'], 'prod')
+    condition: eq(variables['resources.triggeringAlias'], 'redisprod')
     dependsOn: []
     jobs:
       - deployment: redis_prod
@@ -76,7 +87,7 @@ stages:
                     scriptLocation: inlineScript
                     inlineScript: |
                       set -euo pipefail
-                      IMAGE="$(registryServer)/services/perf-redis@$(resources.container.redis.digest)"
+                      IMAGE="$(registryServer)/services/perf-redis@$(resources.container.redisprod.digest)"
                       echo "Deploying $IMAGE (tag prod)"
                       az containerapp update -g <prod-resource-group> -n <prod-redis-app> --image "$IMAGE" --output none
                       az containerapp revision list -g <prod-resource-group> -n <prod-redis-app> \

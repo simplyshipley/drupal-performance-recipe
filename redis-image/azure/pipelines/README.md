@@ -2,7 +2,9 @@
 
 **Example only, for the team that runs Azure.** Container Apps can't redeploy on its own when a registry tag moves, the way an App Service does with Deployment Center. This Azure Pipelines example gives the same result: moving `qa` or `prod` starts a pipeline that points that environment's Redis container at the new image.
 
-Not run yet. Everything here is [ASSUMED] until it runs in your Azure DevOps project.
+Not run yet. Where Microsoft Learn is silent, it says so below; those parts are proven only by a first live run.
+
+- **Azure DevOps runs outside Azure Government but can deploy into it:** "Azure DevOps isn't available on Azure Government… Azure Pipelines runs its pipelines outside of Azure Government." ([Deploy to Azure Government with Azure Pipelines](https://learn.microsoft.com/en-us/azure/azure-government/connect-with-azure-pipelines))
 
 ## The flow
 
@@ -17,7 +19,7 @@ Not run yet. Everything here is [ASSUMED] until it runs in your Azure DevOps pro
 
 ## Setup (Azure DevOps)
 
-1. **Service connection:** an Azure Resource Manager connection to your Azure US Government subscription. It needs:
+1. **Service connection:** an Azure Resource Manager connection with **Environment: AzureUSGovernment**, created manually (service principal or workload identity federation). The automatic option isn't available for Government: it requires "You're not connecting to the Azure Stack or the Azure US Government environments" ([Connect to Azure](https://learn.microsoft.com/en-us/azure/devops/pipelines/library/connect-to-azure?view=azure-devops)). It needs:
    - "Azure Container Registry **Contributor** or **Owner** permissions to use automatic pipeline triggers" ([Resources in YAML pipelines](https://learn.microsoft.com/en-us/azure/devops/pipelines/process/resources?view=azure-devops));
    - permission to update the two Redis container apps.
 2. **Environments:** `redis-qa` and `redis-prod` (Pipelines → Environments). Add an approval check to `redis-prod` if a person should approve prod.
@@ -25,16 +27,25 @@ Not run yet. Everything here is [ASSUMED] until it runs in your Azure DevOps pro
 4. **Default branch:** "Trigger evaluation occurs only on the default branch" (same page), so merge the file into the default branch.
 5. **Check:** move `qa` to an existing version (`bin/docker-deploy <version> qa`) and watch the run. If nothing starts, open the pipeline's **Trigger issues** page.
 
-## Manual runs and rollbacks
+## Rollbacks
 
-- Run the pipeline by hand and pick a version under **Resources** (the version picker supports container resources, same page).
-- Or move the tag with `bin/docker-deploy <version> <env>`; the trigger does the rest.
+- Move the tag back: `bin/docker-deploy <older version> <env>`. The trigger does the rest.
+- A manual "Run pipeline" doesn't set `resources.triggeringAlias`, so in this example no stage runs (see below). If DevOps wants manual runs, add a runtime parameter for the environment.
 
-## Not checked
+## How a stage knows which tag moved
 
-- Container resource triggers against an `.azurecr.us` registry, and Azure DevOps with an Azure Government service connection.
-- Whether moving a tag to an image that's already in the registry raises the push event the trigger needs.
-- The stage `condition` on `resources.container.redis.tag` at run time.
+- Two container resources (`redisqa` watches `qa`, `redisprod` watches `prod`). When one fires, "the pipeline `resources.triggeringAlias` and `resources.triggeringCategory` variables are then set to the resource name and category. These variables are empty unless the `Build.Reason` variable is set to `ResourceTrigger`." ([Resources in YAML pipelines](https://learn.microsoft.com/en-us/azure/devops/pipelines/process/resources?view=azure-devops))
+- Each stage's condition checks `resources.triggeringAlias`. A manual run sets neither, so no stage runs: move the tag with `bin/docker-deploy` instead.
+
+## Not documented by Microsoft Learn (prove with the first live run)
+
+Checked 2026-10-08; excerpts kept with the project notes.
+
+- **An ACR container trigger on an `.azurecr.us` registry.** No page limits it to the public cloud, and none says it works in Government.
+- **A tag move onto an image already in the registry.** ACR's push event is "triggered when a container image is pushed to a repository" ([ACR webhook reference](https://learn.microsoft.com/en-us/azure/container-registry/container-registry-webhook-reference)); nothing says whether re-tagging an existing image (same digest) counts, or which event the pipeline trigger uses.
+- **Reading `resources.triggeringAlias` in a stage condition.** Conditions "are evaluated to determine whether to start a stage, job, or step" ([Conditions](https://learn.microsoft.com/en-us/azure/devops/pipelines/process/conditions?view=azure-devops)), but no example uses a `resources.*` variable.
+
+First live run: `bin/docker-deploy <existing version> qa`, then check the pipeline's **Trigger issues** page and the run's stages. If the tag move doesn't start a run, set the image by hand in the portal (exact version) while DevOps adjusts the pipeline.
 
 ## Not using Azure DevOps?
 
