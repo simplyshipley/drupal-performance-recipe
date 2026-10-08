@@ -101,4 +101,4 @@ DIGEST=$(docker image inspect -f '{{range .RepoDigests}}{{println .}}{{end}}' "$
 
 echo "Finished: $REMOTE:$VERSION${ENVIRONMENT:+ is now :$ENVIRONMENT}"
 echo "Digest: $DIGEST"
-echo "Give this tag and digest to the team that deploys it. Moving a tag doesn't restart the running container (HANDOFF.md)."
+echo "Give this tag and digest to the team that deploys it. Moving a tag doesn't restart the running container (docs/HANDOFF.md)."

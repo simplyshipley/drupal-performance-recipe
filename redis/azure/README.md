@@ -1,6 +1,6 @@
 # Self-hosted Redis on Azure Container Apps
 
-**Example only.** One way (it compiles; it hasn't been deployed) to run the Redis container on Azure Container Apps and connect App Service to it. The team that runs it in Azure decides how to deploy; the requirements are in [HANDOFF.md](../HANDOFF.md).
+**Example only.** One way (it compiles; it hasn't been deployed) to run the Redis container on Azure Container Apps and connect App Service to it. The team that runs it in Azure decides how to deploy; the requirements are in [HANDOFF.md](../docs/HANDOFF.md).
 
 Ruling (Bo, 2026-09-25): the Drupal sites use a **self-hosted Redis container**, not the managed service. Only the heavy cache bins use it. The fail-open wrapper keeps the site up when Redis is down (see `docs/azure.md` in the drupal-performance-recipe repository).
 
@@ -74,7 +74,7 @@ DevOps can create the same thing by hand from the pushed image. These are the se
 | Setting | Value |
 |---|---|
 | Container Apps environment | Your VNet: a subnet delegated to `Microsoft.App/environments`, internal only. TCP ingress needs a VNet environment |
-| Image | `<registry>.azurecr.us/drupal/redis:9.1.2-<rev>` (a version, not `qa` or `prod`: [HANDOFF.md](../HANDOFF.md#the-image)), pulled with a managed identity that has AcrPull |
+| Image | `<registry>.azurecr.us/drupal/redis:9.1.2-<rev>` (a version, not `qa` or `prod`: [HANDOFF.md](../docs/HANDOFF.md#the-image)), pulled with a managed identity that has AcrPull |
 | CPU / memory | 0.5 / 1Gi |
 | Replicas | min 1, max 1 (the default min is 0, which would scale Redis to zero) |
 | Ingress | TCP, internal (not external), target port 6379, exposed port 6379 |

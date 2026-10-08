@@ -24,7 +24,7 @@ Not yet tested on WSL2.
    Check: `az cloud show --query name -o tsv`
 3. Create before phase 3 (assumed: none were created in the lab):
    - Resource group, Log Analytics workspace, Key Vault, Azure Container Registry.
-   - VNet with a subnet delegated to `Microsoft.App/environments` (size per `redis-image/azure/redis-containerapp.bicep` lines 6 to 8) and a separate subnet for App Service VNet integration.
+   - VNet with a subnet delegated to `Microsoft.App/environments` (size per `redis/azure/redis-containerapp.bicep` lines 6 to 8) and a separate subnet for App Service VNet integration.
    - App Service running the site; Front Door profile and endpoint.
    - User-assigned identity with AcrPull on the registry, passed as `acrPullIdentityId`.
    - Key Vault read access for the App Service managed identity, or the Key Vault references in 3.7 will not resolve (assumed).
@@ -115,28 +115,28 @@ There is no upgrade path. Apply this recipe to a site that has not run an older 
 
 ## Phase 3: Azure
 
-Nothing here has run on Azure. Confirm each service is in FedRAMP scope first ([redis-image/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis-image/azure/README.md)).
+Nothing here has run on Azure. Confirm each service is in FedRAMP scope first ([redis/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis/azure/README.md)).
 
 ### 3.1 Build, test, scan and push the Redis image
 
-Follow [redis-image.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis-image/docs/redis-image.md#build-and-test-locally): `docker build`, `bash test-image.sh` (expect 5 PASS), Trivy (expect 0 HIGH/CRITICAL), then push with `bash redis-image/image/push.sh 1` (or `redis-image/bin/docker-redis 1`), which runs the tests, builds for linux/amd64 and pushes.
+Follow [redis-image.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis/docs/redis-image.md#build-and-test-locally): `docker build`, `bash test-image.sh` (expect 5 PASS), Trivy (expect 0 HIGH/CRITICAL), then push with `bash redis/image/push.sh 1` (or `redis/bin/docker-redis 1`), which runs the tests, builds for linux/amd64 and pushes.
 - Tag `redis:valkey-9.1.2-1`, server and version plus revision, never `latest`.
 - Check the push: `az acr repository show-tags --name <registry-name> --repository drupal/redis -o tsv` (assumed)
 
 ### 3.2 Deploy the Container App
 
-The Azure team deploys the container; how is their call. Hand them the image version and digest with redis-image's `HANDOFF.md`. Not deployed yet; only `az bicep build` was run. If they use the Bicep example (`redis-image/azure/redis-containerapp.bicep`), it takes:
+The Azure team deploys the container; how is their call. Hand them the image version and digest with [redis/docs/HANDOFF.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis/docs/HANDOFF.md). Not deployed yet; only `az bicep build` was run. If they use the Bicep example (`redis/azure/redis-containerapp.bicep`), it takes:
 - `namePrefix`, `infrastructureSubnetId`, `logAnalyticsWorkspaceId`, `redisImage`, `acrServer`, `cpu`, `memory`, `actionGroupId`
 - `location` (default: the resource group's region)
 - `redisPassword` (secure, from Key Vault)
 - `acrPullIdentityId` (user-assigned identity with **AcrPull**)
 - `maxmemory` (default `768mb`; keep about 25 % below container memory)
 
-Outputs: `redisHost`, `environmentDefaultDomain`, `environmentStaticIp`. Example: [redis-image.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis-image/docs/redis-image.md#deploy).
+Outputs: `redisHost`, `environmentDefaultDomain`, `environmentStaticIp`. Example: [redis-image.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis/docs/redis-image.md#deploy).
 
 ### 3.3 Networking
 
-1. VNet-integrate the App Service: `az webapp vnet-integration add -g $RG -n <webapp> --vnet <vnet> --subnet <integration subnet>` ([redis-image/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis-image/azure/README.md#app-service)).
+1. VNet-integrate the App Service: `az webapp vnet-integration add -g $RG -n <webapp> --vnet <vnet> --subnet <integration subnet>` ([redis/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis/azure/README.md#app-service)).
 2. Private DNS zone named after `environmentDefaultDomain`, wildcard `*` A record to `environmentStaticIp`, linked to the integrated VNet (assumed).
 3. NSG: allow inbound TCP 6379 from the App Service integration subnet to the Container Apps subnet. Keep the platform and outbound purge rules (assumed: the repo has no NSG recipe).
 
@@ -147,7 +147,7 @@ Check from Kudu or SSH: `redisHost` resolves to the static IP and the port answe
 - Default is plain `tcp` on 6379 inside the VNet.
 - The shipped Bicep does not support TLS: ingress and probes are fixed to 6379, with no TLS settings or certificate secret. The image with `REDIS_TLS=1` closes the plain port.
 - TLS on 6380 needs Bicep changes not in this repo (ingress and probe port, certificate secret, `REDIS_TLS*` variables). `tls://` through drupal/redis 1.11 is untested.
-- Decide before go-live: [redis-image.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis-image/docs/redis-image.md). One Redis per site; shared mode: [redis-sharing.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis-image/docs/redis-sharing.md#3-recommendation).
+- Decide before go-live: [redis-image.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis/docs/redis-image.md). One Redis per site; shared mode: [redis-sharing.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis/docs/redis-sharing.md#3-recommendation).
 
 ### 3.5 Purge credentials
 
@@ -200,8 +200,8 @@ Proposed, not yet run on Azure. Use a non-production subscription. Each check mi
 
 1. Disable `automated_cron`. Run cron from a scheduler; work the purge queue every 1 to 5 minutes with `drush p:queue-work --finish` ([cache-sync.md](cache-sync.md#recommended-settings)).
 2. Leave `PERF_CACHE_MODE` unset in production ([cache-modes.md](cache-modes.md#guard-and-gitignore)).
-3. Rebuild the Redis image when the base tag gets fixes: build and push a new revision and rescan it (redis-image `README.md`), then hand the new version to the Azure team.
-4. Monitor restarts, memory, evictions and connection errors ([redis-image/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis-image/azure/README.md#monitoring-and-alerts)).
+3. Rebuild the Redis image when the base tag gets fixes: build and push a new revision and rescan it ([redis/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis/README.md)), then hand the new version to the Azure team.
+4. Monitor restarts, memory, evictions and connection errors ([redis/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis/azure/README.md#monitoring-and-alerts)).
 5. Roll back:
    - Redis image: ask the Azure team to point the app back to the previous image version. The cache holds no persistent data (`save ""`, `appendonly no`).
    - Purge: `$config['perf_purge_paths.settings']['enabled'] = FALSE;` in `settings.php` ([install.md](install.md#8-turn-caching-off-per-environment)).

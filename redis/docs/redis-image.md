@@ -1,6 +1,6 @@
 # Redis image for Azure
 
-Cache-only Valkey image for the self-hosted Redis on Container Apps (Bo, 2026-09-25). The image owner builds and pushes it with `bin/docker-*`; the Azure team deploys it ([HANDOFF.md](../HANDOFF.md)).
+Cache-only Valkey image for the self-hosted Redis on Container Apps (Bo, 2026-09-25). The image owner builds and pushes it with `bin/docker-*`; the Azure team deploys it ([HANDOFF.md](HANDOFF.md)).
 
 Built from the pinned official `valkey/valkey:9.1.2-alpine3.24` (Bo, 2026-10-05; see [Version and licence](#version-and-licence)).
 
@@ -64,7 +64,7 @@ Tested against a local registry (`LOGIN_SERVER=localhost:5055`, linux/amd64): bu
 
 ## Deploy
 
-The Azure team deploys the image by its version (or digest); what it needs is in [HANDOFF.md](../HANDOFF.md). How is their call. One example is the Bicep template, `azure/redis-containerapp.bicep`:
+The Azure team deploys the image by its version (or digest); what it needs is in [HANDOFF.md](HANDOFF.md). How is their call. One example is the Bicep template, `azure/redis-containerapp.bicep`:
 
 - It passes `REDIS_PASSWORD` (secret) and `REDIS_MAXMEMORY` as environment variables. The image's entrypoint builds the config, so there is no `command`/`args`.
 - It pulls from ACR with a user-assigned identity that has **AcrPull**.

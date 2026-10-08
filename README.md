@@ -37,7 +37,7 @@ recipe.yml, composer.json        the recipe (type drupal-recipe)
 config/                          purge.plugins + azure_cdn_purge.settings (no secrets)
 drupal-performance-modules/      second Composer package: modules/perf_purge_paths, modules/perf_redis_failopen,
                                  settings/settings.performance.php (env-driven include: Redis, proxy, purge credentials)
-redis-image/                     Redis (Valkey) image, push script and Azure Bicep (laid out as its own repo root)
+redis/                           Redis (Valkey) image, push script and Azure Bicep (laid out as its own repo root)
 mock-afd/                        mock Azure Front Door purge + token endpoint (Python, Docker)
 edge/                            local Front Door cache + Azure WAF stand-in (nginx + ModSecurity CRS 3.3.10)
 ddev/                            DDEV files (config.perf.yaml, compose for mock, redis.conf, `ddev perf-test`)
@@ -80,7 +80,7 @@ include $app_root . '/modules/custom/drupal-performance-modules/settings/setting
 9. [Cache modes for local testing](docs/cache-modes.md) (`perf-cache dev|prod-like|status`)
 10. [Cache sync: Drupal, Redis, purge queue and Front Door](docs/cache-sync.md) (edge cases, findings, open decisions)
 11. [Contrib modules evaluated](docs/contrib-modules.md) (purge_queuer_url, purge_file, query_string_optimizer, index_now: adopted / not adopted / watch)
-12. [Redis image for Azure](redis-image/docs/redis-image.md) and [one vs shared Redis](redis-image/docs/redis-sharing.md)
+12. [Redis image for Azure](redis/docs/redis-image.md) and [one vs shared Redis](redis/docs/redis-sharing.md)
 13. [uspsoig.gov caching and bot check](docs/uspsoig-cache-bot-check.md) (findings that drove the bot and header work)
 14. Source guides: [Caching on Azure](docs/caching-guide.md), [Hardening](docs/hardening.md)
    (exported from the Claude Doc, 2026-09-25)
@@ -96,7 +96,7 @@ Run with the then-separate `perf_purge_deleted` module, since merged into `perf_
 
 ## Lab results (2026-10-05, Valkey 9.1.2)
 
-Redis server switched to Valkey 9.1.2 in both labs and the Azure image. DDEV 49 PASS / 0 FAIL / 2 FINDING [V: tmp/ddev/run18-valkey.log]; Lando 49 / 0 / 2 [V: tmp/lando-run16-valkey.log]; both servers Valkey 9.1.2 [V: tmp/valkey-server-evidence-20261005.txt]; image tests 5/5 and Trivy 0 HIGH/CRITICAL ([redis-image.md](redis-image/docs/redis-image.md#version-and-licence)).
+Redis server switched to Valkey 9.1.2 in both labs and the Azure image. DDEV 49 PASS / 0 FAIL / 2 FINDING [V: tmp/ddev/run18-valkey.log]; Lando 49 / 0 / 2 [V: tmp/lando-run16-valkey.log]; both servers Valkey 9.1.2 [V: tmp/valkey-server-evidence-20261005.txt]; image tests 5/5 and Trivy 0 HIGH/CRITICAL ([redis-image.md](redis/docs/redis-image.md#version-and-licence)).
 
 ## Lab results (2026-10-05, Lando on the final edge code)
 
@@ -131,4 +131,4 @@ All 15 in-container tests plus `redis_down`, `redis_recover` and `redis_hang` PA
 [V: tmp/ddev/run9.log, tmp/lando-run7.log]. Redis holds only the heavy bins and a
 fail-open wrapper (`modules/perf_redis_failopen`) keeps the site up when Redis is down; with
 the wrapper off the site returns HTTP 500 (fail-proof in the DDEV log). Self-hosted Redis on
-Azure Container Apps: [redis-image/azure/](redis-image/azure/README.md) (not deployed).
+Azure Container Apps: [redis/azure/](redis/azure/README.md) (not deployed).

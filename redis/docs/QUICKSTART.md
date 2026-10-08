@@ -54,4 +54,4 @@ bin/docker-test-stop 9.1.2-1
 | `the --chmod option requires BuildKit` | Docker is older than 23: update Docker |
 | `No 'origin' remote` | Fine for a test. For real releases add the repo's remote so the git tag is pushed |
 
-More: all commands and tag rules in [README.md](README.md); checking it in Azure in [SETUP-GUIDE.md](SETUP-GUIDE.md); what the Azure team needs in [HANDOFF.md](HANDOFF.md).
+More: all commands and tag rules in [README.md](../README.md); checking it in Azure in [SETUP-GUIDE.md](SETUP-GUIDE.md); what the Azure team needs in [HANDOFF.md](HANDOFF.md).

@@ -2,9 +2,9 @@
 
 Cache-only Valkey image for the Drupal sites on Azure Container Apps, with `bin/docker-*` commands like the sites have.
 
-- **For the team that runs it in Azure:** [HANDOFF.md](HANDOFF.md) lists what the container and the sites need. How to deploy it is their call.
-- **Start here: [QUICKSTART.md](QUICKSTART.md)** (the commands and what to do when something fails).
-- **Setup guide (configure, verify, troubleshoot):** [SETUP-GUIDE.md](SETUP-GUIDE.md)
+- **For the team that runs it in Azure:** [HANDOFF.md](docs/HANDOFF.md) lists what the container and the sites need. How to deploy it is their call.
+- **Start here: [QUICKSTART.md](docs/QUICKSTART.md)** (the commands and what to do when something fails).
+- **Setup guide (configure, verify, troubleshoot):** [SETUP-GUIDE.md](docs/SETUP-GUIDE.md)
 - **Examples:** [azure/](azure/) has a Bicep example (it compiles; it hasn't been deployed) and the same settings for the portal and az CLI, for reference.
 
 ## Prerequisites
@@ -48,7 +48,7 @@ Run from the repo root. Arguments are optional; each command asks for what you l
 | Roll back: `bin/docker-deploy 9.1.2-1 qa` | Points `qa` back at build 1 | `qa` → build 1; `9.1.2`, `9.1`, `9` stay on build 2 |
 | Skip the environment: `bin/docker-deploy 9.1.2-3 n` | Pushes the version and aliases only | `qa` and `prod` unchanged |
 
-- Moving `qa` or `prod` doesn't restart anything in Azure. Give the version and digest that `docker-deploy` prints to the team that deploys it ([HANDOFF.md](HANDOFF.md)).
+- Moving `qa` or `prod` doesn't restart anything in Azure. Give the version and digest that `docker-deploy` prints to the team that deploys it ([HANDOFF.md](docs/HANDOFF.md)).
 - `docker-deploy` stops if it can't list the registry's tags (expired login, no permission, wrong `ACR_NAME`), so it can't overwrite a version by accident.
 
 ## Settings
@@ -72,12 +72,12 @@ bash image/test-image.sh
 
 The Drupal side (settings, modules, Lando lab `redis.conf`) stays in the drupal-performance-recipe repository.
 
-- With history: in the recipe clone, split this folder out, then pull it into the new empty repo. History starts at the move commit; older history stays under `infra/` in the recipe.
+- With history: in the recipe clone, split this folder out, then pull it into the new empty repo. History starts when the folder became `redis/` (2026-10-08); older history stays in the recipe (under the folder's earlier names `redis-image/` and `infra/`).
 
   ```bash
-  git subtree split --prefix=redis-image -b redis-image-export
+  git subtree split --prefix=redis -b redis-export
   # in the new empty repo:
-  git pull <path-to-recipe-clone> redis-image-export
+  git pull <path-to-recipe-clone> redis-export
   ```
 
 - Without history: copy this folder into the new repo.

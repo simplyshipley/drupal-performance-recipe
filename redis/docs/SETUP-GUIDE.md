@@ -60,7 +60,7 @@ bin/docker-deploy 9.1.2-1 prod           # roll prod back
 
 Tested against a local test registry (build, test, deploy to qa, promote, roll back, refused overwrite) [V: lab, 2026-10-08]. The Azure login and the first push to the real registry haven't run yet.
 
-- Commands, tags, promote and roll back: [README.md](README.md#commands).
+- Commands, tags, promote and roll back: [README.md](../README.md#commands).
 - Hand the version and digest that `docker-deploy` prints to the Azure team: `<registry>.azurecr.us/drupal/redis:9.1.2-<revision>` and `sha256:...`.
 - Moving `qa` or `prod` doesn't restart the running container. Microsoft Learn doesn't say a restart or a new revision pulls a moved tag again; it says to avoid static tags because of "caching problems" and to "use unique tags for each deployment" ([Containers in Azure Container Apps](https://learn.microsoft.com/en-us/azure/container-apps/containers)). Container Apps also can't deploy on its own when a registry tag changes. What runs changes when the app's image is set to the new version (portal, `az containerapp update --image`, or a pipeline the Azure team may start from an ACR webhook on `:qa` or `:prod`). Details and Microsoft Learn sources: [HANDOFF.md](HANDOFF.md#the-image).
 
@@ -83,7 +83,7 @@ The site needs:
 - [ ] App settings `REDIS_HOST`, `REDIS_PORT=6379`, `REDIS_PASSWORD` (Key Vault reference), `REDIS_PREFIX` (one per site).
 - [ ] The site's identity can read the Key Vault secret.
 
-Examples for all of this (Bicep, portal, az CLI): [azure/README.md](azure/README.md).
+Examples for all of this (Bicep, portal, az CLI): [azure/README.md](../azure/README.md).
 
 ## 3. Verify, in order
 
@@ -186,7 +186,7 @@ redis-cli dbsize
 | Cache empty after a deploy or restart | Expected: nothing is saved to disk | `uptime_in_seconds` | None; Drupal refills it |
 | Memory alert or steady `evicted_keys` | Cache too small for the site | 3e | Raise container memory and `REDIS_MAXMEMORY` together (about 75 percent) |
 
-Down for a long time: set `REDIS_ENABLED=0` on the App Service to send the cache bins back to the database until Redis is fixed. That stops the warnings ([azure/README.md](azure/README.md), Monitoring).
+Down for a long time: set `REDIS_ENABLED=0` on the App Service to send the cache bins back to the database until Redis is fixed. That stops the warnings ([azure/README.md](../azure/README.md), Monitoring).
 
 ## 5. Routine changes
 
@@ -200,13 +200,13 @@ Down for a long time: set `REDIS_ENABLED=0` on the App Service to send the cache
   2. Container Apps picks it up within 30 minutes with a versionless Key Vault reference, or restart the revision.
   3. App Service Key Vault references refresh on their own schedule; restart the web app to be sure.
   4. Expect a short period of fail-open cache misses, not errors.
-- **Settings changes in the portal:** see [azure/README.md](azure/README.md), "Changing settings in the Azure portal".
+- **Settings changes in the portal:** see [azure/README.md](../azure/README.md), "Changing settings in the Azure portal".
 
 ## Reference
 
-- Image settings and hardening: [docs/redis-image.md](docs/redis-image.md)
-- Shared Redis for several sites: [docs/redis-sharing.md](docs/redis-sharing.md)
-- Hosting choice and cost: [docs/hosting-and-cost.md](docs/hosting-and-cost.md)
+- Image settings and hardening: [docs/redis-image.md](redis-image.md)
+- Shared Redis for several sites: [docs/redis-sharing.md](redis-sharing.md)
+- Hosting choice and cost: [docs/hosting-and-cost.md](hosting-and-cost.md)
 - Drupal side (settings file, local testing, `lando perf-report`): the drupal-performance-recipe repository
 
 Evidence for the [V] lines: [V: lab, 2026-10-08], the image run locally with a SYNTHETIC password.
