@@ -16,7 +16,7 @@ Built from the pinned official `valkey/valkey:9.1.2-alpine3.24` (Bo, 2026-10-05;
 | **Shared mode** | **Not supported with the Drupal sites today; use one Redis per site.** The image can do it: `REDIS_APP_USERS=sitea,siteb` with `REDIS_APP_PASSWORD_SITEA` and so on, each user limited to `<name>:*` keys, `@dangerous`, SELECT and SCAN denied. But the sites' settings file doesn't send a user name, so they would get silent cache misses. See [redis-sharing.md](redis-sharing.md). |
 | **Admin user** | `REDIS_ADMIN_PASSWORD` creates `admin` with all commands, for operators only. |
 | **ACL file** | `REDIS_ACL_FILE=/path/users.acl` uses your own ACL file instead. The generated users are then ignored. The healthcheck then PINGs without a password: a NOAUTH answer counts as alive, no answer fails (test `aclfile_health`). |
-| **TLS** | `REDIS_TLS=1` with `REDIS_TLS_CERT_FILE`, `REDIS_TLS_KEY_FILE`, optional `REDIS_TLS_CA_FILE`, `REDIS_TLS_PORT` (6380) and `REDIS_TLS_AUTH_CLIENTS` (no). TLS is then the only listener; the plain port is closed. |
+| **TLS** | `REDIS_TLS=1` with `REDIS_TLS_CERT_FILE`, `REDIS_TLS_KEY_FILE`, optional `REDIS_TLS_CA_FILE`, `REDIS_TLS_PORT` (6380) and `REDIS_TLS_AUTH_CLIENTS` (no). TLS is then the only listener; the plain port is closed. `REDIS_TLS_CLIENT_CERT_FILE` / `REDIS_TLS_CLIENT_KEY_FILE` are only for the healthcheck in client-cert mode, which Drupal can't use, so keep `REDIS_TLS_AUTH_CLIENTS=no`. |
 | **Healthcheck** | `redis-cli PING` as the user `health`, which has no password and may run PING only. |
 | **Memory** | `REDIS_MAXMEMORY` (256mb) and `REDIS_MAXMEMORY_POLICY` (volatile-lfu; source: redis README, "Eviction policy"). Keep maxmemory about 25 % below the container memory. |
 

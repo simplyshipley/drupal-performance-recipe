@@ -235,7 +235,7 @@ lando exec appserver -- curl -s http://edge:8099/__edge/health    # good: the ed
 ```bash
 az cloud set --name AzureUSGovernment   # [not run in this project] good: no output; redis/docs/redis-image.md
 az login                                # [not run in this project] good: signed in
-az cloud show --query name -o tsv       # [not run in this project] good: AzureUSGovernment (the check push.sh makes)
+az cloud show --query name -o tsv       # [not run in this project] good: AzureUSGovernment (the check `redis/bin/docker-auth` makes)
 ```
 
 Outside-in checks against the public site (replace the host; this is the real test of Front Door caching):
@@ -262,7 +262,7 @@ Redis and settings:
 - **App settings:** `az webapp config appsettings set` is in [redis/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis/azure/README.md) (step 2). The repo has no `list` command. **[SECRET]** Do not run `appsettings list` unfiltered: plain-value settings print in full. Key Vault references show the `@Microsoft.KeyVault(...)` text, not the secret. Use the portal (Configuration) to read them.
 - **Redis checks on Azure:** the repo says to measure with `INFO memory` and `INFO stats` (`used_memory_peak_human`, `evicted_keys`, `keyspace_hits`/`misses`) after a crawl. No `az containerapp exec` or log command is in the repo.
 - **Metric names:** `az monitor metrics list-definitions --resource <redis app resource id>` # [not run in this project] good: lists `RestartCount`, `WorkingSetBytes`.
-- **Redis image:** `bash redis/image/push.sh <revision>` (or `redis/bin/docker-redis <revision>`) tests, builds and pushes `acrcigie.azurecr.us/drupal/redis:valkey-<version>-<revision>`; it refuses an existing tag. Tested only against a local registry. Without local Docker: `az acr build --registry <registry-name> --image drupal/redis:valkey-9.1.2-1 redis/image` # [not run in this project].
+- **Redis image:** from the `redis/` folder (or the new repo's root), `bin/docker-build-deploy <revision> qa` tests, builds and pushes `acrcigie.azurecr.us/drupal/redis:9.1.2-<revision>` (plus `9.1.2`, `9.1`, `9` and `qa`); it never overwrites an existing version. Promote with `bin/docker-deploy 9.1.2-<revision> prod`. Commands and tags: [redis/docs/QUICKSTART.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis/docs/QUICKSTART.md). Tested only against a local registry. Without local Docker: `az acr build --registry <registry-name> --image drupal/redis:9.1.2-1 redis/image` # [not run in this project].
 
 Dangerous or secret-printing, avoid:
 
@@ -270,7 +270,7 @@ Dangerous or secret-printing, avoid:
 - **[SECRET]** `printenv` / `env` in the container prints every secret. Check one variable: `drush php:eval "print getenv('REDIS_HOST');"`.
 - **[SECRET]** `az keyvault secret show` prints the value ([redis/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis/azure/README.md) uses it only inside a deploy).
 
-Source: `docs/azure.md`, `redis/docs/redis-image.md`, `redis/azure/README.md`, `redis/image/push.sh`, `docs/caching-guide.md`.
+Source: `docs/azure.md`, `redis/docs/redis-image.md`, `redis/azure/README.md`, `redis/bin/docker-*`, `docs/caching-guide.md`.
 
 ## 8. Module tests
 

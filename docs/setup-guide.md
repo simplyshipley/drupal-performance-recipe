@@ -119,8 +119,8 @@ Nothing here has run on Azure. Confirm each service is in FedRAMP scope first ([
 
 ### 3.1 Build, test, scan and push the Redis image
 
-Follow [redis-image.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis/docs/redis-image.md#build-and-test-locally): `docker build`, `bash test-image.sh` (expect 5 PASS), Trivy (expect 0 HIGH/CRITICAL), then push with `bash redis/image/push.sh 1` (or `redis/bin/docker-redis 1`), which runs the tests, builds for linux/amd64 and pushes.
-- Tag `redis:valkey-9.1.2-1`, server and version plus revision, never `latest`.
+Follow [redis/docs/QUICKSTART.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis/docs/QUICKSTART.md): from the `redis/` folder (or the new repo's root), `bin/docker-build-deploy 1 qa` runs the 5 image tests, builds for linux/amd64, pushes and points `qa` at the build. Scan it with Trivy (expect 0 HIGH/CRITICAL, [redis-image.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis/docs/redis-image.md#build-and-test-locally)).
+- Tags `9.1.2-1`, `9.1.2-2`, ... (Valkey version plus revision, never overwritten), with `9.1.2`, `9.1`, `9`, `qa` and `prod` moved by `bin/docker-deploy`. Never `latest`.
 - Check the push: `az acr repository show-tags --name <registry-name> --repository drupal/redis -o tsv` (assumed)
 
 ### 3.2 Deploy the Container App
@@ -164,20 +164,21 @@ Follow [caching-guide.md](caching-guide.md#azure-front-door-for-drupal) (assumed
 
 ### 3.7 App Service settings
 
-Secrets go in as Key Vault references ([azure.md](azure.md#app-service-application-settings-environment-variables)).
+Secrets go in as Key Vault references. Full list, with required and default values: [azure.md](azure.md#app-service-application-settings-environment-variables).
 
 ```bash
 az webapp config appsettings set -g $RG -n <webapp> --settings \
   REDIS_HOST=<redisHost output> REDIS_PORT=6379 REDIS_SCHEME=tcp \
-  REDIS_PASSWORD='@Microsoft.KeyVault(SecretUri=https://<kv>.vault.usgovcloudapi.net/secrets/redis-password/)' \
+  REDIS_PASSWORD='@Microsoft.KeyVault(SecretUri=https://<kv>.vault.usgovcloudapi.net/secrets/redis-password)' \
   REDIS_PREFIX=<site> AZURE_CLOUD=usgovernment
 ```
 
 | Group | Variables | Default and rule |
 |---|---|---|
 | Redis | `REDIS_HOST`, `REDIS_ENABLED`, `REDIS_PORT`, `REDIS_SCHEME`, `REDIS_PASSWORD`, `REDIS_PREFIX` | Unset `REDIS_HOST` = no Redis. `REDIS_ENABLED=0` = the Redis bins use the database. Prefix required on a shared Redis |
-| Purge credentials | `AZURE_CDN_TENANT_ID`, `AZURE_CDN_CLIENT_ID`, `AZURE_CDN_CLIENT_SECRET` (Key Vault), `AZURE_CDN_SUBSCRIPTION_ID`, `AZURE_CDN_RESOURCE_GROUP`, `AZURE_CDN_PROFILE`, `AZURE_CDN_ENDPOINT`, `AZURE_CDN_ENDPOINT_TYPE` (`afdEndpoints`), `AZURE_CLOUD` (`usgovernment`) | Leave `AZURE_CDN_SCOPE` unset and clear any stored scope ([azure.md](azure.md#azure-government-patched-azure_cdn_purge)) |
-| Proxy | `DRUPAL_TRUSTED_HOSTS`, `DRUPAL_REVERSE_PROXY`, `DRUPAL_REVERSE_PROXY_ADDRESSES` | [azure.md](azure.md#client-ip) |
+| Purge credentials | `AZURE_CDN_TENANT_ID`, `AZURE_CDN_CLIENT_ID`, `AZURE_CDN_CLIENT_SECRET` (Key Vault), `AZURE_CDN_SUBSCRIPTION_ID`, `AZURE_CDN_RESOURCE_GROUP`, `AZURE_CDN_PROFILE`, `AZURE_CDN_ENDPOINT`, `AZURE_CDN_ENDPOINT_TYPE` (`afdEndpoints`) | All required for purge, except `AZURE_CDN_ENDPOINT_TYPE` (leave unset). Leave `AZURE_CDN_SCOPE` unset and clear any stored scope ([azure.md](azure.md#azure-government-patched-azure_cdn_purge)) |
+| Cloud | `AZURE_CLOUD` (`usgovernment`) | **Required for Azure Government**: unset, purges go to the commercial hosts |
+| Proxy | `DRUPAL_TRUSTED_HOSTS`, `DRUPAL_TRUSTED_HOST_PATTERNS`, `DRUPAL_REVERSE_PROXY`, `DRUPAL_REVERSE_PROXY_ADDRESSES` | Non-OIG sites only; OIG sites leave them unset (`settings.base.php` handles it). [azure.md](azure.md#client-ip) |
 
 - Never set `PERF_MOCK_AFD_PROXY` or `PERF_EDGE_PROXY_HOST` outside a local lab.
 - After changing `REDIS_BINS`, run `drush cr`.

@@ -65,7 +65,7 @@ Container Apps has a portal UI, but it works differently from App Service's Conf
 - **Secrets** (`redis-password`): the app → **Security** → **Secrets**. Changing a secret does not create a revision and "doesn't automatically affect existing revisions": restart the revision afterwards.
 - **Every new revision or restart empties the cache** (no persistence). Drupal keeps working through the fail-open wrapper and refills it.
 - **If you deploy with the Bicep,** a change made only in the portal is undone by the next `az deployment group create`, so copy portal changes back into the Bicep parameters.
-- **Microsoft recommends Key Vault references for secrets in production** ("Avoid specifying the value of a secret directly in a production environment"). The Bicep currently passes the password value as a secret. With a Key Vault reference (secret URL without a version), the app picks up a rotated password within 30 minutes and restarts the revisions that use it. Not built yet.
+- **Microsoft recommends Key Vault references for secrets in production** ("Avoid specifying the value of a secret directly in a production environment"). **The Bicep example passes the password as a plain secret value** (`redisPassword`), not a Key Vault reference. [HANDOFF.md](../docs/HANDOFF.md) recommends a Key Vault reference: with one (secret URL without a version), the app picks up a rotated password within 30 minutes and restarts the revisions that use it. The Bicep example doesn't do that yet.
 
 ## Without the Bicep (portal or az CLI)
 
@@ -82,7 +82,7 @@ DevOps can create the same thing by hand from the pushed image. These are the se
 | Environment variables | `REDIS_PASSWORD` = secret `redis-password`; `REDIS_MAXMEMORY` = `768mb` (about 75 percent of memory) |
 | Probes | TCP liveness and readiness on 6379. Container Apps uses its own probes, not the image's Docker `HEALTHCHECK` [ASSUMED] |
 
-Optional variables the image reads (defaults in [docs/redis-image.md](../docs/redis-image.md)): `REDIS_MAXMEMORY_POLICY` (`volatile-lfu`), `REDIS_ADMIN_PASSWORD`, `REDIS_APP_USERS` + `REDIS_APP_PASSWORD_<NAME>` (shared mode), `REDIS_TLS*`. Never set a start command or arguments: the image's entrypoint builds the config, and it refuses to start without `REDIS_PASSWORD`.
+Optional variables the image reads (defaults in [docs/redis-image.md](../docs/redis-image.md)): `REDIS_MAXMEMORY_POLICY` (`volatile-lfu`), `REDIS_ADMIN_PASSWORD`, `REDIS_APP_USERS` + `REDIS_APP_PASSWORD_<NAME>` (shared mode: never set them, the sites don't support it), `REDIS_TLS*`. Never set a start command or arguments: the image's entrypoint builds the config, and it refuses to start without `REDIS_PASSWORD`.
 
 az CLI, same settings [ASSUMED: not run against a subscription; probes are not CLI flags, add them in the portal or with `az containerapp update --yaml`]:
 
@@ -131,14 +131,16 @@ An internal environment's apps resolve under `environmentDefaultDomain` [ASSUMED
    ```bash
    az webapp config appsettings set -g $RG -n <webapp> --settings \
      REDIS_HOST=<redisHost output> REDIS_PORT=6379 REDIS_SCHEME=tcp \
-     REDIS_PASSWORD='@Microsoft.KeyVault(SecretUri=https://<kv>.vault.usgovcloudapi.net/secrets/redis-password/)' \
+     REDIS_PASSWORD='@Microsoft.KeyVault(SecretUri=https://<kv>.vault.usgovcloudapi.net/secrets/redis-password)' \
      REDIS_PREFIX=<site> AZURE_CLOUD=usgovernment
    ```
 
-   Keep the defaults `PERF_REDIS_CONNECT_TIMEOUT=1` and `PERF_REDIS_READ_TIMEOUT=2` (unset gives those values). Do not set:
+   Nothing else to set for the timeouts or fail-open; they are fixed in the code, not variables:
 
-   - `REDIS_LOCK_FLOOD_TAGS`: it keeps lock, flood and cache tags in MySQL.
-   - `PERF_REDIS_FAILOPEN=0`: it disables the fail-open wrapper.
+   - Redis connect and read timeout: 2 s. Retry after an error: 30 s.
+   - Fail-open is on whenever the `perf_redis_failopen` module is installed.
+   - To take Redis out during a long outage, set `REDIS_ENABLED=0` (back on: `1`, then `drush cr`).
+   - Full list of the site's settings, with required and default values: [HANDOFF.md](../docs/HANDOFF.md#what-the-drupal-sites-need).
 
 3. **TLS.** Traffic between App Service and the Redis container stays in the VNet and is not TLS (`REDIS_SCHEME=tcp`). Container Apps TCP ingress does not terminate TLS for you [ASSUMED]. If your controls require encryption inside the VNet:
    - Set `REDIS_TLS=1` and the certificate files on the container ([docs/redis-image.md](../docs/redis-image.md)); don't add a start command. The port moves to 6380 (6379 closes), so the ingress target and exposed port and the probes move to 6380.

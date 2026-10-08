@@ -198,15 +198,15 @@ Down for a long time: set `REDIS_ENABLED=0` on the App Service to send the cache
 - **Password rotation:**
   1. Update the Key Vault secret.
   2. Container Apps picks it up within 30 minutes with a versionless Key Vault reference, or restart the revision.
-  3. App Service Key Vault references refresh on their own schedule; restart the web app to be sure.
+  3. App Service refetches a versionless Key Vault reference within 24 hours; any configuration change or a restart of the web app fetches it now ([Use Key Vault references for App Service](https://learn.microsoft.com/en-us/azure/app-service/app-service-key-vault-references), "Understand rotation").
   4. Expect a short period of fail-open cache misses, not errors.
 - **Settings changes in the portal:** see [azure/README.md](../azure/README.md), "Changing settings in the Azure portal".
 
 ## Reference
 
-- Image settings and hardening: [docs/redis-image.md](redis-image.md)
-- Shared Redis for several sites: [docs/redis-sharing.md](redis-sharing.md)
-- Hosting choice and cost: [docs/hosting-and-cost.md](hosting-and-cost.md)
+- Image settings and hardening: [redis-image.md](redis-image.md)
+- Shared Redis for several sites: [redis-sharing.md](redis-sharing.md)
+- Hosting choice and cost: [hosting-and-cost.md](hosting-and-cost.md)
 - Drupal side (settings file, local testing, `lando perf-report`): the drupal-performance-recipe repository
 
 Evidence for the [V] lines: [V: lab, 2026-10-08], the image run locally with a SYNTHETIC password.

@@ -37,7 +37,7 @@ recipe.yml, composer.json        the recipe (type drupal-recipe)
 config/                          purge.plugins + azure_cdn_purge.settings (no secrets)
 drupal-performance-modules/      second Composer package: modules/perf_purge_paths, modules/perf_redis_failopen,
                                  settings/settings.performance.php (env-driven include: Redis, proxy, purge credentials)
-redis/                           Redis (Valkey) image, push script and Azure Bicep (laid out as its own repo root)
+redis/                           Redis (Valkey) image, `bin/docker-*` commands and Azure Bicep (laid out as its own repo root)
 mock-afd/                        mock Azure Front Door purge + token endpoint (Python, Docker)
 edge/                            local Front Door cache + Azure WAF stand-in (nginx + ModSecurity CRS 3.3.10)
 ddev/                            DDEV files (config.perf.yaml, compose for mock, redis.conf, `ddev perf-test`)
@@ -90,7 +90,7 @@ include $app_root . '/modules/custom/drupal-performance-modules/settings/setting
 Run with the then-separate `perf_purge_deleted` module, since merged into `perf_purge_paths` ([install.md](docs/install.md#deleted-and-renamed-aliases-and-deleted-files)).
 - **Full suites:** DDEV 53 PASS / 0 FAIL / 1 FINDING [V: tmp/ddev/run19-deleted.log]; Lando 53 / 0 / 1 [V: tmp/lando-run17-deleted.log]. The one FINDING is `sync_menu_block` (open decision 2). Before: 49 / 0 / 2.
 - **New:** `sync_delete` is now PASS, plus 3 new tests (`sync_alias_delete`, `sync_file_delete`, `sync_file_swap`), all PASS.
-- **Module off vs on (Lando):** the 4 delete tests report FINDING with it off [V: tmp/lando-deleted-off.log] and PASS with it on [V: tmp/lando-deleted-on.log]. On, with `PERF_PURGE_PATHS=0`: 4 FAIL [V: tmp/lando-deleted-failproof.log].
+- **Module off vs on (Lando):** the 4 delete tests report FINDING with it off [V: tmp/lando-deleted-off.log] and PASS with it on [V: tmp/lando-deleted-on.log]. On, with `PERF_PURGE_PATHS=0` (historical: that variable is removed; `SYNC_NEGATIVE=1` now uses `PERF_LAB_PURGE_OFF=1`): 4 FAIL [V: tmp/lando-deleted-failproof.log].
 - **purge_file trial:** it purges the file URL but not the image-style URLs ([contrib-modules.md](docs/contrib-modules.md#purge_file-131-not-adopted-trialled-2026-10-05)) [V: tmp/lando-purge-file-trial.log].
 - **Now shipped** as part of `perf_purge_paths`.
 

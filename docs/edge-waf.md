@@ -76,7 +76,7 @@ Drupal side (lab only, honoured only in DDEV/Lando):
   cannot spoof `X-Forwarded-For`.
 - **OIG sites:** their trusted host patterns reject the local `edge` host (HTTP 400, [V: OIG site copy on Lando, 2026-10-08]). With `PERF_EDGE_PROXY_HOST` set, `settings.local-lab.php` trusts it [V: OIG site copy on Lando, 2026-10-08].
 - It also echoes the Front Door headers the origin received in `X-Perf-Edge-Seen`.
-- In Azure, use `DRUPAL_REVERSE_PROXY` and `DRUPAL_REVERSE_PROXY_ADDRESSES` instead (see [azure.md](azure.md)).
+- In Azure, non-OIG sites use `DRUPAL_REVERSE_PROXY` and `DRUPAL_REVERSE_PROXY_ADDRESSES` instead; OIG sites leave them unset (`settings.base.php` handles it) (see [azure.md](azure.md#client-ip)).
 
 ### Bot header-consistency challenge and security headers (2026-09-29)
 

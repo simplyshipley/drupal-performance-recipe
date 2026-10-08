@@ -31,39 +31,84 @@ Nothing here was run against Azure. Everything is [ASSUMED] unless it names lab 
 ## App Service application settings (environment variables)
 
 App Service exposes "Application settings" to the container as environment variables
-[ASSUMED: standard App Service behaviour]. `settings.performance.php` reads only these.
-Put secrets in Key Vault references, not plain values [ASSUMED].
+[ASSUMED: standard App Service behaviour]. This is the complete list `settings.performance.php`
+reads in production, checked against the code on 2026-10-08 (the two modules read no
+environment variables; they read the `$settings` this file sets). "Unset" means not set or empty.
 
-| Variable | Example | Notes |
-|---|---|---|
-| `REDIS_HOST` | `redisHost` output of `redis/azure` (Container Apps internal FQDN) | Unset = no Redis |
-| `REDIS_SCHEME` | `tcp` | Inside the VNet; see redis/azure/README.md for TLS |
-| `REDIS_PORT` | `6379` | Container Apps TCP ingress exposed port |
-| `REDIS_BINS` | leave unset | Default heavy bins only |
-| `REDIS_ENABLED` | leave unset (`1`) | `0` = the Redis bins use the database, no deploy; back to `1`, then `drush cr` |
-| `REDIS_PASSWORD` | Key Vault reference | Access key |
-| `REDIS_PREFIX` | `oig-cpsc-prod` | Required if one Redis serves several sites. Optional otherwise (the redis module then uses its own default prefix); the test suite matches any prefix when it is unset |
-| `DRUPAL_TRUSTED_HOSTS` | `www.example.gov,example.gov` | Anchored and escaped by the settings file [V: code] |
-| `DRUPAL_REVERSE_PROXY` | leave unset | `1` = trust `X-Forwarded-*`. Set it only for Option A, after the [client IP test](#client-ip) fails. Unset keeps what the site does today |
-| `DRUPAL_REVERSE_PROXY_ADDRESSES` | App Service internal ranges + Front Door backend ranges | Only with `DRUPAL_REVERSE_PROXY=1`. Comma-separated IPs/CIDRs. Both hops are needed, see [Client IP](#client-ip) |
-| `DRUPAL_CACHE_TTL_4XX` | `3600` | Core default; see guide "Why 403s arrive in batches" |
-| `DRUPAL_DATABASE_CACHE_MAX_ROWS` | `5000` | Only matters for bins still in MySQL |
-| `AZURE_CDN_TENANT_ID` | tenant GUID | Service principal's tenant |
-| `AZURE_CDN_CLIENT_ID` | app GUID | Service principal |
-| `AZURE_CDN_CLIENT_SECRET` | Key Vault reference | Never in config |
-| `AZURE_CDN_SCOPE` | leave unset | Empty = the Resource Manager scope of the selected cloud (patched module) |
-| `AZURE_CLOUD` | `usgovernment` | Azure Government hosts (needs the patch series) |
-| `AZURE_LOGIN_HOST` / `AZURE_MANAGEMENT_HOST` | full `https://` URLs | Optional explicit overrides |
-| `AZURE_CDN_SUBSCRIPTION_ID` | GUID | |
-| `AZURE_CDN_RESOURCE_GROUP` | `rg-...` | |
-| `AZURE_CDN_PROFILE` | Front Door profile name | |
-| `AZURE_CDN_ENDPOINT` | Front Door endpoint name | |
-| `AZURE_CDN_ENDPOINT_TYPE` | `afdEndpoints` | Recipe default |
-| `AZURE_CDN_API_VERSION` | `2024-02-01` | Recipe default [ASSUMED valid for afdEndpoints purge; check Microsoft's REST reference] |
+- Where to set: "App setting" = a plain App Service application setting. "Key Vault ref" = an
+  App Service setting whose value is a Key Vault reference (format below).
+- **Required for Azure Government** means the site runs in Azure Government: without it purges
+  go to the commercial hosts.
 
-Never set `PERF_MOCK_AFD_PROXY` outside a local lab: it sends all Drupal outbound HTTP to the
-mock and turns TLS verification off. It only works when `IS_DDEV_PROJECT=true` or `LANDO=ON`;
-elsewhere it is ignored and a warning goes to the PHP error log.
+| Variable | Where to set | Required? | Default | What it does |
+|---|---|---|---|---|
+| `REDIS_HOST` | App setting | **Yes**, to use Redis | unset = no Redis | The Redis container app's internal FQDN (Bicep output `redisHost`) |
+| `REDIS_PASSWORD` | Key Vault ref | **Yes** (the container requires a password; without it every read is a cache miss) | none | Redis password. Same Key Vault secret as the container's `REDIS_PASSWORD` |
+| `REDIS_PORT` | App setting `6379` | No (set it anyway) | `6379`; `6380` when `REDIS_SCHEME=tls` | Redis port. Must match the container's port |
+| `REDIS_SCHEME` | App setting `tcp` | No | `tcp` | `tls` connects with TLS. Must match the container's `REDIS_TLS` |
+| `REDIS_PREFIX` | App setting, one per site | No by code; recommended | the redis module's own long prefix | Key prefix (`cache_prefix`), for example `oig-cpsc-prod` |
+| `REDIS_ENABLED` | Leave unset; `0` during a long Redis outage | No | `1` | `0` = the Redis bins use the database, no deploy. Back on: `1`, then `drush cr` |
+| `REDIS_BINS` | Leave unset | No | `render,page,dynamic_page_cache,data,entity,menu` | Which cache bins use Redis. Run `drush cr` after a change |
+| `REDIS_DB` | Leave unset | No | not selected (database 0) | Redis database number |
+| `REDIS_COMPRESS_LENGTH` | Leave unset | No | `100` | Compress entries longer than this many bytes |
+| `REDIS_PERSISTENT` | Leave unset | No | off | `1` = persistent connections |
+| `AZURE_CLOUD` | App setting `usgovernment` | **Yes for Azure Government** | recipe config `azureCloud` (commercial) | Picks the Government login and management hosts. An unknown value is ignored with a PHP warning ([details](#azure-government-patched-azure_cdn_purge)) |
+| `AZURE_CDN_TENANT_ID` | App setting | **Yes** for purge | empty | Service principal's tenant |
+| `AZURE_CDN_CLIENT_ID` | App setting | **Yes** for purge | empty | Service principal's app id |
+| `AZURE_CDN_CLIENT_SECRET` | Key Vault ref | **Yes** for purge | empty | Service principal's secret. Never in config |
+| `AZURE_CDN_SUBSCRIPTION_ID` | App setting | **Yes** for purge | empty | Front Door subscription |
+| `AZURE_CDN_RESOURCE_GROUP` | App setting | **Yes** for purge | empty | Front Door resource group |
+| `AZURE_CDN_PROFILE` | App setting | **Yes** for purge | empty | Front Door profile name |
+| `AZURE_CDN_ENDPOINT` | App setting | **Yes** for purge | empty | Front Door endpoint name |
+| `AZURE_CDN_ENDPOINT_TYPE` | Leave unset | No | `afdEndpoints` (recipe config) | Front Door vs classic CDN |
+| `AZURE_CDN_API_VERSION` | Leave unset | No | `2024-02-01` (recipe config) | Purge API version [ASSUMED valid for afdEndpoints purge in Azure Government] |
+| `PERF_PURGE_LIST_PATHS` | Optional app setting | No | `/,/node,/rss.xml` | Paths purged on `*_list` tag invalidations |
+| `PERF_PURGE_SITEWIDE_PATHS` | Optional app setting | No | empty (`/*` = everything) | Paths purged on menu and block changes |
+| `DRUPAL_CACHE_TTL_4XX` | Leave unset | No | `3600` | How long 4xx responses are cached; see guide "Why 403s arrive in batches" |
+| `DRUPAL_DATABASE_CACHE_MAX_ROWS` | Leave unset | No | `5000` | Row limit for bins still in MySQL (page 2000 and render 10000 are fixed) |
+| `DRUPAL_TRUSTED_HOSTS` | **Non-OIG sites only.** OIG sites leave it unset (`settings.base.php` handles it) | No | none | Adds anchored, escaped host patterns, for example `www.example.gov,example.gov` |
+| `DRUPAL_TRUSTED_HOST_PATTERNS` | **Non-OIG sites only.** OIG sites leave it unset | No | none | Adds raw regex patterns |
+| `DRUPAL_REVERSE_PROXY` | **Non-OIG sites only.** OIG sites leave it unset (`settings.base.php` handles it) | No | off | `1` = trust `X-Forwarded-*`. Only for Option A, after the [client IP test](#client-ip) fails |
+| `DRUPAL_REVERSE_PROXY_ADDRESSES` | **Non-OIG sites only.** OIG sites leave it unset | Only with `DRUPAL_REVERSE_PROXY=1` | empty | Comma-separated IPs/CIDRs (App Service internal ranges + Front Door backend ranges, see [Client IP](#client-ip)). Replaces any earlier list |
+
+**OIG sites:** `settings.base.php` sets the reverse proxy and trusted hosts from its own
+`REVERSE_PROXY_ENABLED`, `REVERSE_PROXY_ADDRESSES` and `HOST_NAME`; keep using those.
+`settings.performance.php` is included last, so `DRUPAL_REVERSE_PROXY=1` would overwrite OIG's
+proxy address list [REPORTED from quickstart-lando.md, not re-checked in a site].
+
+### Never set these on App Service
+
+| Variable | Why |
+|---|---|
+| `AZURE_CDN_SCOPE` | Leave it empty: the scope then follows `AZURE_CLOUD`. A commercial scope breaks Azure Government |
+| `AZURE_LOGIN_HOST`, `AZURE_MANAGEMENT_HOST` | Overrides for other clouds or testing; `AZURE_CLOUD` sets them |
+| `PERF_MOCK_AFD_PROXY` | Local lab only: sends all Drupal outbound HTTP to the mock and turns TLS verification off. Ignored outside DDEV or Lando (warning in the PHP error log) |
+| `PERF_EDGE_PROXY_HOST`, `PERF_CACHE_MODE`, `PERF_CACHE_GUARD_SIMULATE_REMOTE` | Local lab only (`settings.local-lab.php`) |
+| `LANDO`, `IS_DDEV_PROJECT` | Set by Lando and DDEV themselves. On App Service they would switch the lab blocks on |
+| The `AZURE_CDN_*` values in `lando/lando.perf.yml` and `ddev/config.perf.yaml` | SYNTHETIC placeholders for the mock. Never copy them to App Service |
+| `REDIS_USERNAME` | Not read by the settings file. One Redis per site, no user name |
+
+Not environment variables (fixed in code, nothing to set):
+
+- Redis connect and read timeout: 2 s (`perf_redis_failopen`, `TimeoutPhpRedis.php`). Retry after an error: 30 s (`RedisHealth.php`).
+- Fail-open: on whenever `perf_redis_failopen` is installed. To take Redis out, set `REDIS_ENABLED=0`.
+- Path purging off: `$config['perf_purge_paths.settings']['enabled'] = FALSE;` in that environment's `settings.php`.
+
+### Key Vault references (Azure Government)
+
+Secrets go in as Key Vault references, not plain values. The Azure Government vault host is
+`vault.usgovcloudapi.net` ([Compare Azure Government and global Azure](https://learn.microsoft.com/en-us/azure/azure-government/compare-azure-government-global-azure#guidance-for-developers), Key Vault row).
+
+```text
+@Microsoft.KeyVault(SecretUri=https://<kv>.vault.usgovcloudapi.net/secrets/<name>)
+```
+
+- `@Microsoft.KeyVault(VaultName=<kv>;SecretName=<name>)` also works.
+- The site's system-assigned identity reads the vault (unless `keyVaultReferenceIdentity` is set); it needs **Key Vault Secrets User**.
+- Without a version, the value refreshes within 24 hours; any configuration change restarts the app and fetches it now.
+- If the reference doesn't resolve, the literal `@Microsoft.KeyVault(...)` text is passed to the site as the value. Check its status: App Service → Configuration, edit the setting.
+- A network-restricted vault needs the App Service to route through the VNet (`vnetRouteAllEnabled`).
+- Source: [Use Key Vault references for App Service](https://learn.microsoft.com/en-us/azure/app-service/app-service-key-vault-references).
 
 ## Azure Government (patched azure_cdn_purge)
 
@@ -95,7 +140,7 @@ Whether `api-version` `2024-02-01` is available for `afdEndpoints` purge in Azur
 
 Settings (environment variables, read by `settings.performance.php`):
 
-- `AZURE_CLOUD` (case-insensitive): `usgovernment`, `azureusgovernment` or
+- `AZURE_CLOUD` (**required for Azure Government**; case-insensitive): `usgovernment`, `azureusgovernment` or
   `azureusgovernmentcloud` set `azureUSGovernmentCloud`; `public`, `commercial` or `azurecloud`
   set `azureCloud`. Any other value (for example the typo `usgov`) is ignored with a warning
   in the PHP error log (and Drupal's log when errors are displayed), and the stored setting is
@@ -232,7 +277,7 @@ plus the `X-Azure-FDID` check, see the caching guide), or anyone could send a fa
 - **Option B (preferred, no IP list to maintain):** in the container image, Apache
   `mod_remoteip` with `RemoteIPHeader X-Azure-ClientIP`, trusting only the App Service
   internal range. This is a change to the site's image, not this package.
-- **Option A (settings only):** set `DRUPAL_REVERSE_PROXY=1` and
+- **Option A (settings only, non-OIG sites only; OIG sites leave these unset, `settings.base.php` handles it):** set `DRUPAL_REVERSE_PROXY=1` and
   `DRUPAL_REVERSE_PROXY_ADDRESSES` to the App Service internal ranges **and** the Front Door
   backend ranges. Trusting only one hop stops at the other hop's IP. Front Door ranges change:
   refresh them from Azure's published service tags file (Azure Government publishes its own).

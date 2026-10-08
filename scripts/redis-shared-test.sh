@@ -3,6 +3,9 @@
 # container from the project root. Two "sites" = two drush processes of this
 # Drupal with different REDIS_USERNAME / REDIS_PREFIX on one Redis started
 # from redis/image in shared mode (users sitea, siteb, admin).
+# HISTORICAL (2026-09-28 lab): settings.performance.php does not read
+# REDIS_USERNAME, so the current settings file ignores it. Shared mode is not
+# supported with the sites (redis/docs/redis-sharing.md).
 #
 #   SHARED_HOST     Redis host (default redis-shared-lab)
 #   SHARED_NEGATIVE=1  fail-proof: site B uses site A's user and prefix, so

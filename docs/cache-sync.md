@@ -73,7 +73,7 @@ These counts were measured with azure_cdn_purge's node hook removed by perf_purg
 
 ## Edge cases and results (DDEV lab, 2026-09-28)
 
-"Before" means azure_cdn_purge alone: `SYNC_NEGATIVE=1` (`PERF_PURGE_PATHS=0`) and the purger unpatched.
+"Before" means azure_cdn_purge alone: `SYNC_NEGATIVE=1` (then `PERF_PURGE_PATHS=0`, a variable since removed; now `PERF_LAB_PURGE_OFF=1`) and the purger unpatched.
 
 | Case | Test | Before | After |
 |---|---|---|---|

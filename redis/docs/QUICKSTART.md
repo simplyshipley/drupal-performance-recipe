@@ -55,3 +55,5 @@ bin/docker-test-stop 9.1.2-1
 | `No 'origin' remote` | Fine for a test. For real releases add the repo's remote so the git tag is pushed |
 
 More: all commands and tag rules in [README.md](../README.md); checking it in Azure in [SETUP-GUIDE.md](SETUP-GUIDE.md); what the Azure team needs in [HANDOFF.md](HANDOFF.md).
+
+Environment variables for the container and the sites (required, defaults, where to set them): [HANDOFF.md](HANDOFF.md#container-environment-variables).
