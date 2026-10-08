@@ -412,13 +412,16 @@ The site has no recipe folder, so update from the clone.
 
    ```bash
    cd ~/sites/oig-americorps
-   mv docroot/modules/custom/drupal-performance-modules ../drupal-performance-modules.old
+   rm -rf docroot/modules/custom/drupal-performance-modules tests/performance
+   mkdir -p tests/performance
    git -C ../drupal-performance-recipe archive HEAD drupal-performance-modules | tar -x -C docroot/modules/custom
    git -C ../drupal-performance-recipe archive HEAD edge mock-afd scripts docs | tar -x -C tests/performance
    cp ../drupal-performance-recipe/lando/redis.conf ../drupal-performance-recipe/lando/nginx-fast404.conf.tpl .lando/
    cp ../drupal-performance-recipe/patches/azure_cdn_purge-*.patch patches/
    lando drush cr
    ```
+
+   - Both folders are in git: `git diff` shows exactly what the update changed, and `git checkout -- <folder>` puts the old copy back.
 
 3. Compare the new settings file with the site's copy, and bring over any changes you want:
    `diff docroot/modules/custom/drupal-performance-modules/settings/settings.performance.php docroot/sites/default/settings.performance.php`

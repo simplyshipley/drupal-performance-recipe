@@ -10,10 +10,15 @@ set -e
 cd "$(dirname "$0")/.." || exit
 
 REVISION=$1
-SCRIPT="recipes/drupal-performance-recipe/infra/redis-image/push.sh"
+# Run from the recipe clone (infra/ next to bin/) or a site that still has the
+# recipe folder; sites delete that folder after applying the recipe.
+SCRIPT=""
+for c in "infra/redis-image/push.sh" "recipes/drupal-performance-recipe/infra/redis-image/push.sh"; do
+  if [ -f "$c" ]; then SCRIPT="$c"; break; fi
+done
 
-if [ ! -f "$SCRIPT" ]; then
-  echo "$SCRIPT not found. Install or update the drupal-performance-recipe first."
+if [ -z "$SCRIPT" ]; then
+  echo "infra/redis-image/push.sh not found. Run bin/docker-redis from the drupal-performance-recipe clone."
   exit 1
 fi
 
