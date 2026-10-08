@@ -3,6 +3,7 @@
 Cache-only Valkey image for the Drupal sites on Azure Container Apps, with its push script.
 
 - **For the team that runs it in Azure:** [HANDOFF.md](HANDOFF.md) lists what the container and the sites need. How to deploy it is their call.
+- **Setup guide (configure, verify, troubleshoot):** [SETUP-GUIDE.md](SETUP-GUIDE.md)
 - **Examples:** [azure/](azure/) has a tested Bicep example and the same settings for the portal and az CLI, for reference.
 
 ## Prerequisites

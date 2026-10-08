@@ -35,6 +35,8 @@ App Service settings on each site:
 
 ## How to tell it works
 
+Full checks and a troubleshooting table: [SETUP-GUIDE.md](SETUP-GUIDE.md). Quick check:
+
 From a site's App Service SSH console:
 
 ```bash
