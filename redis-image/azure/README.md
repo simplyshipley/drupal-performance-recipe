@@ -23,9 +23,21 @@ Before use:
 - the Redis app: 1 replica, internal TCP ingress on 6379, no persistence, `maxmemory` + `volatile-lfu`, password from a secret, TCP liveness and readiness probes;
 - optional restart and memory alerts.
 
-Since 2026-09-28 it runs the custom image from `image/`, pulled from ACR ([docs/redis-image.md](../docs/redis-image.md)). The CLI example below still shows the older stock-image variant.
+Since 2026-09-28 it runs the custom image from `image/`, pulled from ACR ([docs/redis-image.md](../docs/redis-image.md)). Use the Bicep. The az CLI example further down is the older stock-image variant (no ACL hardening); keep it only as a reference.
 
 ## Deploy with Bicep
+
+One time: an identity that may pull from the registry [ASSUMED: standard az commands, not run here]:
+
+```bash
+az identity create -g rg-oig-site-prod -n oig-site-prod-redis-pull
+az role assignment create --role AcrPull \
+  --assignee-object-id "$(az identity show -g rg-oig-site-prod -n oig-site-prod-redis-pull --query principalId -o tsv)" \
+  --assignee-principal-type ServicePrincipal \
+  --scope "$(az acr show -n <registry-name> --query id -o tsv)"
+```
+
+Deploy (and redeploy for a new image tag):
 
 ```bash
 az cloud set --name AzureUSGovernment        # Azure Government
@@ -37,8 +49,13 @@ az deployment group create \
       infrastructureSubnetId=<subnet id delegated to Microsoft.App/environments> \
       logAnalyticsWorkspaceId=<workspace id> \
       redisPassword="$(az keyvault secret show --vault-name <kv> --name redis-password --query value -o tsv)" \
+      redisImage=<registry-name>.azurecr.us/services/perf-redis:valkey-9.1.2-1 \
+      acrServer=<registry-name>.azurecr.us \
+      acrPullIdentityId="$(az identity show -g rg-oig-site-prod -n oig-site-prod-redis-pull --query id -o tsv)" \
       actionGroupId=<action group id>
 ```
+
+- A new image tag = run the same command with the new `redisImage`. Container Apps starts a new revision; the cache starts empty and Drupal refills it (the fail-open wrapper covers the switch).
 
 Outputs:
 
