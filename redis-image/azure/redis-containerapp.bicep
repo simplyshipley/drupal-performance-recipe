@@ -11,7 +11,7 @@
 // - No persistence (cache only), explicit maxmemory, volatile-lfu (the
 //   image default; redis module README, "Eviction policy").
 // - Password from a Container Apps secret (pass it in from Key Vault).
-// - Image: infra/redis-image (non-root, config rendered from env, dangerous
+// - Image: image/ (non-root, config rendered from env, dangerous
 //   commands denied by ACL), pulled from ACR with a managed identity.
 // - TCP liveness/readiness probes; the platform restarts the replica.
 
@@ -33,7 +33,7 @@ param logAnalyticsWorkspaceId string
 @secure()
 param redisPassword string
 
-@description('Container image built from infra/redis-image (docs/redis-image.md), pinned by tag. Placeholder registry name.')
+@description('Container image built from image/ (docs/redis-image.md), pinned by tag. Placeholder registry name.')
 param redisImage string = '<registry-name>.azurecr.us/services/perf-redis:valkey-9.1.2-1'
 
 @description('ACR login server to pull from, e.g. <registry-name>.azurecr.us. Empty = public image, no registry auth.')

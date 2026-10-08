@@ -1,4 +1,4 @@
-# Redis image for Azure (infra/redis-image)
+# Redis image for Azure
 
 Cache-only Valkey image for the self-hosted Redis on Container Apps (Bo, 2026-09-25). For DevOps who build, push and deploy it.
 
@@ -25,7 +25,7 @@ Built from the pinned official `valkey/valkey:9.1.2-alpine3.24` (Bo, 2026-10-05;
 1. Build the image:
 
    ```bash
-   cd infra/redis-image
+   cd image
    docker build -t perf-redis:valkey-9.1.2-1 .
    ```
 
@@ -45,28 +45,20 @@ Lab results: tests 5 PASS on Valkey 9.1.2, 2026-10-05 (earlier on Redis 7.4.11, 
 
 ## Push to Azure Government ACR
 
-From the recipe:
+From the repo root:
 
 ```bash
 az cloud set --name AzureUSGovernment
 az login
-bash infra/redis-image/push.sh 1
+bin/docker-redis 1
 ```
 
-From an OIG site, run `push.sh` from the recipe clone (the recipe folder is removed from the site after `drush recipe`, so the site does not have `infra/`):
-
-```bash
-az cloud set --name AzureUSGovernment
-az login
-bash ~/sites/drupal-performance-recipe/infra/redis-image/push.sh 1
-```
-
-- Or use the wrapper from the recipe clone: `bin/docker-redis 1` (asks for the revision if you leave it out). It finds `infra/redis-image/push.sh` next to `bin/` and stops with a clear message if it can't [V: stub test of the wrapper, 2026-10-07; the real push not run].
+- `bin/docker-redis` asks for the revision if you leave it out. It finds `image/push.sh` next to its own folder and stops with a clear message if it can't. You can also run `bash image/push.sh 1` directly.
 
 Without local Docker:
 
 ```bash
-az acr build --registry <registry-name> --image services/perf-redis:valkey-9.1.2-1 infra/redis-image
+az acr build --registry <registry-name> --image services/perf-redis:valkey-9.1.2-1 image
 ```
 
 What `push.sh` does:
@@ -82,13 +74,13 @@ Tested end to end against a local registry (`LOGIN_SERVER=localhost:5055`, image
 
 ## Deploy with the Bicep template
 
-`infra/azure/redis-containerapp.bicep` now defaults to the custom image.
+`azure/redis-containerapp.bicep` now defaults to the custom image.
 
 - It passes `REDIS_PASSWORD` (secret) and `REDIS_MAXMEMORY` as environment variables. The image's entrypoint builds the config, so there is no `command`/`args` any more.
 - It pulls from ACR with a user-assigned identity that has **AcrPull**.
 
 ```bash
-az deployment group create -g <rg> -f infra/azure/redis-containerapp.bicep \
+az deployment group create -g <rg> -f azure/redis-containerapp.bicep \
   -p namePrefix=<site>-prod infrastructureSubnetId=<subnet-id> logAnalyticsWorkspaceId=<law-id> \
      redisPassword=<from Key Vault> redisImage=<registry-name>.azurecr.us/services/perf-redis:valkey-9.1.2-1 \
      acrServer=<registry-name>.azurecr.us acrPullIdentityId=<uami-resource-id> maxmemory=768mb

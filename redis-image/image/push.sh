@@ -2,7 +2,7 @@
 # Test, build, tag and push the Redis (Valkey) image to Azure Government ACR
 # (docs/redis-image.md). Logs in the same way as the OIG sites' bin/docker-auth.
 #
-#   bash infra/redis-image/push.sh <revision>   1 -> services/perf-redis:valkey-9.1.2-1
+#   bash image/push.sh <revision>   1 -> services/perf-redis:valkey-9.1.2-1
 #
 # Env: ACR_NAME (acrcigie), REPO (services/perf-redis), SKIP_TESTS=1 to skip
 # test-image.sh, LOGIN_SERVER (default <ACR_NAME>.azurecr.us; a local registry

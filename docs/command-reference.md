@@ -233,7 +233,7 @@ lando exec appserver -- curl -s http://edge:8099/__edge/health    # good: the ed
 **None of this has been run in this project** unless noted. Every `az` line is `[not run in this project]`, copied from the repo docs. Nothing here prints secrets, except the three marked.
 
 ```bash
-az cloud set --name AzureUSGovernment   # [not run in this project] good: no output; docs/redis-image.md
+az cloud set --name AzureUSGovernment   # [not run in this project] good: no output; redis-image/docs/redis-image.md
 az login                                # [not run in this project] good: signed in
 az cloud show --query name -o tsv       # [not run in this project] good: AzureUSGovernment (the check push.sh makes)
 ```
@@ -259,18 +259,18 @@ Client IP test (2 minutes, no commands): wrong password once at `/user/login`, t
 
 Redis and settings:
 
-- **App settings:** `az webapp config appsettings set` is in [infra/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/infra/azure/README.md) (step 2). The repo has no `list` command. **[SECRET]** Do not run `appsettings list` unfiltered: plain-value settings print in full. Key Vault references show the `@Microsoft.KeyVault(...)` text, not the secret. Use the portal (Configuration) to read them.
+- **App settings:** `az webapp config appsettings set` is in [redis-image/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis-image/azure/README.md) (step 2). The repo has no `list` command. **[SECRET]** Do not run `appsettings list` unfiltered: plain-value settings print in full. Key Vault references show the `@Microsoft.KeyVault(...)` text, not the secret. Use the portal (Configuration) to read them.
 - **Redis checks on Azure:** the repo says to measure with `INFO memory` and `INFO stats` (`used_memory_peak_human`, `evicted_keys`, `keyspace_hits`/`misses`) after a crawl. No `az containerapp exec` or log command is in the repo.
 - **Metric names:** `az monitor metrics list-definitions --resource <redis app resource id>` # [not run in this project] good: lists `RestartCount`, `WorkingSetBytes`.
-- **Redis image:** `bash infra/redis-image/push.sh <revision>` (or `./bin/docker-redis <revision>`) tests, builds and pushes `acrcigie.azurecr.us/services/perf-redis:valkey-<version>-<revision>`; it refuses an existing tag. Tested only against a local registry. Without local Docker: `az acr build --registry <registry-name> --image services/perf-redis:valkey-9.1.2-1 infra/redis-image` # [not run in this project].
+- **Redis image:** `bash redis-image/image/push.sh <revision>` (or `redis-image/bin/docker-redis <revision>`) tests, builds and pushes `acrcigie.azurecr.us/services/perf-redis:valkey-<version>-<revision>`; it refuses an existing tag. Tested only against a local registry. Without local Docker: `az acr build --registry <registry-name> --image services/perf-redis:valkey-9.1.2-1 redis-image/image` # [not run in this project].
 
 Dangerous or secret-printing, avoid:
 
 - **[SECRET]** `drush cget azure_cdn_purge.settings --include-overridden` prints the client secret. Use the section 5 form.
 - **[SECRET]** `printenv` / `env` in the container prints every secret. Check one variable: `drush php:eval "print getenv('REDIS_HOST');"`.
-- **[SECRET]** `az keyvault secret show` prints the value ([infra/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/infra/azure/README.md) uses it only inside a deploy).
+- **[SECRET]** `az keyvault secret show` prints the value ([redis-image/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis-image/azure/README.md) uses it only inside a deploy).
 
-Source: `docs/azure.md`, `docs/redis-image.md`, `infra/azure/README.md`, `infra/redis-image/push.sh`, `docs/caching-guide.md`.
+Source: `docs/azure.md`, `redis-image/docs/redis-image.md`, `redis-image/azure/README.md`, `redis-image/image/push.sh`, `docs/caching-guide.md`.
 
 ## 8. Module tests
 

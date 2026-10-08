@@ -2,7 +2,7 @@
 
 How to deploy the self-hosted Redis container on Azure Container Apps and connect App Service to it. For DevOps.
 
-Ruling (Bo, 2026-09-25): OIG sites use a **self-hosted Redis container**, not the managed service. Only the heavy cache bins use it. The fail-open wrapper keeps the site up when Redis is down (see [docs/azure.md](../../docs/azure.md)).
+Ruling (Bo, 2026-09-25): OIG sites use a **self-hosted Redis container**, not the managed service. Only the heavy cache bins use it. The fail-open wrapper keeps the site up when Redis is down (see [docs/azure.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/docs/azure.md)).
 
 **Nothing here has been deployed.** Everything is [ASSUMED] until run in a non-production subscription. Verified only:
 
@@ -23,7 +23,7 @@ Before use:
 - the Redis app: 1 replica, internal TCP ingress on 6379, no persistence, `maxmemory` + `volatile-lfu`, password from a secret, TCP liveness and readiness probes;
 - optional restart and memory alerts.
 
-Since 2026-09-28 it runs the custom image from `infra/redis-image`, pulled from ACR ([docs/redis-image.md](../../docs/redis-image.md)). The CLI example below still shows the older stock-image variant.
+Since 2026-09-28 it runs the custom image from `image/`, pulled from ACR ([docs/redis-image.md](../docs/redis-image.md)). The CLI example below still shows the older stock-image variant.
 
 ## Deploy with Bicep
 
@@ -32,7 +32,7 @@ az cloud set --name AzureUSGovernment        # Azure Government
 az login
 az deployment group create \
   --resource-group rg-oig-site-prod \
-  --template-file infra/azure/redis-containerapp.bicep \
+  --template-file azure/redis-containerapp.bicep \
   --parameters namePrefix=oig-site-prod \
       infrastructureSubnetId=<subnet id delegated to Microsoft.App/environments> \
       logAnalyticsWorkspaceId=<workspace id> \
@@ -103,7 +103,7 @@ An internal environment's apps resolve under `environmentDefaultDomain` [ASSUMED
 - Guide values from the caching guide [ASSUMED]: small site 256 MB, medium 512 MB to 1 GB, large or faceted 1 to 2 GB.
 - Measure after a crawl: `INFO memory` (`used_memory_peak_human`) and `INFO stats` (`evicted_keys`, `keyspace_hits`/`misses`).
 - Steady evictions with a low hit rate mean it is too small.
-- `drush cr` does not free memory (see [troubleshooting](../../docs/troubleshooting.md)).
+- `drush cr` does not free memory (see [troubleshooting](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/docs/troubleshooting.md)).
 
 ## Monitoring and alerts
 

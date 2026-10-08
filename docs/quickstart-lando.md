@@ -5,7 +5,7 @@ Everything is committed to the **site repo**, so your team and the Docker build 
 `git pull` and `composer install`. For the full reference, see [setup-guide.md](setup-guide.md).
 
 > [!NOTE]
-> Links to `README.md`, `infra/`, `lando/` and `drupal-performance-modules/` point to the recipe repo on GitHub, because those folders are not copied into the site. The links to other `docs/` pages work in the site's `tests/performance/docs/` copy.
+> Links to `README.md`, `redis-image/`, `lando/` and `drupal-performance-modules/` point to the recipe repo on GitHub, because those folders are not copied into the site. The links to other `docs/` pages work in the site's `tests/performance/docs/` copy.
 
 > [!NOTE]
 > Written for a Windows VM with WSL2 (Ubuntu). It also works on a Mac.
@@ -476,6 +476,6 @@ lando drush pm:list --status=enabled | grep -E 'fast404|themed_fast_404'  # no o
 ## Next
 
 - **Azure (QA, Prod):** [azure.md](azure.md), then [setup-guide.md](setup-guide.md) phases 3 to 5.
-- **Push the Redis image:** [redis-image.md](redis-image.md).
+- **Push the Redis image:** [redis-image.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis-image/docs/redis-image.md).
 - **Something wrong:** [troubleshooting-commands.md](troubleshooting-commands.md) (copy-paste checks), then [troubleshooting.md](troubleshooting.md).
 - **All the commands:** [command-reference.md](command-reference.md) (checks, tests, Redis, Purge, Azure).

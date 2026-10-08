@@ -6,7 +6,7 @@ Nothing here was run against Azure. Everything is [ASSUMED] unless it names lab 
 
 > **Redis ruling (Bo, 2026-09-25), replacing the earlier open decision:**
 > - OIG sites use a **self-hosted Redis container** (Azure Container Apps, see
->   [infra/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/infra/azure/README.md)), not the managed service.
+>   [redis-image/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis-image/azure/README.md)), not the managed service.
 > - **Only the heavy bins** go to Redis: `render`, `page`, `dynamic_page_cache`, `data`,
 >   `entity`, `menu` (override with `REDIS_BINS`). `bootstrap`, `config`, `discovery` and
 >   `container` stay on core's default (database behind APCu), and the cache-tag checksum,
@@ -36,8 +36,8 @@ Put secrets in Key Vault references, not plain values [ASSUMED].
 
 | Variable | Example | Notes |
 |---|---|---|
-| `REDIS_HOST` | `redisHost` output of `infra/azure` (Container Apps internal FQDN) | Unset = no Redis |
-| `REDIS_SCHEME` | `tcp` | Inside the VNet; see infra/azure/README.md for TLS |
+| `REDIS_HOST` | `redisHost` output of `redis-image/azure` (Container Apps internal FQDN) | Unset = no Redis |
+| `REDIS_SCHEME` | `tcp` | Inside the VNet; see redis-image/azure/README.md for TLS |
 | `REDIS_PORT` | `6379` | Container Apps TCP ingress exposed port |
 | `REDIS_BINS` | leave unset | Default heavy bins only |
 | `REDIS_ENABLED` | leave unset (`1`) | `0` = the Redis bins use the database, no deploy; back to `1`, then `drush cr` |
@@ -197,7 +197,7 @@ Door must honour origin cache headers and bypass the cache for `SESS*` cookies [
 ## Redis: self-hosted container (ruled)
 
 Deploy steps (Bicep, az CLI, private DNS, VNet integration, sizing, monitoring) are in
-[infra/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/infra/azure/README.md). Rules:
+[redis-image/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis-image/azure/README.md). Rules:
 
 - Set an explicit `maxmemory`, `volatile-lfu`, no persistence. Source: redis README, "Eviction policy" and "Redis RDB snapshots".
 - Permanent Drupal items get a one-year TTL in Redis (`31536000` s) [V: lab key TTLs]. `drush cr`

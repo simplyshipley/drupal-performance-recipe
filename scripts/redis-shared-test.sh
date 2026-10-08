@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Shared-Redis isolation test (docs/redis-sharing.md). Runs INSIDE the web
+# Shared-Redis isolation test (redis-image/docs/redis-sharing.md). Runs INSIDE the web
 # container from the project root. Two "sites" = two drush processes of this
 # Drupal with different REDIS_USERNAME / REDIS_PREFIX on one Redis started
-# from infra/redis-image in shared mode (users sitea, siteb, admin).
+# from redis-image/image in shared mode (users sitea, siteb, admin).
 #
 #   SHARED_HOST     Redis host (default perf-redis-shared-lab)
 #   SHARED_NEGATIVE=1  fail-proof: site B uses site A's user and prefix, so
