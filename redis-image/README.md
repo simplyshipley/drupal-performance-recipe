@@ -3,6 +3,7 @@
 Cache-only Valkey image for the Drupal sites on Azure Container Apps, with `bin/docker-*` commands like the sites have.
 
 - **For the team that runs it in Azure:** [HANDOFF.md](HANDOFF.md) lists what the container and the sites need. How to deploy it is their call.
+- **Start here: [QUICKSTART.md](QUICKSTART.md)** (the commands and what to do when something fails).
 - **Setup guide (configure, verify, troubleshoot):** [SETUP-GUIDE.md](SETUP-GUIDE.md)
 - **Examples:** [azure/](azure/) has a Bicep example (it compiles; it hasn't been deployed) and the same settings for the portal and az CLI, for reference.
 

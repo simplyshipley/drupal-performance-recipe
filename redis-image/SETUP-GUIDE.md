@@ -12,6 +12,8 @@ All commands are bash: run them in WSL2, or the `az` ones in Azure Cloud Shell (
 
 ## 1. Build and push the image (image owner)
 
+Short version with build and push troubleshooting: [QUICKSTART.md](QUICKSTART.md).
+
 ### First release
 
 1. **Once:** create the repo from this bundle and clone it inside the WSL file system (for example `~/sites/<repo>`), not under `/mnt/c`.
