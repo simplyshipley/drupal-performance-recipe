@@ -158,7 +158,28 @@ lando redis-cli info stats | grep -E 'evicted_keys|keyspace_hits|keyspace_misses
 
 - **4-A: no `PONG`.** The `cache` service is down: `lando logs -s cache`, then `lando restart`. The site keeps working without Redis (fail-open), just slower.
 - **4-B: policy `allkeys-lru`.** The site still has the old `redis.conf`: copy `lando/redis.conf` from the recipe clone to `.lando/redis.conf`, then `lando rebuild -y`.
-- **4-C: `db0` empty after loading pages.** Drupal isn't using Redis: see 2-C and 2-D.
+- **4-C: `# Keyspace` with nothing under it.**
+  1. `drush cr` empties Redis. Load a page (`curl -s -o /dev/null https://<project>.lndo.site/`), then check `info keyspace` again.
+  2. Still empty: Drupal isn't using Redis. Find the missing link:
+
+     ```bash
+     lando drush php:script /app/tests/performance/scripts/redis-check.php
+     ```
+
+     Good output: lines 1-8 filled in, `bins on Redis` lists six bins, line 8 is `...FailOpenCacheBackend`, line 9 is `PONG`.
+
+     | Line shows | Fix |
+     |---|---|
+     | 1 `NOT SET` | `REDIS_HOST: cache` is missing from `.lando.yml` → `appserver` → `overrides` → `environment`, or Lando wasn't rebuilt: `lando rebuild -y` |
+     | 2 `NO` | The PHP image has no phpredis: `lando exec appserver -- php -m \| grep -i redis` |
+     | 3 `NO` | `lando composer require drupal/redis` (quick start step 2a) |
+     | 4 `0` | `REDIS_ENABLED=0` is set somewhere: remove it |
+     | 5 `NONE` with 1-4 good | `settings.performance.php` isn't loaded, or something after it resets the bins: check the `require` in `settings.php` (step 4) |
+     | 6 or 7 `NO` | `lando drush pm:enable redis perf_redis_failopen -y`, then `lando drush cr` |
+     | 9 `FAILED` | PHP can't reach the `cache` service: `lando logs -s cache`, then `lando restart` |
+
+     [V: tested 2026-10-08 on the americorps DDEV copy: normal run, `REDIS_HOST` unset and a wrong host each show the broken line; tmp/redis-check-20261008/]
+  3. All lines good but `lando redis-cli` still shows nothing: `redis-cli` is looking at a different Redis. Compare line 1 with the tooling's `service:` in `.lando.yml` (`cache`).
 - **4-D: `evicted_keys` climbing fast.** `maxmemory` is too small for the site. Normal under a crawl; on Azure, raise `REDIS_MAXMEMORY` in the Redis container.
 - **4-E: `lando redis-cli` not found:**
 
