@@ -62,6 +62,16 @@ Outputs:
 - `redisHost`: use as `REDIS_HOST`.
 - `environmentDefaultDomain` and `environmentStaticIp`: for private DNS.
 
+## Changing settings in the Azure portal
+
+Container Apps has a portal UI, but it works differently from App Service's Configuration page. Source: Microsoft Learn, [environment variables](https://learn.microsoft.com/en-us/azure/container-apps/environment-variables) and [manage secrets](https://learn.microsoft.com/en-us/azure/container-apps/manage-secrets), read 2026-10-08.
+
+- **Environment variables** (`REDIS_MAXMEMORY`, `REDIS_MAXMEMORY_POLICY`, ...): the app → **Revisions and replicas** → **Create new revision** → select the container → **Edit** → **Environment variables** tab. "After the Container App is created, the only way to update the Container App environment variables is by creating a new revision."
+- **Secrets** (`redis-password`): the app → **Security** → **Secrets**. Changing a secret does not create a revision and "doesn't automatically affect existing revisions": restart the revision afterwards.
+- **Every new revision or restart empties the cache** (no persistence). Drupal keeps working through the fail-open wrapper and refills it.
+- **The Bicep is the source of truth.** A change made only in the portal is undone by the next `az deployment group create`. Change the Bicep parameters (or the Bicep) and redeploy; use the portal to look, or for an emergency change you copy back into the Bicep.
+- **Microsoft recommends Key Vault references for secrets in production** ("Avoid specifying the value of a secret directly in a production environment"). The Bicep currently passes the password value as a secret. With a Key Vault reference (secret URL without a version), the app picks up a rotated password within 30 minutes and restarts the revisions that use it. Not built yet.
+
 ## Equivalent az CLI steps
 
 ```bash
