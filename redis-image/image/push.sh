@@ -61,4 +61,5 @@ fi
 
 echo "Pushing $IMAGE..."
 docker push "$IMAGE"
-echo "Finished. Deploy with the Bicep parameter redisImage=$IMAGE (never a 'latest' tag)."
+echo "Pushed $IMAGE"
+echo "Give this exact tag to the team that deploys it (HANDOFF.md). Never deploy a 'latest' tag."

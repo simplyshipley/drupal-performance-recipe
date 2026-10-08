@@ -72,9 +72,9 @@ What `push.sh` does:
 
 Tested end to end against a local registry (`LOGIN_SERVER=localhost:5055`, image arch linux/amd64) [V: tmp/redis-image/push-local-test.log]. Tested on the OIG test copy against the local registry: `bin/docker-redis` calling `push.sh`, tags `valkey-9.1.2-1` and `valkey-9.1.2-2` pushed [V: registry tag list, 2026-10-06]. The Azure login and tag-exists check are not yet run against the real registry.
 
-## Deploy with the Bicep template
+## Deploy
 
-`azure/redis-containerapp.bicep` now defaults to the custom image.
+The team that runs Azure deploys the image by its exact tag; what it needs is in [HANDOFF.md](../HANDOFF.md). One example is the Bicep template, `azure/redis-containerapp.bicep`:
 
 - It passes `REDIS_PASSWORD` (secret) and `REDIS_MAXMEMORY` as environment variables. The image's entrypoint builds the config, so there is no `command`/`args` any more.
 - It pulls from ACR with a user-assigned identity that has **AcrPull**.

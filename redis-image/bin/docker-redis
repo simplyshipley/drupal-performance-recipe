@@ -3,7 +3,7 @@ set -e
 
 # Test, build, tag and push the Redis (Valkey) cache image to ACR, as
 #   acrcigie.azurecr.us/services/perf-redis:valkey-<version>-<revision>.
-#   The image is deployed by its exact tag (Bicep redisImage), never 'latest'.
+#   The image is deployed by its exact tag, never 'latest' (HANDOFF.md).
 
 # Change to the repo root (one directory above this script)
 cd "$(dirname "$0")/.." || exit
