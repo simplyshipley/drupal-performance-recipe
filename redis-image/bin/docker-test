@@ -11,7 +11,7 @@ if [ -z "$VERSION" ]; then
   VERSION=$(git tag -l "$BASE-*" | sort -V | tail -n 1)
 fi
 
-CONTAINER="perf-redis-test-$VERSION"
+CONTAINER="redis-test-$VERSION"
 
 if [ -n "$(docker ps -q -f "name=^$CONTAINER$")" ]; then
   echo "Container $CONTAINER is already running."
@@ -21,7 +21,7 @@ elif [ -n "$(docker ps -aq -f "name=^$CONTAINER$")" ]; then
 else
   # SYNTHETIC password, for this local test only.
   echo "Running new container: $CONTAINER..."
-  docker run -d --name "$CONTAINER" -e REDIS_PASSWORD=synthetic-local-test "perf-redis:$VERSION" > /dev/null
+  docker run -d --name "$CONTAINER" -e REDIS_PASSWORD=synthetic-local-test "redis:$VERSION" > /dev/null
 fi
 
 for _ in $(seq 1 15); do

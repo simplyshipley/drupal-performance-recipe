@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Local checks for the Redis image (docs/redis-image.md). Host-side; needs
-# Docker. Builds perf-redis:local, then runs three throwaway containers on a
+# Docker. Builds redis:local, then runs three throwaway containers on a
 # private network (no host ports): single-site, shared (ACL users), TLS.
 # All passwords are SYNTHETIC. Prints PASS/FAIL lines; exit code = FAILs.
 #   OUT=<dir> keeps the generated TLS test certificates there (default: a
 #   temporary directory).
 set -uo pipefail
 cd "$(dirname "$0")"
-IMG=perf-redis:local NET=perf-redis-test FAILS=0
+IMG=redis:local NET=redis-test FAILS=0
 OUT="${OUT:-$(mktemp -d)}"
 # mktemp -d is 0700 and owned by you; on Linux Docker (WSL2) the image's
 # non-root valkey user then can't reach the mounted test certificates.
@@ -76,8 +76,8 @@ else say FAIL tls "could not generate test certificates"; fi
 mkdir -p "$OUT/acl"; printf 'user default off\nuser ops on #%s ~* &* +@all\n' "$(printf 'synthetic-ops' | shasum -a 256 | cut -d' ' -f1)" > "$OUT/acl/users.acl"; chmod 0644 "$OUT/acl/users.acl"
 docker run -d --name prt-aclfile --network "$NET" -v "$OUT/acl:/acl:ro" -e REDIS_ACL_FILE=/acl/users.acl "$IMG" >/dev/null
 if wait_healthy prt-aclfile; then
-  docker exec prt-aclfile /usr/local/bin/perf-redis-healthcheck >/dev/null 2>&1; alive=$?
-  docker exec -e REDIS_PORT=6390 prt-aclfile /usr/local/bin/perf-redis-healthcheck >/dev/null 2>&1; dead=$?
+  docker exec prt-aclfile /usr/local/bin/redis-healthcheck >/dev/null 2>&1; alive=$?
+  docker exec -e REDIS_PORT=6390 prt-aclfile /usr/local/bin/redis-healthcheck >/dev/null 2>&1; dead=$?
   ops=$(cli prt-aclfile --user ops --pass synthetic-ops ping)
   if [[ "$alive" == 0 && "$dead" != 0 && "$ops" == PONG ]]; then say PASS aclfile_health "ACL file loaded (ops PING $ops); healthcheck alive=$alive, with no server on the port=$dead (fails)"
   else say FAIL aclfile_health "alive=$alive dead=$dead ops='$ops'"; fi

@@ -46,7 +46,7 @@ bin/docker-test-stop 9.1.2-1
 | `Cannot connect to the Docker daemon` | Start Docker (Docker Desktop with WSL integration, or `sudo service docker start`), then `docker info` |
 | `toomanyrequests` or a timeout pulling `valkey/valkey` or `alpine` | Docker Hub is rate-limiting or blocked. Wait and retry, or ask for network access to Docker Hub |
 | A `FAIL` line from the image tests | The build stops there. Re-run `bash image/test-image.sh` to see which test failed; don't skip the tests for a real push |
-| `Refusing: the local perf-redis:9.1.2-1 is a different build ...` | That version is already in the registry. Build the next revision: `bin/docker-build-deploy 2 qa` |
+| `Refusing: the local redis:9.1.2-1 is a different build ...` | That version is already in the registry. Build the next revision: `bin/docker-build-deploy 2 qa` |
 | `Git tag 9.1.2-1 already exists ...` | Same: use the next revision number |
 | `... is not built here or in the registry. Run bin/docker-build first.` | Wrong version, or never built: `bin/docker-build <revision>` |
 | `/bin/bash^M: bad interpreter` | The repo was cloned with Windows line endings. Clone again inside WSL (`~/sites/...`) |

@@ -37,8 +37,8 @@ VERSION="$BASE-$REVISION"
 [ -n "$SKIP_TESTS" ] || bash image/test-image.sh
 
 # Container Apps runs linux/amd64; a Mac with Apple silicon would otherwise build arm64.
-echo "Building perf-redis:$VERSION for linux/amd64..."
-docker build --platform linux/amd64 --tag "perf-redis:$VERSION" \
+echo "Building redis:$VERSION for linux/amd64..."
+docker build --platform linux/amd64 --tag "redis:$VERSION" \
   --label "org.opencontainers.image.version=$VERSION" \
   --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" \
   --label "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -52,4 +52,4 @@ else
   echo "Git tag $VERSION already exists. This build can't be deployed as $VERSION if that version is already in the registry."
 fi
 
-echo "Built perf-redis:$VERSION. Next: bin/docker-test $VERSION, then bin/docker-deploy $VERSION"
+echo "Built redis:$VERSION. Next: bin/docker-test $VERSION, then bin/docker-deploy $VERSION"

@@ -68,15 +68,15 @@ if echo "$TAGS" | grep -qx "$VERSION"; then
   echo "$VERSION is already in the registry: pulling it instead of pushing."
   docker pull "$REMOTE:$VERSION"
 
-  if docker image inspect "perf-redis:$VERSION" > /dev/null 2>&1 &&
-    [ "$(docker image inspect -f '{{.Id}}' "perf-redis:$VERSION")" != "$(docker image inspect -f '{{.Id}}' "$REMOTE:$VERSION")" ]; then
-    echo "Refusing: the local perf-redis:$VERSION is a different build from $REMOTE:$VERSION. Build a new revision."
+  if docker image inspect "redis:$VERSION" > /dev/null 2>&1 &&
+    [ "$(docker image inspect -f '{{.Id}}' "redis:$VERSION")" != "$(docker image inspect -f '{{.Id}}' "$REMOTE:$VERSION")" ]; then
+    echo "Refusing: the local redis:$VERSION is a different build from $REMOTE:$VERSION. Build a new revision."
     exit 1
   fi
 else
-  docker image inspect "perf-redis:$VERSION" > /dev/null 2>&1 || { echo "perf-redis:$VERSION is not built here or in the registry. Run bin/docker-build first."; exit 1; }
+  docker image inspect "redis:$VERSION" > /dev/null 2>&1 || { echo "redis:$VERSION is not built here or in the registry. Run bin/docker-build first."; exit 1; }
   echo "Pushing $REMOTE:$VERSION..."
-  docker tag "perf-redis:$VERSION" "$REMOTE:$VERSION"
+  docker tag "redis:$VERSION" "$REMOTE:$VERSION"
   docker push "$REMOTE:$VERSION"
 fi
 

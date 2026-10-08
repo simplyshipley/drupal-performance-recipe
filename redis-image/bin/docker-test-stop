@@ -11,7 +11,7 @@ if [ -z "$VERSION" ]; then
   VERSION=$(git tag -l "$BASE-*" | sort -V | tail -n 1)
 fi
 
-CONTAINER="perf-redis-test-$VERSION"
+CONTAINER="redis-test-$VERSION"
 
 echo "Stopping $CONTAINER..."
 [ -n "$(docker ps -q -f "name=^$CONTAINER$")" ] && docker stop "$CONTAINER" > /dev/null

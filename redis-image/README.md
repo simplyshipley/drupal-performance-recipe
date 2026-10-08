@@ -39,7 +39,7 @@ Run from the repo root. Arguments are optional; each command asks for what you l
 
 | Command | What it does | Tags after it (example) |
 |---|---|---|
-| `bin/docker-build 1` | Needs a clean working tree. Runs `image/test-image.sh` (`SKIP_TESTS=1` skips it), builds `perf-redis:9.1.2-1` for linux/amd64, adds git tag `9.1.2-1` and pushes it to `origin`. With no argument it offers the next unused revision. | Local image `perf-redis:9.1.2-1`; git tag `9.1.2-1` |
+| `bin/docker-build 1` | Needs a clean working tree. Runs `image/test-image.sh` (`SKIP_TESTS=1` skips it), builds `redis:9.1.2-1` for linux/amd64, adds git tag `9.1.2-1` and pushes it to `origin`. With no argument it offers the next unused revision. | Local image `redis:9.1.2-1`; git tag `9.1.2-1` |
 | `bin/docker-test 9.1.2-1` | Runs that image locally with a SYNTHETIC password and prints PING (health and app user), `maxmemory_human` and `maxmemory_policy` | None |
 | `bin/docker-test-stop 9.1.2-1` | Stops that test container | None |
 | `bin/docker-deploy 9.1.2-1 qa` | Prints the target registry, logs in (`bin/docker-auth`), pushes `9.1.2-1` (a version already in the registry is pulled instead, never overwritten), moves `9.1.2`, `9.1` and `9` if it's the newest, moves `qa`, and prints the digest | `9.1.2-1`, `9.1.2`, `9.1`, `9`, `qa` → build 1 |

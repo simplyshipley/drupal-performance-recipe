@@ -27,7 +27,7 @@ From the repo root:
 1. Build (runs the 5 tests first: no-auth refusal, single site, shared ACL, TLS, ACL-file healthcheck):
 
    ```bash
-   bin/docker-build 1        # perf-redis:9.1.2-1, linux/amd64
+   bin/docker-build 1        # redis:9.1.2-1, linux/amd64
    ```
 
 2. Try it: `bin/docker-test 9.1.2-1`, then `bin/docker-test-stop 9.1.2-1`.
@@ -35,7 +35,7 @@ From the repo root:
 3. Scan the image. Rescan on every rebuild, and rebuild when the base tag gets fixes:
 
    ```bash
-   docker run -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.74.0 image --severity HIGH,CRITICAL perf-redis:9.1.2-1
+   docker run -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.74.0 image --severity HIGH,CRITICAL redis:9.1.2-1
    ```
 
 Lab results: tests 5 PASS on Valkey 9.1.2 (earlier on Redis 7.4.11); Trivy 0 HIGH/CRITICAL in alpine 3.24.2 [V: lab, 2026-10-05; Trivy again 2026-10-08]. A scan result is only true for the day it ran.

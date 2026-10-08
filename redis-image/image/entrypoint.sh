@@ -22,7 +22,7 @@ secret() { # secret VAR -> value of $VAR_FILE contents or $VAR
   if [ -n "$f" ]; then tr -d '\r\n' < "$f"; else printf '%s' "$v"; fi
 }
 hash() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
-die() { echo "perf-redis-entrypoint: $*" >&2; exit 1; }
+die() { echo "redis-entrypoint: $*" >&2; exit 1; }
 
 # App users may run everything except commands that affect other tenants or
 # the server: no FLUSHALL/FLUSHDB, CONFIG, DEBUG, KEYS, SHUTDOWN, MONITOR, ACL,
@@ -32,7 +32,7 @@ die() { echo "perf-redis-entrypoint: $*" >&2; exit 1; }
 # names (the redis module only uses SCAN on its report page).
 APP_CMDS='+@all -@dangerous +info -select -scan'
 
-cat /etc/perf-redis/redis.base.conf > "$conf"
+cat /etc/redis/redis.base.conf > "$conf"
 {
   echo "maxmemory ${REDIS_MAXMEMORY}"
   echo "maxmemory-policy ${REDIS_MAXMEMORY_POLICY}"

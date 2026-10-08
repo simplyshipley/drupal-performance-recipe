@@ -4,7 +4,7 @@
 # Drupal with different REDIS_USERNAME / REDIS_PREFIX on one Redis started
 # from redis-image/image in shared mode (users sitea, siteb, admin).
 #
-#   SHARED_HOST     Redis host (default perf-redis-shared-lab)
+#   SHARED_HOST     Redis host (default redis-shared-lab)
 #   SHARED_NEGATIVE=1  fail-proof: site B uses site A's user and prefix, so
 #                   A's drush cr clears B's cache and the test FAILS.
 # Passwords are SYNTHETIC lab values. Simulation limit: both "sites" share
@@ -12,7 +12,7 @@
 # without tags); real sites also have separate databases.
 set -uo pipefail
 DRUSH="${DRUSH:-vendor/bin/drush}"
-H="${SHARED_HOST:-perf-redis-shared-lab}"
+H="${SHARED_HOST:-redis-shared-lab}"
 FAILS=0
 say() { printf '%s %s: %s\n' "$1" "$2" "$3"; [[ "$1" == FAIL ]] && FAILS=$((FAILS+1)); return 0; }
 site() { # site a|b <drush args...>

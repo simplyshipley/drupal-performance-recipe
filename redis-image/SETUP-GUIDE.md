@@ -98,7 +98,7 @@ az containerapp replica list -g <rg> -n <app> -o table
 az containerapp logs show -g <rg> -n <app> --type console --tail 30
 ```
 
-- Good: provisioning `Succeeded`, one replica, the image tag you pushed, and no `perf-redis-entrypoint:` error in the log.
+- Good: provisioning `Succeeded`, one replica, the image tag you pushed, and no `redis-entrypoint:` error in the log.
 
 ### 3b. Redis answers inside the container
 
@@ -172,7 +172,7 @@ redis-cli dbsize
 
 | Symptom | Likely cause | Check | Fix |
 |---|---|---|---|
-| Log: `perf-redis-entrypoint: set REDIS_PASSWORD (single site) or REDIS_APP_USERS (shared); refusing to start without authentication` [V] | No password reached the container | Env vars and Secrets on the container app | Add the secret and the `REDIS_PASSWORD` env var, then create a new revision |
+| Log: `redis-entrypoint: set REDIS_PASSWORD (single site) or REDIS_APP_USERS (shared); refusing to start without authentication` [V] | No password reached the container | Env vars and Secrets on the container app | Add the secret and the `REDIS_PASSWORD` env var, then create a new revision |
 | Revision never starts; system log mentions pull or unauthorized | The registry identity lacks AcrPull, or the registry server isn't set | `az containerapp logs show ... --type system` [ASSUMED] | Give the identity AcrPull, and set the registry with that identity |
 | Can't create TCP ingress | The environment has no VNet | Environment settings | TCP ingress needs a VNet environment (Microsoft Learn) |
 | `getent hosts` prints nothing | Private DNS zone missing or not linked to the App Service VNet | Private DNS zone, VNet links | Zone = environment default domain, `*` A record → environment static IP, link to the VNet |

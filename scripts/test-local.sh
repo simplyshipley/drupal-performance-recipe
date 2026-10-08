@@ -247,8 +247,8 @@ t_eviction() {
 
 t_redis_down() {
   local c_home c_node c_login body d warn
-  c_home=$(curl -s -o /tmp/perf-redis-down.html -w '%{http_code} %{time_total}' "$BASE_URL/?perf=$RANDOM")
-  body=$(head -c 200 /tmp/perf-redis-down.html | tr '\n' ' ')
+  c_home=$(curl -s -o /tmp/redis-down.html -w '%{http_code} %{time_total}' "$BASE_URL/?perf=$RANDOM")
+  body=$(head -c 200 /tmp/redis-down.html | tr '\n' ' ')
   c_node=$(curl -s -o /dev/null -w '%{http_code} %{time_total}' "$BASE_URL$PERF_TEST_PATH?perf=$RANDOM")
   c_login=$(status_of "$BASE_URL/user/login")
   d=$($DRUSH status --field=bootstrap 2>&1 | tail -1)
