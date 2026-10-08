@@ -23,7 +23,7 @@ Before use:
 - the Redis app: 1 replica, internal TCP ingress on 6379, no persistence, `maxmemory` + `volatile-lfu`, password from a secret, TCP liveness and readiness probes;
 - optional restart and memory alerts.
 
-Since 2026-09-28 it runs the custom image from `image/`, pulled from ACR ([docs/redis-image.md](../docs/redis-image.md)). Use the Bicep. The az CLI example further down is the older stock-image variant (no ACL hardening); keep it only as a reference.
+Since 2026-09-28 it runs the custom image from `image/`, pulled from ACR ([docs/redis-image.md](../docs/redis-image.md)). Deploy it with the Bicep, or by hand from the settings in "Without the Bicep (portal or az CLI)" below.
 
 ## Deploy with Bicep
 
@@ -72,23 +72,42 @@ Container Apps has a portal UI, but it works differently from App Service's Conf
 - **The Bicep is the source of truth.** A change made only in the portal is undone by the next `az deployment group create`. Change the Bicep parameters (or the Bicep) and redeploy; use the portal to look, or for an emergency change you copy back into the Bicep.
 - **Microsoft recommends Key Vault references for secrets in production** ("Avoid specifying the value of a secret directly in a production environment"). The Bicep currently passes the password value as a secret. With a Key Vault reference (secret URL without a version), the app picks up a rotated password within 30 minutes and restarts the revisions that use it. Not built yet.
 
-## Equivalent az CLI steps
+## Without the Bicep (portal or az CLI)
+
+DevOps can create the same thing by hand from the pushed image. These are the settings the Bicep sets; match all of them.
+
+| Setting | Value |
+|---|---|
+| Container Apps environment | Your VNet: a subnet delegated to `Microsoft.App/environments`, internal only. TCP ingress needs a VNet environment |
+| Image | `<registry>.azurecr.us/services/perf-redis:valkey-9.1.2-<rev>`, pulled with a managed identity that has AcrPull |
+| CPU / memory | 0.5 / 1Gi |
+| Replicas | min 1, max 1 (the default min is 0, which would scale Redis to zero) |
+| Ingress | TCP, internal (not external), target port 6379, exposed port 6379 |
+| Secret | `redis-password` (a Key Vault reference is best; see "Changing settings in the Azure portal") |
+| Environment variables | `REDIS_PASSWORD` = secret `redis-password`; `REDIS_MAXMEMORY` = `768mb` (about 75 percent of memory) |
+| Probes | TCP liveness and readiness on 6379. Container Apps uses its own probes, not the image's Docker `HEALTHCHECK` [ASSUMED] |
+
+Optional variables the image reads (defaults in [docs/redis-image.md](../docs/redis-image.md)): `REDIS_MAXMEMORY_POLICY` (`volatile-lfu`), `REDIS_ADMIN_PASSWORD`, `REDIS_APP_USERS` + `REDIS_APP_PASSWORD_<NAME>` (shared mode), `REDIS_TLS*`. Never set a start command or arguments: the image's entrypoint builds the config, and it refuses to start without `REDIS_PASSWORD`.
+
+az CLI, same settings [ASSUMED: not run against a subscription; probes are not CLI flags, add them in the portal or with `az containerapp update --yaml`]:
 
 ```bash
 RG=rg-oig-site-prod; LOC=usgovvirginia; P=oig-site-prod
+ID=$(az identity show -g $RG -n $P-redis-pull --query id -o tsv)
 az containerapp env create -g $RG -n $P-cae -l $LOC \
   --infrastructure-subnet-resource-id <subnet id> --internal-only true \
   --logs-workspace-id <workspace customer id> --logs-workspace-key <key>
 az containerapp create -g $RG -n $P-redis --environment $P-cae \
-  --image docker.io/valkey/valkey:9.1.2-alpine3.24 --cpu 0.5 --memory 1Gi \
-  --min-replicas 1 --max-replicas 1 \
+  --image <registry>.azurecr.us/services/perf-redis:valkey-9.1.2-1 \
+  --user-assigned "$ID" --registry-server <registry>.azurecr.us --registry-identity "$ID" \
+  --cpu 0.5 --memory 1Gi --min-replicas 1 --max-replicas 1 \
   --ingress internal --transport tcp --target-port 6379 --exposed-port 6379 \
-  --secrets redis-password=<from Key Vault> --env-vars REDIS_PASSWORD=secretref:redis-password \
-  --command sh -c \
-  --args 'exec redis-server --requirepass "$REDIS_PASSWORD" --maxmemory 768mb --maxmemory-policy volatile-lfu --appendonly no --save "" --protected-mode no'
+  --secrets redis-password=<from Key Vault> \
+  --env-vars REDIS_PASSWORD=secretref:redis-password REDIS_MAXMEMORY=768mb
 ```
 
-Probes cannot be set with plain `az containerapp create` flags. Use the Bicep, or `az containerapp update --yaml` with the probe block [ASSUMED].
+- Portal: Container Apps → Create, pick the VNet environment, then the same values on the Container, Ingress and (after creation) Scale, Secrets and Health probes pages.
+- Hand-made resources and the Bicep don't mix: if you later deploy the Bicep with the same names, it overwrites the hand-made settings.
 
 ## Private DNS
 
