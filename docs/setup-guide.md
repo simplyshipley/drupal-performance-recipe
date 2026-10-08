@@ -125,14 +125,14 @@ Follow [redis-image.md](https://github.com/simplyshipley/drupal-performance-reci
 
 ### 3.2 Deploy the Container App
 
-Not deployed yet; only `az bicep build` was run. Run `az deployment group create -g <rg> -f redis-image/azure/redis-containerapp.bicep -p ...` with:
+The Azure team deploys the container; how is their call. Hand them the image version and digest with redis-image's `HANDOFF.md`. Not deployed yet; only `az bicep build` was run. If they use the Bicep example (`redis-image/azure/redis-containerapp.bicep`), it takes:
 - `namePrefix`, `infrastructureSubnetId`, `logAnalyticsWorkspaceId`, `redisImage`, `acrServer`, `cpu`, `memory`, `actionGroupId`
 - `location` (default: the resource group's region)
 - `redisPassword` (secure, from Key Vault)
 - `acrPullIdentityId` (user-assigned identity with **AcrPull**)
 - `maxmemory` (default `768mb`; keep about 25 % below container memory)
 
-Outputs: `redisHost`, `environmentDefaultDomain`, `environmentStaticIp`. Full command: [redis-image.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis-image/docs/redis-image.md#deploy-with-the-bicep-template).
+Outputs: `redisHost`, `environmentDefaultDomain`, `environmentStaticIp`. Example: [redis-image.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis-image/docs/redis-image.md#deploy).
 
 ### 3.3 Networking
 
@@ -200,10 +200,10 @@ Proposed, not yet run on Azure. Use a non-production subscription. Each check mi
 
 1. Disable `automated_cron`. Run cron from a scheduler; work the purge queue every 1 to 5 minutes with `drush p:queue-work --finish` ([cache-sync.md](cache-sync.md#recommended-settings)).
 2. Leave `PERF_CACHE_MODE` unset in production ([cache-modes.md](cache-modes.md#guard-and-gitignore)).
-3. Rebuild the Redis image when the base tag gets fixes: rescan, tag `valkey-9.1.2-2` and up, push, redeploy the Bicep with the new `redisImage`.
+3. Rebuild the Redis image when the base tag gets fixes: build and push a new revision and rescan it (redis-image `README.md`), then hand the new version to the Azure team.
 4. Monitor restarts, memory, evictions and connection errors ([redis-image/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis-image/azure/README.md#monitoring-and-alerts)).
 5. Roll back:
-   - Redis image: redeploy the Bicep with the previous `redisImage`. The cache holds no persistent data (`save ""`, `appendonly no`).
+   - Redis image: ask the Azure team to point the app back to the previous image version. The cache holds no persistent data (`save ""`, `appendonly no`).
    - Purge: `$config['perf_purge_paths.settings']['enabled'] = FALSE;` in `settings.php` ([install.md](install.md#8-turn-caching-off-per-environment)).
    - Redis off: `REDIS_ENABLED=0` (no deploy, no `drush cr`); back on: `REDIS_ENABLED=1`, then `drush cr` ([install.md](install.md#8-turn-caching-off-per-environment)).
    - Patches and recipe: revert the Composer change and redeploy.

@@ -4,8 +4,8 @@
 // non-production subscription. Validated only with `az bicep build`.
 //
 // - Internal-only Container Apps environment in an existing VNet subnet
-//   (delegated to Microsoft.App/environments, /23 or larger for the
-//   Consumption workload profile [ASSUMED]).
+//   (delegated to Microsoft.App/environments; /27 minimum for this
+//   workload profiles environment per Microsoft Learn; size for growth).
 // - Exactly 1 replica: Drupal needs one shared Redis; more replicas would be
 //   separate, unsynchronised caches.
 // - No persistence (cache only), explicit maxmemory, volatile-lfu (the
@@ -17,7 +17,7 @@
 
 targetScope = 'resourceGroup'
 
-@description('Name prefix, e.g. oig-cpsc-prod.')
+@description('Name prefix, e.g. <site>-prod.')
 param namePrefix string
 
 @description('Region. Azure Government regions: usgovvirginia, usgovarizona, usgovtexas.')
@@ -34,7 +34,7 @@ param logAnalyticsWorkspaceId string
 param redisPassword string
 
 @description('Container image built from image/ (docs/redis-image.md), pinned by tag. Placeholder registry name.')
-param redisImage string = '<registry-name>.azurecr.us/services/perf-redis:valkey-9.1.2-1'
+param redisImage string = '<registry-name>.azurecr.us/services/perf-redis:9.1.2-1'
 
 @description('ACR login server to pull from, e.g. <registry-name>.azurecr.us. Empty = public image, no registry auth.')
 param acrServer string = ''

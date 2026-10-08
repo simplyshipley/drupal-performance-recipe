@@ -11,11 +11,13 @@ Replace `<rg>`, `<app>` (the Redis container app), `<webapp>` (the site's App Se
 ## 1. Build and push the image (image owner)
 
 ```bash
-bin/docker-redis <revision>      # tests, builds linux/amd64, pushes, refuses an existing tag
+bin/docker-build-deploy <revision> qa    # tests, builds linux/amd64, pushes 9.1.2-<revision>, moves qa
+bin/docker-deploy 9.1.2-<revision> prod  # later: promote the same build to prod, no rebuild
 ```
 
-- Prerequisites and settings: [README.md](README.md).
-- Hand the tag to the Azure team: `<registry>.azurecr.us/services/perf-redis:valkey-9.1.2-<revision>`.
+- Commands, tags, promote and roll back: [README.md](README.md#commands).
+- Hand the version and digest that `docker-deploy` prints to the Azure team: `<registry>.azurecr.us/services/perf-redis:9.1.2-<revision>` and `sha256:...`.
+- Moving `qa` or `prod` doesn't restart the running container. Microsoft Learn doesn't say a restart or a new revision pulls a moved tag again; it says to avoid static tags because of "caching problems" and to "use unique tags for each deployment" ([Containers in Azure Container Apps](https://learn.microsoft.com/en-us/azure/container-apps/containers)). What runs changes when the app's image setting changes to the new version or digest ([HANDOFF.md](HANDOFF.md#the-image)).
 
 ## 2. Configure in Azure (Azure team)
 
@@ -25,7 +27,7 @@ The container needs (details in [HANDOFF.md](HANDOFF.md)):
 - [ ] Image pulled with an identity that has AcrPull.
 - [ ] 0.5 vCPU, 1 GiB, min 1 / max 1 replicas.
 - [ ] Ingress: TCP, internal, port 6379.
-- [ ] Secret `redis-password` (Key Vault reference preferred) → env `REDIS_PASSWORD`.
+- [ ] Secret `redis-password` as a Key Vault reference (`keyvaultref:<secret URI>,identityref:<identity>`, identity with Key Vault Secrets User) → env `REDIS_PASSWORD`.
 - [ ] Env `REDIS_MAXMEMORY=768mb`.
 - [ ] TCP health probes on 6379.
 - [ ] Private DNS so the App Service resolves the container's host name.
@@ -62,10 +64,11 @@ az containerapp exec -g <rg> -n <app> --command sh      # [ASSUMED]
 Then, in that shell [V]:
 
 ```bash
+export REDISCLI_AUTH="$REDIS_PASSWORD"     # or: export REDISCLI_AUTH="$(cat "$REDIS_PASSWORD_FILE")"
 redis-cli --user health --pass x --no-auth-warning ping
-redis-cli --no-auth-warning -a "$REDIS_PASSWORD" ping
-redis-cli --no-auth-warning -a "$REDIS_PASSWORD" info memory | grep -E '^(maxmemory_human|maxmemory_policy|used_memory_human):'
-redis-cli --no-auth-warning -a "$REDIS_PASSWORD" info server | grep -E '^(valkey_version|uptime_in_seconds):'
+redis-cli ping
+redis-cli info memory | grep -E '^(maxmemory_human|maxmemory_policy|used_memory_human):'
+redis-cli info server | grep -E '^(valkey_version|uptime_in_seconds):'
 ```
 
 Good output:
@@ -81,7 +84,7 @@ uptime_in_seconds:2
 ```
 
 - The first `PONG` is the health login (PING only). The second is the app login, using the password.
-- Don't paste the password on the command line; `$REDIS_PASSWORD` is already set inside the container.
+- Don't paste the password on the command line. `$REDIS_PASSWORD` is already set inside the container (empty if the password comes from `REDIS_PASSWORD_FILE`; use the second form then). `REDISCLI_AUTH` keeps it out of the process list.
 
 ### 3c. The site can reach it (App Service SSH console)
 
@@ -93,7 +96,7 @@ php -r '$r=new Redis(); $r->connect(getenv("REDIS_HOST"),6379,2); $r->auth(geten
 ```
 
 - Good: the three settings, a private IP, `port open`, then `1` or `+PONG`.
-- If `REDIS_HOST` is empty in the SSH session but present in `/proc/1/environ`, run `export $(cat /proc/1/environ | tr '\0' '\n' | grep ^REDIS_ | xargs)` first. App Service may not pass app settings to SSH sessions [ASSUMED].
+- If `REDIS_HOST` is empty in the SSH session but present in `/proc/1/environ`, run `while IFS= read -r v; do export "$v"; done < <(tr '\0' '\n' < /proc/1/environ | grep '^REDIS_')` first. App Service may not pass app settings to SSH sessions [ASSUMED].
 
 ### 3d. Drupal uses it
 
@@ -112,8 +115,9 @@ drush watchdog:show --type=perf_redis_failopen --count=10
 ### 3e. Ongoing health (inside the container)
 
 ```bash
-redis-cli --no-auth-warning -a "$REDIS_PASSWORD" info stats | grep -E '^(keyspace_hits|keyspace_misses|evicted_keys):'
-redis-cli --no-auth-warning -a "$REDIS_PASSWORD" dbsize
+export REDISCLI_AUTH="$REDIS_PASSWORD"
+redis-cli info stats | grep -E '^(keyspace_hits|keyspace_misses|evicted_keys):'
+redis-cli dbsize
 ```
 
 - Good: hits growing faster than misses, and `evicted_keys` flat or growing slowly.
@@ -142,9 +146,10 @@ Down for a long time: set `REDIS_ENABLED=0` on the App Service to send the cache
 ## 5. Routine changes
 
 - **New image version:**
-  1. `bin/docker-redis <next revision>`.
-  2. The Azure team points the app at the new tag (a new revision). The cache starts empty.
-  3. Run 3a, 3b and 3d.
+  1. `bin/docker-build-deploy` (it offers the next revision), `qa`.
+  2. The Azure team points the QA app at the new version (a new revision). The cache starts empty. Run 3a, 3b and 3d.
+  3. Promote the same build: `bin/docker-deploy 9.1.2-<revision> prod`, then the Azure team points the production app at it.
+- **Roll back:** `bin/docker-deploy <previous version> prod` moves `prod` back (`9.1.2`, `9.1` and `9` stay on the newest build); the Azure team points the app at that version.
 - **Password rotation:**
   1. Update the Key Vault secret.
   2. Container Apps picks it up within 30 minutes with a versionless Key Vault reference, or restart the revision.
@@ -157,6 +162,6 @@ Down for a long time: set `REDIS_ENABLED=0` on the App Service to send the cache
 - Image settings and hardening: [docs/redis-image.md](docs/redis-image.md)
 - Shared Redis for several sites: [docs/redis-sharing.md](docs/redis-sharing.md)
 - Hosting choice and cost: [docs/hosting-and-cost.md](docs/hosting-and-cost.md)
-- Drupal side (settings file, local testing, `lando perf-report`): [drupal-performance-recipe](https://github.com/simplyshipley/drupal-performance-recipe)
+- Drupal side (settings file, local testing, `lando perf-report`): the drupal-performance-recipe repository
 
-Evidence for the [V] lines: the image `valkey-9.1.2-1` run locally with a SYNTHETIC password, 2026-10-08.
+Evidence for the [V] lines: [V: lab, 2026-10-08], the image run locally with a SYNTHETIC password.

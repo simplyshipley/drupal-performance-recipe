@@ -1,23 +1,23 @@
 # One Redis per site, or one shared Redis?
 
-Helps DevOps and the ISSO choose between a Redis per site and one shared Redis. Both models use the image in [redis-image.md](redis-image.md).
+**Shared mode is not supported with the Drupal sites today; use one Redis per site.** The sites' settings file doesn't send a Redis user name, and a shared instance needs one, so every request would be a silent cache miss. The image keeps the capability, documented below for the record and for the ISSO.
 
-The shared model was tested locally: two "sites" (two ACL users and prefixes) on one instance [V: tmp/redis-image/shared-drupal.log, fail-proof tmp/redis-image/shared-drupal-failproof.log, tmp/redis-image/test-image.log].
+Both models use the image in [redis-image.md](redis-image.md). The shared model was tested locally: two "sites" (two ACL users and prefixes) on one instance [V: lab, 2026-09-28].
 
 ## 1. One instance per site (current Bicep)
 
 - **Config:** single-site mode (`REDIS_PASSWORD`), one container app with 1 replica, internal ingress.
 - **Sizing:** start at 0.5 vCPU / 1 GiB with `maxmemory 768mb`. Grow when `evicted_keys` rises steadily and the hit rate drops. Only the heavy bins (render, page, dynamic_page_cache, data, entity, menu) live in Redis.
-- **Cost:** one small Consumption container per site, billed for vCPU-seconds and GiB-seconds while running (always, with min 1 replica). Use the Azure Government pricing calculator for figures; none are quoted here [ASSUMED: no price checked].
+- **Cost:** one small Consumption container per site, billed for vCPU-seconds and GiB-seconds while running (always, with min 1 replica). About $50 a month per Redis at list prices: [hosting-and-cost.md](hosting-and-cost.md).
 - **Drupal:**
 
   ```text
-  REDIS_HOST=cpsc-prod-redis  REDIS_PORT=6379  REDIS_PASSWORD=<kv secret>  REDIS_PREFIX=cpsc
+  REDIS_HOST=<redis app internal FQDN>  REDIS_PORT=6379  REDIS_PASSWORD=<Key Vault reference>  REDIS_PREFIX=sitea
   ```
 
-## 2. One shared instance
+## 2. One shared instance (not supported with the sites today)
 
-- **Config:** shared mode (`REDIS_APP_USERS=cpsc,oig`, one password per site, plus `REDIS_ADMIN_PASSWORD` for operators).
+- **Config:** shared mode (`REDIS_APP_USERS=sitea,siteb`, one password per site, plus `REDIS_ADMIN_PASSWORD` for operators).
 - **Per-site ACL user limited to `~<site>:*`:**
   - Tested: site A's user got `NOPERM` on GET and DEL of site B's key.
   - FLUSHALL, FLUSHDB, CONFIG, KEYS, DEBUG, SELECT and SCAN are denied.
@@ -27,7 +27,7 @@ The shared model was tested locally: two "sites" (two ACL users and prefixes) on
   - ACL key patterns ignore the database. A user allowed `~*` in DB 1 can also SELECT DB 2.
   - SELECT cannot be limited per database in ACL, so DB numbers give no separation. That is why the image denies SELECT for app users.
   - DB numbers are also absent from Redis Cluster, and `FLUSHDB` is too coarse.
-- **SCAN leaks key names:** ACL patterns do not filter SCAN results. In the lab, `sitea` listed `siteb:k1` before SCAN was denied [V: acl-checks.log]. Cache IDs contain URLs, so the image denies SCAN. The redis module only needs SCAN on its report page (admin/reports/redis), which will show errors on a shared instance.
+- **SCAN leaks key names:** ACL patterns do not filter SCAN results. In the lab, `sitea` listed `siteb:k1` before SCAN was denied [V: lab, 2026-09-28]. Cache IDs contain URLs, so the image denies SCAN. The redis module only needs SCAN on its report page (admin/reports/redis), which will show errors on a shared instance.
 - **Not allowed on a shared instance:**
   - The redis module's queue backends (`queue.redis`, `queue.redis_reliable`) use KEYS (`ReliablePredis.php:136`, `Relay.php:138`), which app users are denied.
   - `REDIS_DB` / SELECT is also denied.
@@ -47,18 +47,11 @@ The shared model was tested locally: two "sites" (two ACL users and prefixes) on
   - Cached render output contains site content, and for logged-in users possibly non-public data.
   - A shared instance puts several systems' data in one process and memory space, separated only by ACL. That must be documented in each system's SSP and boundary diagram.
   - If the sites are different FedRAMP systems or authorizations, a shared cache crosses boundaries and is likely not acceptable [ASSUMED: confirm with the ISSO].
-- **Drupal settings per site.** `REDIS_USERNAME` is no longer read by `settings.performance.php` (one Redis per site, ruling H4):
-
-  ```text
-  # CPSC
-  REDIS_HOST=shared-redis  REDIS_USERNAME=cpsc  REDIS_PASSWORD=<cpsc secret>  REDIS_PREFIX=cpsc
-  # OIG
-  REDIS_HOST=shared-redis  REDIS_USERNAME=oig   REDIS_PASSWORD=<oig secret>   REDIS_PREFIX=oig
-  ```
+- **Drupal settings per site:** a shared instance would need each site to log in as its own user (`REDIS_USERNAME`). `settings.performance.php` doesn't read `REDIS_USERNAME` (one Redis per site, ruling H4), which is why shared mode isn't supported with the sites today.
 
 ## 3. Recommendation
 
-**One instance per site** by default. A shared instance is only acceptable if **all** of these hold:
+**One instance per site.** Shared mode needs a settings change first (above). Even then, a shared instance is only acceptable if **all** of these hold:
 
 - the sites are in the same FedRAMP system boundary and the ISSO accepts ACL-level separation;
 - they have the same owner and change window, so one restart or upgrade affects sites that are allowed to go down together;

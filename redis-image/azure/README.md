@@ -1,19 +1,19 @@
 # Self-hosted Redis on Azure Container Apps
 
-**Example only.** One tested way to run the Redis container on Azure Container Apps and connect App Service to it. The team that runs it in Azure decides how to deploy; the requirements are in [HANDOFF.md](../HANDOFF.md).
+**Example only.** One way (it compiles; it hasn't been deployed) to run the Redis container on Azure Container Apps and connect App Service to it. The team that runs it in Azure decides how to deploy; the requirements are in [HANDOFF.md](../HANDOFF.md).
 
-Ruling (Bo, 2026-09-25): OIG sites use a **self-hosted Redis container**, not the managed service. Only the heavy cache bins use it. The fail-open wrapper keeps the site up when Redis is down (see [docs/azure.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/docs/azure.md)).
+Ruling (Bo, 2026-09-25): the Drupal sites use a **self-hosted Redis container**, not the managed service. Only the heavy cache bins use it. The fail-open wrapper keeps the site up when Redis is down (see `docs/azure.md` in the drupal-performance-recipe repository).
 
 **Nothing here has been deployed.** Everything is [ASSUMED] until run in a non-production subscription. Verified only:
 
-- `redis-containerapp.bicep` compiles with `az bicep build` (Bicep CLI 0.47.16, no warnings) [V: tmp/bicep-build.log].
+- `redis-containerapp.bicep` compiles with `az bicep build` (no warnings) [V: lab, 2026-10-08].
 - The base image `valkey/valkey:9.1.2-alpine3.24` exists on Docker Hub [V: pulled 2026-10-05].
 
 Before use:
 
 - **FedRAMP scope:** confirm Azure Container Apps (and Log Analytics, Monitor alerts) are in the FedRAMP authorization for your cloud (Azure Government). Record them in the System Security Plan.
-- **Hardened image:** prefer a hardened Redis image (for example the Iron Bank `redis` image from registry1.dso.mil, if your program can use it). Mirror it into your own Azure Container Registry and pin it by digest. Set `redisImage` to match. Patching the image is on us.
-- **One Redis per site:** isolation, no shared `FLUSHALL` risk. If sites share one, give each its own `REDIS_PREFIX`.
+- **Use this repo's image, not another Redis image.** The settings here rely on the image contract: its entrypoint refuses to start without `REDIS_PASSWORD`, sets `maxmemory` from `REDIS_MAXMEMORY` and denies dangerous commands. A stock or hardened Redis image ignores those variables, so it would run with no password and no memory limit. To use a hardened base, change the Dockerfile `FROM` and rerun the tests (`bin/docker-build`). The image owner rebuilds it when the base tag gets fixes.
+- **One Redis per site:** isolation, no shared `FLUSHALL` risk. Shared mode isn't supported with the Drupal sites today ([docs/redis-sharing.md](../docs/redis-sharing.md)).
 
 ## Files
 
@@ -30,32 +30,23 @@ Since 2026-09-28 it runs the custom image from `image/`, pulled from ACR ([docs/
 One time: an identity that may pull from the registry [ASSUMED: standard az commands, not run here]:
 
 ```bash
-az identity create -g rg-oig-site-prod -n oig-site-prod-redis-pull
+az identity create -g <rg> -n <prefix>-redis-pull
 az role assignment create --role AcrPull \
-  --assignee-object-id "$(az identity show -g rg-oig-site-prod -n oig-site-prod-redis-pull --query principalId -o tsv)" \
+  --assignee-object-id "$(az identity show -g <rg> -n <prefix>-redis-pull --query principalId -o tsv)" \
   --assignee-principal-type ServicePrincipal \
   --scope "$(az acr show -n <registry-name> --query id -o tsv)"
 ```
 
-Deploy (and redeploy for a new image tag):
+Deploy (and redeploy for a new image version), with the password read from Key Vault by a parameters file, not put on the command line. Example parameters file: [docs/redis-image.md](../docs/redis-image.md#deploy) (add `actionGroupId` for the alerts).
 
 ```bash
 az cloud set --name AzureUSGovernment        # Azure Government
 az login
-az deployment group create \
-  --resource-group rg-oig-site-prod \
-  --template-file azure/redis-containerapp.bicep \
-  --parameters namePrefix=oig-site-prod \
-      infrastructureSubnetId=<subnet id delegated to Microsoft.App/environments> \
-      logAnalyticsWorkspaceId=<workspace id> \
-      redisPassword="$(az keyvault secret show --vault-name <kv> --name redis-password --query value -o tsv)" \
-      redisImage=<registry-name>.azurecr.us/services/perf-redis:valkey-9.1.2-1 \
-      acrServer=<registry-name>.azurecr.us \
-      acrPullIdentityId="$(az identity show -g rg-oig-site-prod -n oig-site-prod-redis-pull --query id -o tsv)" \
-      actionGroupId=<action group id>
+az deployment group create --resource-group <rg> \
+  --template-file azure/redis-containerapp.bicep --parameters <params>.bicepparam
 ```
 
-- A new image tag = run the same command with the new `redisImage`. Container Apps starts a new revision; the cache starts empty and Drupal refills it (the fail-open wrapper covers the switch).
+- A new image version = the same deployment with the new `redisImage` (for example `9.1.2-2`). Container Apps starts a new revision; the cache starts empty and Drupal refills it (the fail-open wrapper covers the switch).
 
 Outputs:
 
@@ -69,7 +60,7 @@ Container Apps has a portal UI, but it works differently from App Service's Conf
 - **Environment variables** (`REDIS_MAXMEMORY`, `REDIS_MAXMEMORY_POLICY`, ...): the app → **Revisions and replicas** → **Create new revision** → select the container → **Edit** → **Environment variables** tab. "After the Container App is created, the only way to update the Container App environment variables is by creating a new revision."
 - **Secrets** (`redis-password`): the app → **Security** → **Secrets**. Changing a secret does not create a revision and "doesn't automatically affect existing revisions": restart the revision afterwards.
 - **Every new revision or restart empties the cache** (no persistence). Drupal keeps working through the fail-open wrapper and refills it.
-- **The Bicep is the source of truth.** A change made only in the portal is undone by the next `az deployment group create`. Change the Bicep parameters (or the Bicep) and redeploy; use the portal to look, or for an emergency change you copy back into the Bicep.
+- **If you deploy with the Bicep,** a change made only in the portal is undone by the next `az deployment group create`, so copy portal changes back into the Bicep parameters.
 - **Microsoft recommends Key Vault references for secrets in production** ("Avoid specifying the value of a secret directly in a production environment"). The Bicep currently passes the password value as a secret. With a Key Vault reference (secret URL without a version), the app picks up a rotated password within 30 minutes and restarts the revisions that use it. Not built yet.
 
 ## Without the Bicep (portal or az CLI)
@@ -79,11 +70,11 @@ DevOps can create the same thing by hand from the pushed image. These are the se
 | Setting | Value |
 |---|---|
 | Container Apps environment | Your VNet: a subnet delegated to `Microsoft.App/environments`, internal only. TCP ingress needs a VNet environment |
-| Image | `<registry>.azurecr.us/services/perf-redis:valkey-9.1.2-<rev>`, pulled with a managed identity that has AcrPull |
+| Image | `<registry>.azurecr.us/services/perf-redis:9.1.2-<rev>` (a version, not `qa` or `prod`: [HANDOFF.md](../HANDOFF.md#the-image)), pulled with a managed identity that has AcrPull |
 | CPU / memory | 0.5 / 1Gi |
 | Replicas | min 1, max 1 (the default min is 0, which would scale Redis to zero) |
 | Ingress | TCP, internal (not external), target port 6379, exposed port 6379 |
-| Secret | `redis-password` (a Key Vault reference is best; see "Changing settings in the Azure portal") |
+| Secret | `redis-password` as a Key Vault reference (`keyvaultref:<secret URI>,identityref:<identity id>`); the identity needs Key Vault Secrets User |
 | Environment variables | `REDIS_PASSWORD` = secret `redis-password`; `REDIS_MAXMEMORY` = `768mb` (about 75 percent of memory) |
 | Probes | TCP liveness and readiness on 6379. Container Apps uses its own probes, not the image's Docker `HEALTHCHECK` [ASSUMED] |
 
@@ -92,19 +83,25 @@ Optional variables the image reads (defaults in [docs/redis-image.md](../docs/re
 az CLI, same settings [ASSUMED: not run against a subscription; probes are not CLI flags, add them in the portal or with `az containerapp update --yaml`]:
 
 ```bash
-RG=rg-oig-site-prod; LOC=usgovvirginia; P=oig-site-prod
+RG=<rg>; LOC=usgovvirginia; P=<prefix>
 ID=$(az identity show -g $RG -n $P-redis-pull --query id -o tsv)
+# The same identity reads the secret: Key Vault Secrets User on the vault.
+az role assignment create --role "Key Vault Secrets User" \
+  --assignee-object-id "$(az identity show -g $RG -n $P-redis-pull --query principalId -o tsv)" \
+  --assignee-principal-type ServicePrincipal --scope "$(az keyvault show -n <kv> --query id -o tsv)"
 az containerapp env create -g $RG -n $P-cae -l $LOC \
   --infrastructure-subnet-resource-id <subnet id> --internal-only true \
   --logs-workspace-id <workspace customer id> --logs-workspace-key <key>
 az containerapp create -g $RG -n $P-redis --environment $P-cae \
-  --image <registry>.azurecr.us/services/perf-redis:valkey-9.1.2-1 \
+  --image <registry>.azurecr.us/services/perf-redis:9.1.2-1 \
   --user-assigned "$ID" --registry-server <registry>.azurecr.us --registry-identity "$ID" \
   --cpu 0.5 --memory 1Gi --min-replicas 1 --max-replicas 1 \
   --ingress internal --transport tcp --target-port 6379 --exposed-port 6379 \
-  --secrets redis-password=<from Key Vault> \
+  --secrets "redis-password=keyvaultref:https://<kv>.vault.usgovcloudapi.net/secrets/redis-password,identityref:$ID" \
   --env-vars REDIS_PASSWORD=secretref:redis-password REDIS_MAXMEMORY=768mb
 ```
+
+- The secret is a Key Vault reference (Microsoft Learn, manage secrets: `<SECRET_NAME>=keyvaultref:<KEY_VAULT_SECRET_URI>,identityref:<MANAGED_IDENTITY_ID>`), so no password value is typed. `--logs-workspace-key` is a key on the command line: it lands in shell history, so read it into a variable or use the portal.
 
 - Portal: Container Apps → Create, pick the VNet environment, then the same values on the Container, Ingress and (after creation) Scale, Secrets and Health probes pages.
 - Hand-made resources and the Bicep don't mix: if you later deploy the Bicep with the same names, it overwrites the hand-made settings.
@@ -140,8 +137,8 @@ An internal environment's apps resolve under `environmentDefaultDomain` [ASSUMED
    - `PERF_REDIS_FAILOPEN=0`: it disables the fail-open wrapper.
 
 3. **TLS.** Traffic between App Service and the Redis container stays in the VNet and is not TLS (`REDIS_SCHEME=tcp`). Container Apps TCP ingress does not terminate TLS for you [ASSUMED]. If your controls require encryption inside the VNet:
-   - Run Redis with TLS (redis `--tls-*` options, certificate as a secret).
-   - Set `REDIS_SCHEME=tls`. `tls://` through drupal/redis 1.11 is [ASSUMED], not lab-tested.
+   - Set `REDIS_TLS=1` and the certificate files on the container ([docs/redis-image.md](../docs/redis-image.md)); don't add a start command. The port moves to 6380 (6379 closes), so the ingress target and exposed port and the probes move to 6380.
+   - On the site: `REDIS_PORT=6380`, `REDIS_SCHEME=tls`. `tls://` through drupal/redis 1.11 is [ASSUMED], not lab-tested.
 
 ## Sizing
 
@@ -149,7 +146,7 @@ An internal environment's apps resolve under `environmentDefaultDomain` [ASSUMED
 - Guide values from the caching guide [ASSUMED]: small site 256 MB, medium 512 MB to 1 GB, large or faceted 1 to 2 GB.
 - Measure after a crawl: `INFO memory` (`used_memory_peak_human`) and `INFO stats` (`evicted_keys`, `keyspace_hits`/`misses`).
 - Steady evictions with a low hit rate mean it is too small.
-- `drush cr` does not free memory (see [troubleshooting](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/docs/troubleshooting.md)).
+- `drush cr` does not free memory (see `docs/troubleshooting.md` in the drupal-performance-recipe repository).
 
 ## Monitoring and alerts
 
