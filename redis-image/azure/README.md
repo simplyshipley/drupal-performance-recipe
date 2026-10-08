@@ -1,6 +1,6 @@
 # Self-hosted Redis on Azure Container Apps
 
-How to deploy the self-hosted Redis container on Azure Container Apps and connect App Service to it. For DevOps.
+**Example only.** One tested way to run the Redis container on Azure Container Apps and connect App Service to it. The team that runs it in Azure decides how to deploy; the requirements are in [HANDOFF.md](../HANDOFF.md).
 
 Ruling (Bo, 2026-09-25): OIG sites use a **self-hosted Redis container**, not the managed service. Only the heavy cache bins use it. The fail-open wrapper keeps the site up when Redis is down (see [docs/azure.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/docs/azure.md)).
 

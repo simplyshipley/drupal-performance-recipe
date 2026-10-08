@@ -1,6 +1,9 @@
 # Redis image
 
-Cache-only Valkey image for the Drupal sites on Azure Container Apps, with the push script and the Bicep template to run it.
+Cache-only Valkey image for the Drupal sites on Azure Container Apps, with its push script.
+
+- **For the team that runs it in Azure:** [HANDOFF.md](HANDOFF.md) lists what the container and the sites need. How to deploy it is their call.
+- **Examples:** [azure/](azure/) has a tested Bicep example and the same settings for the portal and az CLI, for reference.
 
 ## Prerequisites
 
@@ -27,8 +30,8 @@ Details: [docs/redis-image.md](docs/redis-image.md)
 
 ## Deploy
 
-- Set the Bicep parameter `redisImage=<tag>`. Never deploy `latest`.
-- Steps: [azure/README.md](azure/README.md)
+- Give the image tag to the team that runs it, with [HANDOFF.md](HANDOFF.md). Never deploy `latest`.
+- Examples (Bicep, portal, az CLI): [azure/README.md](azure/README.md)
 
 ## Test
 
