@@ -61,7 +61,7 @@ az login
 bash ~/sites/drupal-performance-recipe/infra/redis-image/push.sh 1
 ```
 
-- The optional wrapper `bin/docker-redis` in the recipe repo looks for `recipes/drupal-performance-recipe/infra/redis-image/push.sh` in the site, so it only works while that folder is still there. [from code, not run after the folder removal]
+- Or use the wrapper from the recipe clone: `bin/docker-redis 1` (asks for the revision if you leave it out). It finds `infra/redis-image/push.sh` next to `bin/` and stops with a clear message if it can't [V: stub test of the wrapper, 2026-10-07; the real push not run].
 
 Without local Docker:
 
