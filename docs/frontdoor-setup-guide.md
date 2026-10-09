@@ -2,7 +2,7 @@
 
 For the Azure team (DevOps). One section per item of the [quick start checklist](quickstart-azure-frontdoor.md#front-door-settings-azure-team), plus purging: where to set it, the value, how to test it, and what to do when the test fails. The quick start stays the one-page summary.
 
-Front Door Standard or Premium, Azure Government. One Front Door endpoint per site per environment.
+Front Door **Premium** (the OIG profiles, Bo 2026-10-09), Azure Government. One Front Door endpoint per site per environment.
 
 Labels:
 - **[Learn]**: quoted from Microsoft Learn (links under [Sources](#sources)). Learn's pages are written for commercial Azure; Azure Government uses the portal at [portal.azure.us](https://portal.azure.us).
@@ -184,7 +184,7 @@ No Azure setting. Front Door sends `X-Azure-ClientIP`, `X-Azure-SocketIP`, and a
   - Mode: the policy's **Overview** page (switch Detection / Prevention). "When you create a WAF policy, the default mode is Detection."
   - Logs: Front Door profile → **Monitoring** → **Diagnostic settings** → **+ Add diagnostic setting** → **FrontDoor WebApplicationFirewall Log** and **FrontDoor Access Log** → **Send to Log Analytics** → **Save**. "Logs aren't enabled by default."
 - **Set:** Detection for about a week, review, then Prevention. Rules, rate limits and the header-consistency bot rule (JS challenge, never Block): [hardening.md](hardening.md#edge-front-door-waf).
-- **Tier:** "Managed rules are only supported in the Azure Front Door Premium tier" [Learn]. On Standard you only get custom rules.
+- **Tier:** "Managed rules are only supported in the Azure Front Door Premium tier" [Learn]. The OIG profiles are Premium (Bo, 2026-10-09), so managed rules, bot protection and the JS challenge action are available.
 
 **Test** (a harmless SQL-injection-looking query string):
 
