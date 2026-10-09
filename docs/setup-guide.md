@@ -164,7 +164,7 @@ Follow [caching-guide.md](caching-guide.md#azure-front-door-for-drupal) (assumed
 
 ### 3.7 App Service settings
 
-Secrets go in as Key Vault references. Full list, with required and default values: [azure.md](azure.md#app-service-application-settings-environment-variables).
+Secrets go in as Key Vault references. Full list, with required and default values: [azure.md](azure.md#app-service-application-settings-environment-variables). Front Door purge values for qa and prod, where to find each and how to check them: [quickstart-azure-frontdoor.md](quickstart-azure-frontdoor.md).
 
 ```bash
 az webapp config appsettings set -g $RG -n <webapp> --settings \

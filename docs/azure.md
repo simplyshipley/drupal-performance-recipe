@@ -2,6 +2,8 @@
 
 Azure settings for the recipe. For DevOps and developers deploying it to Azure App Service.
 
+Setting up Front Door purging for qa and prod: start with the one-page [Front Door quick start](quickstart-azure-frontdoor.md).
+
 Nothing here was run against Azure. Everything is [ASSUMED] unless it names lab evidence. Confirm each Azure service is in FedRAMP scope for your cloud (see the caching guide).
 
 > **Redis ruling (Bo, 2026-09-25), replacing the earlier open decision:**
