@@ -170,7 +170,7 @@ curl -s -o /dev/null -w 'front door %{http_code}\n' "$SITE/"
 | `direct 200` | Unmatched rule action isn't Deny, or the rule wasn't saved |
 | `front door 403` or `502`/`503` | Wrong Front Door ID (copied from the other profile?). Ask Front Door for the origin's status: `curl -s -o /dev/null -D - -H 'X-Azure-DebugInfo: 1' "$SITE/" \| grep -i '^x-azure-originstatuscode:'` [Learn]. `403` there = the App Service refused Front Door |
 | Service tag not in the list | Learn: you "need read access at the subscription level to get the full list of service tags" |
-| `AzureFrontDoor.Backend` tag in Azure Government | Not confirmed on Learn's Government page. Check on the first run |
+| `AzureFrontDoor.Backend` tag in Azure Government | It exists there: "*FirstParty* service tag is only available in public cloud while the other service tags are available in public and government clouds" ([Learn, service tags](https://learn.microsoft.com/en-us/azure/virtual-network/service-tags-overview)). If it's missing from the list, see the row above |
 
 ### Keep SSH (drush) and deployments working
 
