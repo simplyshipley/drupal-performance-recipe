@@ -432,7 +432,8 @@ The site has no recipe folder, so update from the clone.
 
    ```bash
    cd ~/sites/<site>
-   rm -rf docroot/modules/custom/drupal-performance-modules tests/performance
+   OLD=../__ARCHIVED_<site>-perf-$(date +%Y%m%d-%H%M) && mkdir -p "$OLD"
+   mv docroot/modules/custom/drupal-performance-modules tests/performance "$OLD"/
    mkdir -p tests/performance
    git -C ../drupal-performance-recipe archive HEAD drupal-performance-modules | tar -x -C docroot/modules/custom
    git -C ../drupal-performance-recipe archive HEAD edge mock-afd scripts docs | tar -x -C tests/performance
@@ -441,7 +442,7 @@ The site has no recipe folder, so update from the clone.
    lando drush cr
    ```
 
-   - Both folders are in git: `git diff` shows exactly what the update changed, and `git checkout -- <folder>` puts the old copy back.
+   - The old copies move outside the site (not inside `docroot`, where Drupal would find two copies of the modules). Both folders are also in git: `git diff` shows exactly what the update changed, and `git checkout -- <folder>` puts the old copy back.
 
 3. Compare the new settings file with the site's copy, and bring over any changes you want:
    `diff docroot/modules/custom/drupal-performance-modules/settings/settings.performance.php docroot/sites/default/settings.performance.php`
@@ -449,6 +450,8 @@ The site has no recipe folder, so update from the clone.
 5. If a patch changed: with composer-patches 1.x (OIG sites) run `lando composer update drupal/azure_cdn_purge`; with 2.x, `lando composer reinstall drupal/azure_cdn_purge`.
 6. Run `lando rebuild -y` if you changed `.lando.yml`, the `.lando/` files, or `tests/performance/mock-afd/` or `edge/` (the running containers keep the old code until a rebuild).
    - **Updating from before 2026-10-08:** the Lando-only include was renamed. In `settings.php`, change `example.settings.local-lab.php` to `settings.local-lab.php`.
+   - **Sites set up before step 3d existed:** check that `.gitignore` has the three lines from step 3d (`/.lando-mock-afd-data/`, `/perf-test.env`, `/docroot/sites/default/perf-cache-mode`). If `git status` lists those files, add the lines; if `perf-cache-mode` was committed, untrack it with `git rm --cached docroot/sites/default/perf-cache-mode`.
+   - **Start Lando with DDEV off.** If DDEV (or anything else) holds ports 80/443, Lando falls back to other ports and drush keeps the wrong URL until you stop DDEV and run `lando rebuild -y` again [V: OIG site copy on Lando, 2026-10-09].
 7. Review `git diff`, test, and commit.
 
 **Is my copy current?** Four checks (expected result after each):
@@ -456,7 +459,7 @@ The site has no recipe folder, so update from the clone.
 ```bash
 grep -c 'fast404' docroot/sites/default/settings.performance.php          # 0
 grep 'maxmemory-policy' .lando/redis.conf                                 # maxmemory-policy volatile-lfu
-grep -c 'path_alias_insert' docroot/modules/custom/drupal-performance-modules/modules/perf_purge_paths/perf_purge_paths.module   # 1
+grep -c 'function perf_purge_paths_path_alias_insert' docroot/modules/custom/drupal-performance-modules/modules/perf_purge_paths/perf_purge_paths.module   # 1
 lando drush pm:list --status=enabled | grep -E 'fast404|themed_fast_404'  # no output
 ```
 

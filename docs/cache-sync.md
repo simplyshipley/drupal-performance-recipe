@@ -91,7 +91,7 @@ These counts were measured with azure_cdn_purge's node hook removed by perf_purg
 | Revision revert | `sync_revert` | PASS (a node update) | PASS |
 | Taxonomy term | `sync_other_entities` | FAIL: stale | **PASS** |
 | User edit | `sync_other_entities` | – | Nothing to purge: `/user/*` is bypassed at the edge |
-| Media | – | – | Not installed in the lab. It maps the same way [ASSUMED, untested]. Media files go through `file:N`. |
+| Media | – | – | Not installed in the lab. A file replaced in place (same file entity, same URL) is purged through `file:N`. Switching a media item to a **new** file purges nothing at the edge: `media:N` tags map to no paths, and the old file URL stays public [V: code read, `PathMapper.php` maps only `node`, `taxonomy_term`, `file:N` and the site-wide tags; not run]. |
 | Menu link / block content shown on every page | `sync_menu_block` | FAIL | **FINDING** with the default: every page stays stale until the HTML TTL. **PASS** with `PERF_PURGE_SITEWIDE_PATHS=/*`. See open decision 2. |
 | File replaced at the same URL (file entity saved) | `sync_file` | FAIL: old bytes for the static TTL | **PASS** |
 | Bulk: 60 nodes in one drush call | `sync_bulk` | PASS: 60 items, 2 requests of ≤50 paths | PASS: 124 items, 3 requests of ≤50 paths, queue empty |
