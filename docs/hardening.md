@@ -218,7 +218,7 @@ Lab test `generator_removed`: PASS with the module, FINDING without it
 The origin must be unreachable except through Front Door, or every edge control can be bypassed. \[ASSUMED\]
 
 - **Access restrictions:** Allow only the `AzureFrontDoor.Backend` service tag with the `X-Azure-FDID` header; deny all else. Keep the advanced tool site (SCM, Kudu) on its own rules: it carries `drush` over SSH and deployments ([options](frontdoor-setup-guide.md#keep-ssh-drush-and-deployments-working)). Premium: Private Link origin.
-- **Platform settings:** HTTPS only, minimum TLS 1.2, FTP and basic publishing credentials disabled, managed identity for Azure access, no secrets in images.
+- **Platform settings:** HTTPS only, minimum TLS 1.2, FTP and FTP basic auth publishing credentials off; **SCM** basic auth publishing credentials stay **on**, because the Deployment Center webhook from the registry needs them ("401 unauthorized" otherwise, [frontdoor-setup-guide.md](frontdoor-setup-guide.md#keep-ssh-drush-and-deployments-working)), managed identity for Azure access, no secrets in images.
 - **Web server in the container (nginx or Apache):**
   - Real client IP from `X-Azure-ClientIP` (see the client IP section on the main tab), so limits apply per visitor.
   - A second rate limit layer (nginx `limit_req` / Apache `mod_evasive` or similar) as a backstop.

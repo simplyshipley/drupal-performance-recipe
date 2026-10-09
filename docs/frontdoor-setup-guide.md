@@ -206,7 +206,7 @@ curl -s -o /dev/null -w 'front door %{http_code}\n' "$SITE/"
 
 ### Keep SSH (drush) and deployments working
 
-Needed (Bo, 2026-10-09): the team runs `drush` from the **SSH** link in the App Service's left sidebar in the portal, and that has to keep working; sites are deployed through App Service. Cloud Shell (`az webapp ssh`) isn't used for `drush`. Both go through the app's **advanced tool site** (SCM): `https://<app>.scm.azurewebsites.us`. Learn gives `<app>.scm.azurewebsites.net` (commercial) and `azurewebsites.us` for Government App Service; the Government SCM form is [ASSUMED].
+Needed (Bo, 2026-10-09): the team runs `drush` from the **SSH** link in the App Service's left sidebar in the portal, and that has to keep working; new containers are deployed through App Service **Deployment Center** continuous deployment (the registry webhook), never by a pipeline (Bo, 2026-10-09). Cloud Shell (`az webapp ssh`) isn't used for `drush`. Both go through the app's **advanced tool site** (SCM): `https://<app>.scm.azurewebsites.us`. Learn gives `<app>.scm.azurewebsites.net` (commercial) and `azurewebsites.us` for Government App Service; the Government SCM form is [ASSUMED].
 
 What Learn says:
 - The SCM site "is both the web deploy endpoint and the Kudu console" and "has an individual rules collection". With **Use main site rules** selected, "The SCM site uses the rules from the main site" [Learn]. Then only Front Door passes, so SSH and the registry webhook get 403 [ASSUMED; the webhook 403 is reported on Microsoft Q&A].
@@ -215,10 +215,10 @@ What Learn says:
 - Deployment Center continuous deployment adds a registry webhook. "The endpoint for a webhook must be publicly accessible from the registry", and it needs **Basic Auth Publishing Credentials** on, or "401 unauthorized" [Learn]. The webhook's source IPs aren't documented.
 - `az webapp config container set` or a restart: "Each time the app restarts, App Service performs the `docker pull` command" [Learn]. These go through Azure Resource Manager, not SCM [ASSUMED].
 
-| Option (DevOps decides) | Advanced tool site | SSH / drush | Deploy | Trade-off |
+| Option | Advanced tool site | SSH / drush | Deploy | Trade-off |
 |---|---|---|---|---|
-| **A (default)** | **Use main site rules** unchecked, no rules (allow all) | Portal SSH link, from anywhere after sign-in | Webhook or pipeline | SCM open to the internet, protected by Entra sign-in and the webhook's basic-auth credentials |
-| B | Unchecked; Allow agency/VPN IP ranges; unmatched **Deny** | Portal SSH link from the agency network or VPN only (the browser's address must be on the list) [ASSUMED] | Pipeline or `az webapp config container set` + restart. Webhook likely blocked | Smaller exposure; an IP list to maintain |
+| **A (use this)** | **Use main site rules** unchecked, no rules (allow all) | Portal SSH link, from anywhere after sign-in | Deployment Center webhook works | SCM open to the internet, protected by Entra sign-in and the webhook's basic-auth credentials |
+| B (not for OIG) | Unchecked; Allow agency/VPN IP ranges; unmatched **Deny** | Portal SSH link from the agency network or VPN only (the browser's address must be on the list) [ASSUMED] | Webhook blocked: the registry must reach the SCM site and its source addresses aren't published. Only works with a pipeline, which OIG doesn't use | Smaller exposure; an IP list to maintain |
 | Don't | **Use main site rules** checked | Blocked | Webhook blocked | — |
 
 **Where:** same Access Restrictions page → **Advanced tool site** tab (Learn names "Main site" and "Advanced tool site"; the tab layout: check on the first run) → set per the option → **Save**.
@@ -237,8 +237,8 @@ curl -s -o /dev/null -w 'scm %{http_code}\n' "$SCM/"
 | You see | Do this |
 |---|---|
 | SSH page or `scm 403` | **Use main site rules** is checked, or your IP isn't in the option B list |
-| Webhook Ping `401` | Basic Auth Publishing Credentials is off (Configuration → General settings) [Learn]. Conflicts with [hardening.md](hardening.md#app-service-and-container) "basic publishing credentials disabled": keep the webhook (on) or deploy by pipeline (off). Azure Pipelines' `AzureWebApp` task works with it off [Learn] |
-| Webhook Ping `403` | SCM rules block the registry (Microsoft Q&A, not docs). Option A, or deploy by pipeline |
+| Webhook Ping `401` | **SCM Basic Auth Publishing Credentials** is off. Turn it on: Configuration → General settings → Platform settings [Learn]. FTP basic auth can stay off |
+| Webhook Ping `403` | SCM rules block the registry (Microsoft Q&A, not docs). Use option A |
 | `drush` in SSH sees no settings | SSH "might see only a few environment variables" [Learn]. See [Redis setup guide 3c](../redis/docs/SETUP-GUIDE.md#3c-the-site-can-reach-it-app-service-ssh-console) |
 
 ## 6. Client IP
