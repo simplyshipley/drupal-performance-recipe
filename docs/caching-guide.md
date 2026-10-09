@@ -232,7 +232,7 @@ Every save of any entity with a URL (node, term, user, media) invalidates the `4
 1. Remove unpublished content from the XML sitemap, menus and internal links.
 2. Return 404 or 410 to anonymous users for unpublished content (small custom event subscriber). Crawlers drop these; they keep retrying 403s. It also hides that the page exists.
 3. Redirect retired content to a replacement with the Redirect module.
-4. Cache 4xx responses at Front Door for a few minutes. \[ASSUMED: needs a test\]
+4. Front Door can't help here: it caches only 200 responses; 4xx not cached \[Microsoft Q&A answer by a Microsoft moderator, not docs; confirm on qa\].
 5. Rate-limit 403 bursts in the WAF (see the Hardening tab).
 6. Not recommended: overriding core so saves don't clear `4xx-response`; newly published pages would keep a stale 403.
 

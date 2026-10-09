@@ -118,9 +118,9 @@ curl -s -o /dev/null -D - -H 'Cookie: SESSsynthetic=1' "$SITE/" | grep -i '^x-ca
 ### Static files
 
 - **Where:** the same rule set, after the three section 3 rules.
-- **Set:** rule `StaticFiles`: **Request file extension** `css js png jpg jpeg gif svg ico webp woff woff2` (no leading dot [Learn]) → Route configuration override → **Caching: Enabled**, Use Query String, Compression Enabled, **Override always**, 7 days.
+- **Set:** rule `StaticFiles`: **Request file extension** `css js png jpg jpeg gif svg ico webp woff woff2` (no leading dot [Learn]) → Route configuration override → **Caching: Enabled**, Use Query String, Compression Enabled, **Override always**, 1 day (7 days only with a purge after each deploy: [decision for Bo](#theme-files-1-day-or-7-days-decision-for-bo)).
 - When a rule overrides the route "you must configure caching. Otherwise, caching gets disabled for the request" [Learn]. Fill in all the caching fields.
-- 7 days matches the local edge (`EDGE_STATIC_TTL`) [Lab]. CSS/JS aggregates change URL when they change; replaced images are purged by the recipe (section 10).
+- The local edge uses 7 days (`EDGE_STATIC_TTL`) [Lab]. CSS/JS aggregates change URL when they change; replaced images are purged by the recipe (section 10). Every kind of response: [How long Front Door caches each kind of response](#how-long-front-door-caches-each-kind-of-response).
 - No PDFs or Office files in this rule. [caching-guide.md](caching-guide.md#azure-front-door-for-drupal) step 4 (cache all of `/sites/default/files/*` for days) doesn't apply to them.
 
 ### PDFs and Office files: `Cache-Control: no-cache` (decided, Bo 2026-10-09)
@@ -175,6 +175,80 @@ curl -s -o /dev/null -w '%{http_code}\n' -H "If-Modified-Since: $LM" "$SITE$PDF"
 | PDF `x-cache: TCP_HIT` | B: the **Caching: Disabled** override is missing, or `StaticFiles` lists `pdf`. Fix it, then purge the PDF path |
 | Image `CONFIG_NOCACHE` | `StaticFiles` has Caching Disabled, or an earlier rule stopped evaluation |
 | Empty files lose `Content-Type` | Learn: Front Door "strips the Content-Type header for empty files when caching is enabled" |
+
+## How long Front Door caches each kind of response
+
+What Learn says:
+- Lifetime comes from "`Cache-Control: s-maxage`", then "`max-age`", then "`Expires`". With no `Cache-Control`, Front Door "randomly determines a cache duration between one and three days". The most is "366 days".
+- A rule's cache behavior: **Honor origin** (the origin's headers), **Override always** (the rule's duration, "ignoring the values from origin response directives"), **Override if origin missing** (the rule's duration only when the origin sends none).
+- A lifetime is a maximum: "Azure Front Door makes no guarantees about the amount of time that the content is stored in the cache."
+- Not stated by Learn: whether a rule's duration changes the `Cache-Control` browsers get [ASSUMED: browsers get the origin's header; check on qa by comparing `$SITE` and `$APP` headers for one theme file].
+
+| Kind of response | Lifetime set by | Recommended | Why | A change reaches visitors by |
+|---|---|---|---|---|
+| Anonymous HTML pages | Drupal: Configuration → Performance → **Browser and proxy cache maximum age** | 15 min (the recipe's 900 s) | Bounds every page the recipe can't purge (views, menus) | Recipe purge on save (section 10), else expiry |
+| Logged-in pages | Drupal: `must-revalidate, no-cache, private` | Not cached | Front Door "doesn't cache" `private`/`no-cache` "even if you override" [Learn] | Always fresh |
+| 404 and 403 pages | Drupal sends the page max-age (core 404: `max-age=900, public` [Lab]) | Leave as is | Front Door caches only 200 responses; 4xx not cached [Microsoft Q&A answer by a Microsoft moderator, not docs; confirm on qa]. Drupal's own cache keeps them up to `cache_ttl_4xx` ([why 403s arrive in batches](caching-guide.md#why-403s-arrive-in-batches)) | Drupal clears them on any entity save |
+| CSS/JS aggregates (`/sites/default/files/css`, `/js`) | Front Door rule `StaticFiles` (section 4) | Same as theme files | The hash in the name changes with the content | New URL |
+| CSS/JS with a `?` version string (aggregation off) | `StaticFiles` | Same as theme files | Drupal makes a new string on every cache rebuild (`drush cr`, `drush deploy`) [V: `drupal_flush_all_caches()` resets `asset.query_string`, core `common.inc:429`, Drupal 11.4]. Needs Use Query String (section 2) | New URL |
+| Images and fonts under `/core` and `/modules` | `StaticFiles` | Same as theme files | Same URL until a core or module update | Purge `/core/*`, `/modules/*` after an update, or expiry |
+| Theme files under `/themes` (logo, icons, sprites, fonts) | `StaticFiles` | **1 day** (default) or 7 days with a purge | Same URL across deploys | Purge after the deploy, or expiry |
+| Uploaded images and image styles | `StaticFiles` | Same as theme files | Same URL when a file is replaced | The recipe purges the file and its image styles ([azure.md](azure.md#what-gets-purged-path-based-no-tags)) |
+| PDFs and Office files | Apache in the image: `no-cache` (decided, section 4) | Not cached | A replaced report must show at once | Browser asks each time (304) |
+| Redirects (301) | Drupal page max-age [ASSUMED] | Leave as is | Whether Front Door caches 301: not stated by Learn; check on qa | Purge the old path, or expiry |
+| `robots.txt` | The web server: no `Cache-Control` [ASSUMED; check with curl] | Leave as is | Front Door then keeps it 1–3 days [Learn] | Purge `/robots.txt` after editing it |
+
+- The 15 minutes is the recipe's value. An existing site's `config/sync` may hold another (one site copy has 3600 s; an open decision for Bo). Production uses `config/sync` unless a prod config split or `settings.php` overrides it. Check: `drush cget system.performance cache.page.max_age` over SSH.
+
+### Theme files: 1 day or 7 days (decision for Bo)
+
+- **Default: 1 day** for the `StaticFiles` rule. A changed logo or font shows within a day with nobody purging. Cost: more origin requests for static files.
+- **Alternative: 7 days**, only if `/themes/*` is purged after every deploy (below). Fewer origin requests; a missed purge leaves an old logo for up to a week.
+
+### Purge after a deploy
+
+New containers come from Deployment Center's registry webhook, which "causes your App Service app to restart and run `docker pull`" [Learn]. Nothing below changes that. Purge **after** the new container is serving: a purge before that lets Front Door fetch the old file again [ASSUMED]. Purges "can take up to 10 minutes to propagate" [Learn].
+
+**(a) By hand (DevOps).** Portal: Front Door profile → **Overview** → **Purge cache** → endpoint → domain → **Paths** `/themes/*` [Learn]. Or bash:
+
+```bash
+az cloud set --name AzureUSGovernment && az login
+az afd endpoint purge --resource-group <resource-group> --profile-name <profile> \
+  --endpoint-name <endpoint> --domains <site host name> --content-paths '/themes/*'
+```
+
+- `az afd` is in the `cdn` extension, which "will automatically install the first time" [Learn].
+- Learn's 2021 Government CLI page says "In Azure Government, there is no equivalent to Azure Cloud Shell that you can find in the Azure portal"; the current Cloud Shell page doesn't mention Government. If Cloud Shell isn't in your Government portal, use WSL2.
+
+**(b) From Drupal (default).** Portal → the App Service → **SSH** → site root:
+
+```bash
+drush p:invalidate wildcardpath 'themes/*'
+drush ws --type=azurecdn --count=5
+```
+
+- Good: "Item invalidated successfully!" and no new `azurecdn` errors.
+- No leading slash: purge refuses it ("Path invalidations cannot start with slashes.", purge `PathInvalidation.php:43-44`); the Azure purger adds it. `p:invalidate` sends at once, "without going through the queue" (`InvalidateCommand.php:75`), so no `p:queue-work` [Lab: sync_wildcard, `scripts/test-local.sh:1118`].
+- Uses the site's own purge app (section 8): no new Azure access. Needs the recipe's wildcard patch ([azure.md](azure.md#what-gets-purged-path-based-no-tags)).
+
+**(c) Automatic, without touching deploys (optional, DevOps-owned).** [Example pipeline](examples/frontdoor-purge-after-deploy.yml): the same registry push that fires the webhook starts an Azure DevOps pipeline (the ACR trigger from [the Redis example](../redis/azure/pipelines/README.md)). It waits a fixed time (default 10 minutes [ASSUMED]: Learn doesn't say how to tell when a webhook pull has finished), then runs `az afd endpoint purge`. It deploys nothing.
+
+- Service connection: manual, Environment AzureUSGovernment, with ACR Contributor or Owner for the trigger and the purge role from section 8 on the endpoint.
+- Not documented by Learn, prove on the first run: the same list as the [Redis example](../redis/azure/pipelines/README.md#not-documented-by-microsoft-learn-prove-with-the-first-live-run).
+
+**(d)** A registry webhook calling a Logic App or Function also works but needs its own app, identity and code: not simpler than (c).
+
+**Recommendation:** (b) after each deploy, (a) if drush isn't handy; (c) if DevOps wants it automatic.
+
+| You see | Do this |
+|---|---|
+| Change not visible after a deploy | Wait 10 minutes. Purge not run, or run before the new container served (run it again). Wrong path (`/themes/*`, not `/sites/...`). Or the 1-day lifetime hasn't ended |
+| `Path invalidations cannot start with slashes.` | Drop the leading `/` in the drush command |
+| drush says success, `azurecdn` log shows nothing | Unpatched `azure_cdn_purge` marks wildcards done without sending. Apply the patch, or use (a) |
+| `Please add the required processor` | `drush p:processor-add drush_purge_invalidate` |
+| `AuthorizationFailed` (403) on purge | The account or purge app has no purge role on this endpoint (section 8) |
+| CSS 404 or unstyled pages after a deploy | The route is on Ignore Query String (section 2). Switch, then purge `/*` |
+| The pipeline didn't start | Its **Trigger issues** page ([Redis example](../redis/azure/pipelines/README.md)) |
 
 ## 5. Lock the origin to this Front Door
 

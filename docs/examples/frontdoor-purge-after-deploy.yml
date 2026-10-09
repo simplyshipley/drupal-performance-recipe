@@ -1,0 +1,81 @@
+# EXAMPLE (optional, DevOps-owned): purge Front Door's theme files after a new
+# site container is deployed. It deploys NOTHING: Deployment Center's registry
+# webhook still pulls the image and restarts the app; the same push starts this
+# pipeline, which waits, then purges /themes/*. Not run yet (ASSUMED).
+# Guide: docs/frontdoor-setup-guide.md, "Purge after a deploy".
+# Service connection: manual ARM, Environment AzureUSGovernment, ACR Contributor
+# or Owner (for the trigger) + the purge-only role on each endpoint.
+
+trigger: none
+pr: none
+
+variables:
+  # [ASSUMED] time for the webhook's pull and restart; Learn doesn't say how
+  # to tell when it has finished. Raise it if the first run purges too early.
+  # Option [ASSUMED]: poll a health URL until it answers 200 instead; that
+  # shows the app answers, not that it runs the new image.
+  waitMinutes: 10
+
+resources:
+  containers:
+    # One per environment: resources.triggeringAlias says which tag moved.
+    - container: siteqa
+      type: ACR
+      azureSubscription: <arm-service-connection>
+      resourceGroup: <registry-resource-group>
+      registry: <registry-name>              # the name before .azurecr.us
+      repository: <site image repository>
+      trigger:
+        tags:
+          include:
+            - <qa tag>
+    - container: siteprod
+      type: ACR
+      azureSubscription: <arm-service-connection>
+      resourceGroup: <registry-resource-group>
+      registry: <registry-name>
+      repository: <site image repository>
+      trigger:
+        tags:
+          include:
+            - <prod tag>
+
+stages:
+  - stage: qa
+    condition: eq(variables['resources.triggeringAlias'], 'siteqa')
+    jobs:
+      - job: purge_qa
+        steps:
+          - checkout: none
+          - task: AzureCLI@2
+            displayName: Wait for the qa app, then purge /themes/*
+            inputs:
+              azureSubscription: <arm-service-connection>
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -euo pipefail
+                echo "Pushed: $(resources.container.siteqa.digest); waiting $(waitMinutes) min"
+                sleep $(( $(waitMinutes) * 60 ))
+                az afd endpoint purge --resource-group <qa-frontdoor-resource-group> --profile-name <qa-profile> \
+                  --endpoint-name <qa-endpoint> --domains <qa site host name> --content-paths '/themes/*'
+
+  - stage: prod
+    condition: eq(variables['resources.triggeringAlias'], 'siteprod')
+    dependsOn: []
+    jobs:
+      - job: purge_prod
+        steps:
+          - checkout: none
+          - task: AzureCLI@2
+            displayName: Wait for the prod app, then purge /themes/*
+            inputs:
+              azureSubscription: <arm-service-connection>
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -euo pipefail
+                echo "Pushed: $(resources.container.siteprod.digest); waiting $(waitMinutes) min"
+                sleep $(( $(waitMinutes) * 60 ))
+                az afd endpoint purge --resource-group <prod-frontdoor-resource-group> --profile-name <prod-profile> \
+                  --endpoint-name <prod-endpoint> --domains <prod site host name> --content-paths '/themes/*'
