@@ -432,8 +432,7 @@ The site has no recipe folder, so update from the clone.
 
    ```bash
    cd ~/sites/<site>
-   OLD=../__ARCHIVED_<site>-perf-$(date +%Y%m%d-%H%M) && mkdir -p "$OLD"
-   mv docroot/modules/custom/drupal-performance-modules tests/performance "$OLD"/
+   rm -rf docroot/modules/custom/drupal-performance-modules tests/performance
    mkdir -p tests/performance
    git -C ../drupal-performance-recipe archive HEAD drupal-performance-modules | tar -x -C docroot/modules/custom
    git -C ../drupal-performance-recipe archive HEAD edge mock-afd scripts docs | tar -x -C tests/performance
@@ -442,7 +441,7 @@ The site has no recipe folder, so update from the clone.
    lando drush cr
    ```
 
-   - The old copies move outside the site (not inside `docroot`, where Drupal would find two copies of the modules). Both folders are also in git: `git diff` shows exactly what the update changed, and `git checkout -- <folder>` puts the old copy back.
+   - Deleting is safe: both folders are in git. `git diff` shows exactly what the update changed, and `git checkout -- <folder>` puts the old copy back. Don't keep a renamed copy inside `docroot`: Drupal would find the modules twice.
 
 3. Compare the new settings file with the site's copy, and bring over any changes you want:
    `diff docroot/modules/custom/drupal-performance-modules/settings/settings.performance.php docroot/sites/default/settings.performance.php`
