@@ -16,6 +16,7 @@ Followed on the SYNTHETIC lab `perflab106lando` (Lando 3.26.9, drupal10 recipe, 
 - **`node` tooling:** Lando 3.26.9 rewrites a tooling `cmd` that starts with `node` (lando/lando#3460). The recipe's tooling uses `bash -c` / `redis-cli`, not `node`.
 - **Missing static files:** Lando's default drupal10 nginx vhost answers missing `.js/.css/.png/...` files itself, so Drupal's Fast 404 never sees them [V: first Lando run, the old `fast404_static` test was answered by nginx; the replacement is `core_404_static`].
   - The recipe's snippet swaps in `.lando/nginx-fast404.conf.tpl` (from `lando/` in the recipe repo) (the file name is unchanged; it also gives aggregates and image styles a lifetime for the edge) (Lando's template plus `try_files $uri @rewrite;` in that block).
+  - Other file types, such as `.pdf`, `.docx` and `.svg`, aren't in that block: Lando's main `location /` already sends a missing one to Drupal, with no long lifetime (right for files that can be replaced at the same URL) [V: the template in nginx, missing `.pdf` and `.png` both reached the Drupal stand-in, a real `.pdf` was served; tmp/lando-nginx-pdf-20261009/03-results.log].
   - Set it under `services.appserver.config.vhosts`. A top-level `config.vhosts` in `.lando.local.yml` was ignored [V].
   - Vhost changes need `lando rebuild`.
 - **Relative paths** in `.lando.yml` resolve from the app root. DDEV's compose files resolve from `.ddev/`.
