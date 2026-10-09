@@ -70,6 +70,7 @@ include $app_root . '/modules/custom/drupal-performance-modules/settings/setting
 2. [Install into an existing site](docs/install.md)
    - Where each setting comes from (module README or our choice): [sources.md](docs/sources.md)
 3. [Azure configuration](docs/azure.md) (Front Door, App Service settings, Redis managed vs container, client IP). Short version: Front Door settings and the purge settings for qa and prod, [Front Door quick start](docs/quickstart-azure-frontdoor.md)
+   - Front Door setup guide for DevOps (where to set each item, how to test it, troubleshooting, qa then prod): [frontdoor-setup-guide.md](docs/frontdoor-setup-guide.md)
 4. [DDEV setup and test walkthrough](docs/ddev.md)
 5. [Lando setup and test walkthrough](docs/lando.md)
 6. [Test reference](docs/tests.md)

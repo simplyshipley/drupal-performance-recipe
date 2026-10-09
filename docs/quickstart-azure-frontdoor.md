@@ -4,19 +4,19 @@ Two parts: the Front Door settings (Azure team), then the App Service settings t
 
 ## Front Door settings (Azure team)
 
-One Front Door endpoint per site per environment (qa and prod separate). Set on the endpoint's **route** and its **Rules Engine** rule set. Not yet tried on the real profile [ASSUMED unless a Microsoft quote is given]; the local edge reproduces these rules.
+One Front Door endpoint per site per environment (qa and prod separate). Set on the endpoint's **route** and its **Rules Engine** rule set. Not yet tried on the real profile [ASSUMED unless a Microsoft quote is given]; the local edge reproduces these rules. Where to set each one, how to test it and what to do when the test fails: [Front Door setup guide](frontdoor-setup-guide.md).
 
-| # | Setting | Value |
-|---|---|---|
-| 1 | Route caching | On, cache behavior **Honor origin**. Drupal sends `Cache-Control: max-age=900, public` for anonymous pages and `private` for logged-in pages; Front Door doesn't cache `private`, `no-cache` or `no-store` [Learn S1] |
-| 2 | Query strings | **Use Query String**, never Ignore Query String: Drupal's CSS/JS aggregate URLs need their parameters. Dropping only marketing parameters (`utm_*`, `fbclid`, `gclid`) is optional |
-| 3 | Bypass cache (Rules Engine) | Request `Cookie` contains `SESS`; paths `/user*`, `/admin*`, `/node/*/edit`, `/batch`, `/system/ajax` |
-| 4 | Static files | Cache `/core/*`, `/themes/*`, `/modules/*` and CSS/JS/images under `/sites/default/files/*` for days. **Not PDFs or Office files**: without a `Cache-Control` header, Front Door keeps a file 1 to 3 days [Learn S1], and today the site sends none on PDFs. Leave PDFs uncached, or have the origin send `Cache-Control: no-cache` for them (see [PDFs](#pdfs)) |
-| 5 | Lock the origin | App Service access restricted to the `AzureFrontDoor.Backend` service tag, plus a rule requiring `X-Azure-FDID` = this profile's ID. Check `*.azurewebsites.net` is refused directly |
-| 6 | Client IP | Run the 2-minute [client IP test](azure.md#client-ip) after the origin lock |
-| 7 | WAF | Managed rules in **Detection** for about a week, review, then **Prevention**. Header-consistency bot rule: JS challenge, never Block ([hardening.md](hardening.md#edge-front-door-waf)) |
-| 8 | Purge access | A purge service principal per environment, with a custom role allowed only `Microsoft.Cdn/profiles/afdEndpoints/purge/action` on its own endpoint ([azure.md](azure.md#service-principal-for-purging)) |
-| 9 | Compression | On for text types (HTML, CSS, JS, JSON, SVG) |
+| # | Setting | Value | Setup guide |
+|---|---|---|---|
+| 1 | Route caching | On, cache behavior **Honor origin**. Drupal sends `Cache-Control: max-age=900, public` for anonymous pages and `private` for logged-in pages; Front Door doesn't cache `private`, `no-cache` or `no-store` [Learn S1] | [§1](frontdoor-setup-guide.md#1-route-caching) |
+| 2 | Query strings | **Use Query String**, never Ignore Query String: Drupal's CSS/JS aggregate URLs need their parameters. Dropping only marketing parameters (`utm_*`, `fbclid`, `gclid`) is optional | [§2](frontdoor-setup-guide.md#2-query-strings) |
+| 3 | Bypass cache (Rules Engine) | Request `Cookie` contains `SESS`; paths `/user*`, `/admin*`, `/node/*/edit`, `/batch`, `/system/ajax` | [§3](frontdoor-setup-guide.md#3-bypass-the-cache-for-logged-in-users-and-admin-paths) |
+| 4 | Static files | Cache `/core/*`, `/themes/*`, `/modules/*` and CSS/JS/images under `/sites/default/files/*` for days. **Not PDFs or Office files**: without a `Cache-Control` header, Front Door keeps a file 1 to 3 days [Learn S1], and today the site sends none on PDFs. Leave PDFs uncached, or have the origin send `Cache-Control: no-cache` for them (see [PDFs](#pdfs)) | [§4](frontdoor-setup-guide.md#4-static-files-and-keeping-pdfs-uncached) |
+| 5 | Lock the origin | App Service access restricted to the `AzureFrontDoor.Backend` service tag, plus a rule requiring `X-Azure-FDID` = this profile's ID. Check `*.azurewebsites.net` is refused directly | [§5](frontdoor-setup-guide.md#5-lock-the-origin-to-this-front-door) |
+| 6 | Client IP | Run the 2-minute [client IP test](azure.md#client-ip) after the origin lock | [§6](frontdoor-setup-guide.md#6-client-ip) |
+| 7 | WAF | Managed rules in **Detection** for about a week, review, then **Prevention**. Header-consistency bot rule: JS challenge, never Block ([hardening.md](hardening.md#edge-front-door-waf)) | [§7](frontdoor-setup-guide.md#7-waf) |
+| 8 | Purge access | A purge service principal per environment, with a custom role allowed only `Microsoft.Cdn/profiles/afdEndpoints/purge/action` on its own endpoint ([azure.md](azure.md#service-principal-for-purging)) | [§8](frontdoor-setup-guide.md#8-purge-access-service-principal) |
+| 9 | Compression | On for text types (HTML, CSS, JS, JSON, SVG) | [§9](frontdoor-setup-guide.md#9-compression) |
 
 - **Purge facts** [Learn S2]: purges are by path ("Single path purge … /pictures/strasbourg.png", "Root domain purge … /*"), "case-insensitive and query-string agnostic".
 - **Check it:** `curl -sI <page>` twice shows `x-cache: TCP_MISS` then `TCP_HIT`; a logged-in page shows `PRIVATE_NOSTORE` or `CONFIG_NOCACHE`.
@@ -27,6 +27,8 @@ One Front Door endpoint per site per environment (qa and prod separate). Set on 
 Live check, 2026-10-09: a report PDF came back with no `Cache-Control` and `x-cache: CONFIG_NOCACHE` (Front Door isn't caching it). Browsers then guess a lifetime from `Last-Modified` (about 10% of the file's age), so a replaced report can stay stale in the browser. Fix proposed, not yet agreed: `Cache-Control: no-cache` on PDFs and Office files (browsers check back each time; Front Door doesn't cache them).
 
 ## Drupal purge settings (App Service)
+
+End-to-end purge test and the Front Door side of purging: [setup guide §10](frontdoor-setup-guide.md#10-purge-from-drupal).
 
 ## Where to configure
 

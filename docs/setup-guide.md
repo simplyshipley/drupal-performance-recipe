@@ -157,6 +157,8 @@ Check from Kudu or SSH: `redisHost` resolves to the static IP and the port answe
 
 ### 3.6 Front Door route and caching
 
+Step by step, with where to find each value, a test for each setting and troubleshooting: [frontdoor-setup-guide.md](frontdoor-setup-guide.md).
+
 Follow [caching-guide.md](caching-guide.md#azure-front-door-for-drupal) (assumed; the local edge reproduces it).
 - Cache on, honour origin headers. Bypass for `SESS` cookies and `/user*`, `/admin*`, `/node/*/edit`, `/batch`, `/system/ajax`.
 - Query strings: Use query string, never Ignore. To drop marketing parameters, ignore-specified for `utm_*`, `fbclid`, `gclid`.
