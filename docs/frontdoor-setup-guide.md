@@ -152,7 +152,7 @@ for i in 1 2; do curl -s -o /dev/null -D - "$SITE/sites/default/files/<a small r
   - **HTTP headers:** `X-Azure-FDID` = this environment's Front Door ID (section 0). qa and prod IDs differ when they use different profiles.
   - Unmatched rule action **Deny**, then **Save**. "The rule is effective only after you save it."
 - Why both: "IP address filtering alone isn't sufficient … because other Azure customers use the same IP addresses" [Learn].
-- **Advanced tool site** (Kudu, SSH): Learn lets it use the main site's rules or its own. Using the main rules may cut off the SSH console used for `drush` [ASSUMED]. Decide with DevOps.
+- **Advanced tool site** (SCM, Kudu): leave **Use main site rules** unchecked, or `drush` over SSH and deployments stop. See [Keep SSH (drush) and deployments working](#keep-ssh-drush-and-deployments-working).
 
 **Test:**
 
@@ -171,6 +171,46 @@ curl -s -o /dev/null -w 'front door %{http_code}\n' "$SITE/"
 | `front door 403` or `502`/`503` | Wrong Front Door ID (copied from the other profile?). Ask Front Door for the origin's status: `curl -s -o /dev/null -D - -H 'X-Azure-DebugInfo: 1' "$SITE/" \| grep -i '^x-azure-originstatuscode:'` [Learn]. `403` there = the App Service refused Front Door |
 | Service tag not in the list | Learn: you "need read access at the subscription level to get the full list of service tags" |
 | `AzureFrontDoor.Backend` tag in Azure Government | Not confirmed on Learn's Government page. Check on the first run |
+
+### Keep SSH (drush) and deployments working
+
+Needed (Bo, 2026-10-09): `drush` from the App Service SSH console (portal or Cloud Shell), and deploying through App Service. Both go through the app's **advanced tool site** (SCM): `https://<app>.scm.azurewebsites.us`. Learn gives `<app>.scm.azurewebsites.net` (commercial) and `azurewebsites.us` for Government App Service; the Government SCM form is [ASSUMED].
+
+What Learn says:
+- The SCM site "is both the web deploy endpoint and the Kudu console" and "has an individual rules collection". With **Use main site rules** selected, "The SCM site uses the rules from the main site" [Learn]. Then only Front Door passes, so SSH and the registry webhook get 403 [ASSUMED; the webhook 403 is reported on Microsoft Q&A].
+- With no SCM rules, "the unmatched rule behavior is to allow all access" [Learn]. The default state of the checkbox isn't documented (check on the first run).
+- Kudu in the browser needs Microsoft Entra sign-in and a role with `Microsoft.Web/sites/publish/Action`, for example Website Contributor [Learn]. `az webapp ssh` and `az webapp create-remote-connection` use Entra sign-in when basic auth is off [Learn].
+- Deployment Center continuous deployment adds a registry webhook. "The endpoint for a webhook must be publicly accessible from the registry", and it needs **Basic Auth Publishing Credentials** on, or "401 unauthorized" [Learn]. The webhook's source IPs aren't documented.
+- `az webapp config container set` or a restart: "Each time the app restarts, App Service performs the `docker pull` command" [Learn]. These go through Azure Resource Manager, not SCM [ASSUMED].
+- Cloud Shell runs "in a Microsoft network that's separate from your resources" [Learn], with no published outbound IPs. Only Cloud Shell in your own virtual network changes that (paid Azure Relay) [Learn].
+
+| Option (DevOps decides) | Advanced tool site | SSH / drush | Deploy | Trade-off |
+|---|---|---|---|---|
+| **A (default)** | **Use main site rules** unchecked, no rules (allow all) | Portal and Cloud Shell | Webhook or pipeline | SCM open to the internet, protected by Entra sign-in and the webhook's basic-auth credentials |
+| B | Unchecked; Allow agency/VPN IP ranges; unmatched **Deny** | Portal from the agency network only; Cloud Shell fails [ASSUMED] | Pipeline or `az webapp config container set` + restart. Webhook likely blocked | Smaller exposure; an IP list to maintain |
+| Don't | **Use main site rules** checked | Blocked | Webhook blocked | — |
+
+**Where:** same Access Restrictions page → **Advanced tool site** tab (Learn names "Main site" and "Advanced tool site"; the tab layout: check on the first run) → set per the option → **Save**.
+
+**Test:**
+
+```bash
+SCM="https://<app>.scm.azurewebsites.us"
+curl -s -o /dev/null -w 'scm %{http_code}\n' "$SCM/"
+```
+
+- From an allowed place: anything but `403` (a sign-in redirect or `401` is fine [ASSUMED]). From a blocked place (option B, phone off Wi-Fi): `403` [Learn].
+- SSH: portal → App Service → **Development Tools** → **SSH** (path [ASSUMED]) → from the site root, `drush status` shows the database connected. Cloud Shell: `az webapp ssh --resource-group <group> --name <app>`.
+- Deploy: registry → **Services** → **Webhooks** → the app's webhook → **Ping**, then a 2xx in **HTTP STATUS** [Learn]. Then restart or redeploy: the site comes back through Front Door on the new image.
+
+| You see | Do this |
+|---|---|
+| SSH page or `scm 403` | **Use main site rules** is checked, or your IP isn't in the option B list |
+| Webhook Ping `401` | Basic Auth Publishing Credentials is off (Configuration → General settings) [Learn]. Conflicts with [hardening.md](hardening.md#app-service-and-container) "basic publishing credentials disabled": keep the webhook (on) or deploy by pipeline (off). Azure Pipelines' `AzureWebApp` task works with it off [Learn] |
+| Webhook Ping `403` | SCM rules block the registry (Microsoft Q&A, not docs). Option A, or deploy by pipeline |
+| `az webapp create-remote-connection` fails | Learn: "make sure remote debugging is *disabled*" |
+| `az webapp ssh` refused, portal SSH works | Option B: Cloud Shell has no fixed IPs. Use the portal from the agency network |
+| `drush` in SSH sees no settings | SSH "might see only a few environment variables" [Learn]. See [Redis setup guide 3c](../redis/docs/SETUP-GUIDE.md#3c-the-site-can-reach-it-app-service-ssh-console) |
 
 ## 6. Client IP
 
@@ -299,4 +339,5 @@ Read 2026-10-09 (commercial Learn pages; Government differences from the "compar
 - [Purge cache](https://learn.microsoft.com/en-us/azure/frontdoor/cache-purge)
 - [HTTP headers](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-http-headers-protocol), [Monitor Front Door](https://learn.microsoft.com/en-us/azure/frontdoor/monitor-front-door), [Configure logs](https://learn.microsoft.com/en-us/azure/frontdoor/standard-premium/how-to-logs)
 - [WAF policy settings](https://learn.microsoft.com/en-us/azure/web-application-firewall/afds/waf-front-door-policy-settings), [Create a WAF policy](https://learn.microsoft.com/en-us/azure/web-application-firewall/afds/waf-front-door-create-portal), [WAF monitoring](https://learn.microsoft.com/en-us/azure/web-application-firewall/afds/waf-front-door-monitor)
+- SCM, SSH and deployments: [Access restrictions overview](https://learn.microsoft.com/en-us/azure/app-service/overview-access-restrictions), [Kudu](https://learn.microsoft.com/en-us/azure/app-service/resources-kudu), [SSH](https://learn.microsoft.com/en-us/azure/app-service/configure-linux-open-ssh-session), [Custom container](https://learn.microsoft.com/en-us/azure/app-service/configure-custom-container?pivots=container-linux), [Container CI/CD](https://learn.microsoft.com/en-us/azure/app-service/deploy-ci-cd-custom-container), [Disable basic auth](https://learn.microsoft.com/en-us/azure/app-service/configure-basic-auth-disable), [ACR webhooks](https://learn.microsoft.com/en-us/azure/container-registry/container-registry-webhook), [Cloud Shell in a virtual network](https://learn.microsoft.com/en-us/azure/cloud-shell/vnet/overview); Microsoft Q&A (community, not docs): [ACR webhook 403 from SCM](https://learn.microsoft.com/en-us/answers/questions/320722/container-registry-webhook-to-app-service-with-pri)
 - [Connect to Azure Government (portal)](https://learn.microsoft.com/en-us/azure/azure-government/documentation-government-get-started-connect-with-portal), [Compare Azure Government and global Azure](https://learn.microsoft.com/en-us/azure/azure-government/compare-azure-government-global-azure)
