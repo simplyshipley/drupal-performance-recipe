@@ -241,7 +241,7 @@ az cloud show --query name -o tsv       # [not run in this project] good: AzureU
 Outside-in checks against the public site (replace the host; this is the real test of Front Door caching):
 
 ```bash
-for i in 1 2; do curl -sI https://<site-host>/ | grep -i -E '^HTTP|x-cache|x-drupal-cache|cache-control'; echo; done
+for i in 1 2; do curl -s -o /dev/null -D - https://<site-host>/ | grep -i -E '^HTTP|x-cache|x-drupal-cache|cache-control'; echo; done
 # [not run in this project] good: 2nd request x-cache shows a cache hit; Cache-Control max-age=900, public
 ```
 

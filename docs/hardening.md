@@ -274,7 +274,7 @@ Authorized testers should be let in deliberately, on a schedule, with the allowl
 Test every control in non-production first, from an IP we control, and never run scans against production without approval.
 
 - **Tools:** OWASP ZAP (already in the Playwright suite: `lando zap-scan`, `lando zap-e2e`), plus scripted `curl` loops for rate limits and blocked paths.
-- **Checks:** Blocked paths return 403 at the edge; rate limits trigger at the expected count; direct `*.azurewebsites.net` access is refused; security headers are present; the real client IP appears in Drupal logs; auto-block adds and expires an IP.
+- **Checks:** Blocked paths return 403 at the edge; rate limits trigger at the expected count; direct `*.azurewebsites.us` access (Azure Government) is refused; security headers are present; the real client IP appears in Drupal logs; auto-block adds and expires an IP.
 
 - [ ] WAF policy in Prevention mode with managed and bot rules
 - [ ] Rate limit and blocked-path custom rules

@@ -196,7 +196,7 @@ Proposed, not yet run on Azure. Use a non-production subscription. Each check mi
 1. `redis_in_use`: request two uncached pages. Pass: keys under `REDIS_PREFIX` grew (`redis-cli INFO keyspace`).
 2. `redis_down`: scale the Redis container app to zero; request home, a node, `/user/login`. Pass: all 200, one `perf_redis_failopen` warning. HTTP 500 means the perf_redis_failopen module is not installed ([troubleshooting.md](troubleshooting.md#redis-down-the-site-stays-up-fail-open)).
 3. `redis_recover`: start Redis, wait 32 s (the 30 s retry interval plus 2), request a node twice. Pass: second request `X-Drupal-Cache: HIT`.
-4. `purge_send`, `edge_purge_e2e`: `curl -sI <node url>` twice (expect `x-cache: TCP_HIT`), edit the node, run `drush p:queue-volume` and `drush p:queue-work --finish`, wait up to about 10 minutes, request again. Pass: new content served, `drush p:diagnostics` shows no new errors.
+4. `purge_send`, `edge_purge_e2e`: `curl -s -o /dev/null -D - <node url>` twice (a GET; expect `x-cache: TCP_HIT`), edit the node, run `drush p:queue-volume` and `drush p:queue-work --finish`, wait up to about 10 minutes, request again. Pass: new content served, `drush p:diagnostics` shows no new errors.
 5. `bot_challenge`: request a node with a Chrome user agent and no `Sec-Fetch-Mode` / `Accept-Language`. Pass: Detection logs it; Prevention gives a JS challenge. The `JSChallenge` action name is (assumed).
 
 ## Phase 5: Operate

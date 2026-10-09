@@ -123,7 +123,7 @@ Front Door is the first priority because we already own it. Configure these step
 1. **Lock the origin.** Restrict App Service access to the `AzureFrontDoor.Backend` service tag, and require the `X-Azure-FDID` header to equal our profile ID. Premium tier: Private Link to the App Service is stronger.
 2. **Proxy settings in `settings.php`.** Set `reverse_proxy` to TRUE, set `reverse_proxy_addresses` and `reverse_proxy_trusted_headers` (For, Host, Port, Proto), and set `trusted_host_patterns` to the public domain.
 3. **Let Drupal decide caching.** Set "Browser and proxy cache maximum age" to 15 to 60 minutes. Anonymous pages get `Cache-Control: public`, logged-in pages stay private. The Front Door route honors origin headers.
-4. **Rules engine.** Bypass the cache for a `Cookie` header containing `SESS`, and for `/user*`, `/admin*`, `/node/*/edit`, `/batch` and `/system/ajax`. Cache `/sites/default/files/*`, `/core/*`, `/themes/*` and `/modules/*` static files for days.
+4. **Rules engine.** Bypass the cache for a `Cookie` header containing `SESS`, and for `/user*`, `/admin*`, `/node/*/edit`, `/batch` and `/system/ajax`. Cache `/sites/default/files/*`, `/core/*`, `/themes/*` and `/modules/*` static files for days, except PDFs and Office files ([quickstart-azure-frontdoor.md](quickstart-azure-frontdoor.md#pdfs)).
 5. **Query strings: "Use query string", never "Ignore".** Drupal 10.1+ aggregated CSS and JavaScript URLs carry required parameters (`delta`, `language`, `theme`, `include`). Ignore only `utm_*`, `fbclid` and `gclid`.
 6. **Compression and WAF.** Managed rules, bot protection and rate limiting (Premium for managed rule sets). Rate-limit bots on search and query-string URLs.
 7. **Purging.** Front Door purges by path, not tag. Keep HTML lifetimes short and asset lifetimes long, and use `az afd endpoint purge` for urgent changes. See the Purge section.
@@ -144,7 +144,7 @@ Front Door and App Service already send the visitor's IP in headers. Drupal or t
 
 - **Option A (Drupal settings):** List the App Service internal ranges and the Front Door backend ranges in `reverse_proxy_addresses`, and trust `X-Forwarded-For`. The Front Door ranges change, so the list needs upkeep.
 - **Option B (recommended):** In the container, Apache `mod_remoteip` with `RemoteIPHeader X-Azure-ClientIP`, or nginx `real_ip_header X-Azure-ClientIP`, trusting only the App Service internal ranges. Keep `reverse_proxy` on for host and protocol headers.
-- **Test:** Fail a login from a known IP and check the Hostname column in `/admin/reports/dblog`. Confirm `*.azurewebsites.net` is refused when accessed directly.
+- **Test:** Fail a login from a known IP and check the Hostname column in `/admin/reports/dblog`. Confirm the direct `*.azurewebsites.us` address (Azure Government; `.net` in commercial Azure) is refused.
 - **FedRAMP:** Audit logging (AU controls), flood control and WAF correlation depend on the real IP. Document this header chain in the System Security Plan.
 
 ## Redis or Valkey
