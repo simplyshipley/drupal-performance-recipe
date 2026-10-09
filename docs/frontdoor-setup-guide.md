@@ -115,32 +115,64 @@ curl -s -o /dev/null -D - -H 'Cookie: SESSsynthetic=1' "$SITE/" | grep -i '^x-ca
 
 ## 4. Static files (and keeping PDFs uncached)
 
-- **Where:** the same rule set. Order: the three section 3 rules, then `NoCacheDocs`, then `StaticFiles`.
-- **Set:**
+### Static files
 
-| Rule | Condition | Action |
-|---|---|---|
-| `NoCacheDocs` (first) | **Request file extension** `pdf doc docx xls xlsx ppt pptx` (no leading dot [Learn]) | Route configuration override → **Caching: Disabled**, Stop evaluating |
-| `StaticFiles` | **Request file extension** `css js png jpg jpeg gif svg ico webp woff woff2` | Route configuration override → **Caching: Enabled**, Use Query String, Compression Enabled, **Override always**, 7 days |
-
-- Why PDFs need a rule: they're served with no `Cache-Control`, and then "Front Door randomly determines a cache duration between one and three days" [Learn]. A replaced report would stay stale. Details: [quick start, PDFs](quickstart-azure-frontdoor.md#pdfs).
-- When a rule overrides the route "you must configure caching. Otherwise, caching gets disabled for the request" [Learn]. Fill in all the caching fields in `StaticFiles`.
+- **Where:** the same rule set, after the three section 3 rules.
+- **Set:** rule `StaticFiles`: **Request file extension** `css js png jpg jpeg gif svg ico webp woff woff2` (no leading dot [Learn]) → Route configuration override → **Caching: Enabled**, Use Query String, Compression Enabled, **Override always**, 7 days.
+- When a rule overrides the route "you must configure caching. Otherwise, caching gets disabled for the request" [Learn]. Fill in all the caching fields.
 - 7 days matches the local edge (`EDGE_STATIC_TTL`) [Lab]. CSS/JS aggregates change URL when they change; replaced images are purged by the recipe (section 10).
-- **Conflict to settle:** [caching-guide.md](caching-guide.md#azure-front-door-for-drupal) step 4 says to cache everything under `/sites/default/files/*` for days, and the local edge caches `.pdf` for 7 days ([edge-waf.md](edge-waf.md#what-it-is)). This guide follows the quick start: no PDFs or Office files.
+- No PDFs or Office files in this rule. [caching-guide.md](caching-guide.md#azure-front-door-for-drupal) step 4 (cache all of `/sites/default/files/*` for days) doesn't apply to them.
 
-**Test:**
+### PDFs and Office files: `Cache-Control: no-cache` (decided, Bo 2026-10-09)
+
+- **Why:** today they're served with no `Cache-Control`. Browsers then guess a lifetime, and with caching on "Front Door randomly determines a cache duration between one and three days" [Learn]. A replaced report would stay stale.
+- **What no-cache does:** the browser keeps the file but asks each time (304 if unchanged, the new file if replaced). Front Door "honors" `no-cache` and "doesn't cache the responses, even if you override the caching behavior by using the Rules Engine" [Learn].
+- **Not adopted:** a module adding `?cb=` tokens (Static Asset Cache Buster) was tested. It covers only file field links, not links typed into body text, and needs a patch ([#3375311](https://www.drupal.org/project/static_asset_cache_buster/issues/3375311) MR !6) to avoid a crash when an image is deleted.
+
+**Option A (recommended): Apache in the OIG image.** The origin is the source of truth, and Lando sends the same header ([lando.md](lando.md)), so local and production match.
+
+- Add a conf file to the image and enable it, plus mod_headers. Run as root while the image is built (Debian layout; the site Dockerfile already edits `/etc/apache2/conf-available/*.conf`):
+
+```bash
+cat > /etc/apache2/conf-available/no-cache-docs.conf <<'CONF'
+<FilesMatch "\.(pdf|docx?|xlsx?|pptx?)$">
+  Header set Cache-Control "no-cache"
+</FilesMatch>
+CONF
+a2enmod headers && a2enconf no-cache-docs
+```
+
+- The same `<FilesMatch>` block works in the site's `.htaccess` only if `AllowOverride` permits it. Apache's default is `AllowOverride None`, which ignores `.htaccess` [Apache docs]. Whether the OIG image changes that is [ASSUMED unknown]: the site's `ExpiresDefault "access plus 1 year"` doesn't reach visitors today, so don't rely on `.htaccess`.
+
+**Option B (fallback): a Front Door rule.** Rule `NoCacheDocs`, above `StaticFiles`:
+
+| Condition | Actions |
+|---|---|
+| **Request file extension** `pdf doc docx xls xlsx ppt pptx` | 1. **Modify response header** → **Overwrite** `Cache-Control` = `no-cache`. 2. **Route configuration override** → **Caching: Disabled**. Tick **Stop evaluating remaining rules** |
+
+- Both actions are needed. Learn says the header action modifies responses "before they're returned to your clients"; it doesn't say Front Door's own cache follows the new header. Without the caching override, a file the origin sends with no `Cache-Control` could still be cached for 1 to 3 days [Learn].
+- `Cache-Control` isn't on Learn's list of headers a rule can't modify [Learn].
+
+**Test** (either option; GET, not `curl -I`):
 
 ```bash
 for i in 1 2; do curl -s -o /dev/null -D - "$SITE/core/misc/druplicon.png" | grep -i '^x-cache:'; done
-for i in 1 2; do curl -s -o /dev/null -D - "$SITE/sites/default/files/<a small report>.pdf" | grep -i '^x-cache:'; done
+PDF="/sites/default/files/<a small report>.pdf"
+curl -s -o /dev/null -D - "$SITE$PDF" | grep -iE '^(cache-control|etag|last-modified|x-cache):'
+ETAG=$(curl -s -o /dev/null -D - "$SITE$PDF" | tr -d '\r' | awk 'tolower($1)=="etag:"{print $2}')
+LM=$(curl -s -o /dev/null -D - "$SITE$PDF" | tr -d '\r' | awk -F': ' 'tolower($1)=="last-modified"{print $2}')
+curl -s -o /dev/null -w '%{http_code}\n' -H "If-None-Match: $ETAG" "$SITE$PDF"
+curl -s -o /dev/null -w '%{http_code}\n' -H "If-Modified-Since: $LM" "$SITE$PDF"
 ```
 
-- Good: the image `TCP_MISS` then `TCP_HIT`; the PDF `CONFIG_NOCACHE` both times.
-- [Lab: edge_static_hit PASS].
+- Good: the image `TCP_MISS` then `TCP_HIT`. The PDF `cache-control: no-cache`, `x-cache` never `TCP_HIT` (with B: `CONFIG_NOCACHE` [Learn]), then `304` twice. That Front Door passes the `If-None-Match` / `If-Modified-Since` check to the origin is [ASSUMED]; check on the first run.
+- [Lab: Lando + local edge, 2026-10-09: no-cache on PDF/DOCX, edge never HIT, 304 for both checks, new ETag after the file was replaced, PNG/CSS unchanged].
 
 | You see | Do this |
 |---|---|
-| PDF `TCP_HIT` | `NoCacheDocs` missing, or below `StaticFiles`. Move it to the top, then purge the PDF path |
+| No `cache-control` on the PDF | A: mod_headers not loaded (`apache2ctl -M \| grep headers` over SSH) or the conf not enabled (`a2enconf`). B: the rule isn't linked to the route, or a rule above it stops evaluation |
+| `200` instead of `304` | Compare the ETag from two requests. Apache's default ETag is the file's time and size [Apache docs]; with several App Service instances it should match if they share the same file [ASSUMED]. If ETags differ, rely on the `If-Modified-Since` check |
+| PDF `x-cache: TCP_HIT` | B: the **Caching: Disabled** override is missing, or `StaticFiles` lists `pdf`. Fix it, then purge the PDF path |
 | Image `CONFIG_NOCACHE` | `StaticFiles` has Caching Disabled, or an earlier rule stopped evaluation |
 | Empty files lose `Content-Type` | Learn: Front Door "strips the Content-Type header for empty files when caching is enabled" |
 
@@ -340,4 +372,5 @@ Read 2026-10-09 (commercial Learn pages; Government differences from the "compar
 - [HTTP headers](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-http-headers-protocol), [Monitor Front Door](https://learn.microsoft.com/en-us/azure/frontdoor/monitor-front-door), [Configure logs](https://learn.microsoft.com/en-us/azure/frontdoor/standard-premium/how-to-logs)
 - [WAF policy settings](https://learn.microsoft.com/en-us/azure/web-application-firewall/afds/waf-front-door-policy-settings), [Create a WAF policy](https://learn.microsoft.com/en-us/azure/web-application-firewall/afds/waf-front-door-create-portal), [WAF monitoring](https://learn.microsoft.com/en-us/azure/web-application-firewall/afds/waf-front-door-monitor)
 - SCM, SSH and deployments: [Access restrictions overview](https://learn.microsoft.com/en-us/azure/app-service/overview-access-restrictions), [Kudu](https://learn.microsoft.com/en-us/azure/app-service/resources-kudu), [SSH](https://learn.microsoft.com/en-us/azure/app-service/configure-linux-open-ssh-session), [Custom container](https://learn.microsoft.com/en-us/azure/app-service/configure-custom-container?pivots=container-linux), [Container CI/CD](https://learn.microsoft.com/en-us/azure/app-service/deploy-ci-cd-custom-container), [Disable basic auth](https://learn.microsoft.com/en-us/azure/app-service/configure-basic-auth-disable), [ACR webhooks](https://learn.microsoft.com/en-us/azure/container-registry/container-registry-webhook), [Cloud Shell in a virtual network](https://learn.microsoft.com/en-us/azure/cloud-shell/vnet/overview); Microsoft Q&A (community, not docs): [ACR webhook 403 from SCM](https://learn.microsoft.com/en-us/answers/questions/320722/container-registry-webhook-to-app-service-with-pri)
+- Apache: [core (FileETag, AllowOverride)](https://httpd.apache.org/docs/2.4/mod/core.html), [mod_headers](https://httpd.apache.org/docs/2.4/mod/mod_headers.html)
 - [Connect to Azure Government (portal)](https://learn.microsoft.com/en-us/azure/azure-government/documentation-government-get-started-connect-with-portal), [Compare Azure Government and global Azure](https://learn.microsoft.com/en-us/azure/azure-government/compare-azure-government-global-azure)
