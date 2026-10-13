@@ -112,9 +112,11 @@ resource redis 'Microsoft.App/containerApps@2024-03-01' = {
         }
       ]
       ingress: {
-        // Learn: on an internal environment set external: true, or VNet
-        // clients (App Service) can't reach the app. See azure/README.md.
-        external: false
+        // external: true on this internal environment publishes Redis only at
+        // the environment's internal load balancer in the VNet (no public
+        // endpoint). false would hide it from App Service ("Clients elsewhere in
+        // the virtual network receive an HTTP 404 response"). See azure/README.md.
+        external: true
         transport: 'tcp'
         targetPort: 6379
         exposedPort: 6379
