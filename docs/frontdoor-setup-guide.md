@@ -118,7 +118,7 @@ curl -s -o /dev/null -D - -H 'Cookie: SESSsynthetic=1' "$SITE/" | grep -i '^x-ca
 ### Static files
 
 - **Where:** the same rule set, after the three section 3 rules.
-- **Set:** rule `StaticFiles`: **Request file extension** `css js png jpg jpeg gif svg ico webp woff woff2` (no leading dot [Learn]) → Route configuration override → **Caching: Enabled**, Use Query String, Compression Enabled, **Override always**, 1 day (7 days only with a purge after each deploy: [decision for Bo](#theme-files-1-day-or-7-days-decision-for-bo)).
+- **Set:** rule `StaticFiles`: **Request file extension** `css js png jpg jpeg gif svg ico webp woff woff2` (no leading dot [Learn]) → Route configuration override → **Caching: Enabled**, Use Query String, Compression Enabled, **Override always**, 1 day ([why 1 day, and when to change it](#theme-files-1-day-default)).
 - When a rule overrides the route "you must configure caching. Otherwise, caching gets disabled for the request" [Learn]. Fill in all the caching fields.
 - The local edge uses 7 days (`EDGE_STATIC_TTL`) [Lab]. CSS/JS aggregates change URL when they change; replaced images are purged by the recipe (section 10). Every kind of response: [How long Front Door caches each kind of response](#how-long-front-door-caches-each-kind-of-response).
 - No PDFs or Office files in this rule. [caching-guide.md](caching-guide.md#azure-front-door-for-drupal) step 4 (cache all of `/sites/default/files/*` for days) doesn't apply to them.
@@ -192,18 +192,25 @@ What Learn says:
 | CSS/JS aggregates (`/sites/default/files/css`, `/js`) | Front Door rule `StaticFiles` (section 4) | Same as theme files | The hash in the name changes with the content | New URL |
 | CSS/JS with a `?` version string (aggregation off) | `StaticFiles` | Same as theme files | Drupal makes a new string on every cache rebuild (`drush cr`, `drush deploy`) [V: `drupal_flush_all_caches()` resets `asset.query_string`, core `common.inc:429`, Drupal 11.4]. Needs Use Query String (section 2) | New URL |
 | Images and fonts under `/core` and `/modules` | `StaticFiles` | Same as theme files | Same URL until a core or module update | Purge `/core/*`, `/modules/*` after an update, or expiry |
-| Theme files under `/themes` (logo, icons, sprites, fonts) | `StaticFiles` | **1 day** (default) or 7 days with a purge | Same URL across deploys | Purge after the deploy, or expiry |
+| Theme files under `/themes` (logo, icons, sprites, fonts) | `StaticFiles` | **1 day** ([why](#theme-files-1-day-default)) | Same URL across deploys | Expiry within a day, or purge `/themes/*` after the deploy |
 | Uploaded images and image styles | `StaticFiles` | Same as theme files | Same URL when a file is replaced | The recipe purges the file and its image styles ([azure.md](azure.md#what-gets-purged-path-based-no-tags)) |
 | PDFs and Office files | Apache in the image: `no-cache` (decided, section 4) | Not cached | A replaced report must show at once | Browser asks each time (304) |
 | Redirects (301) | Drupal page max-age [ASSUMED] | Leave as is | Whether Front Door caches 301: not stated by Learn; check on qa | Purge the old path, or expiry |
 | `robots.txt` | The web server: no `Cache-Control` [ASSUMED; check with curl] | Leave as is | Front Door then keeps it 1–3 days [Learn] | Purge `/robots.txt` after editing it |
 
-- The 15 minutes is the recipe's value. An existing site's `config/sync` may hold another (one site copy has 3600 s; an open decision for Bo). Production uses `config/sync` unless a prod config split or `settings.php` overrides it. Check: `drush cget system.performance cache.page.max_age` over SSH.
+### Anonymous pages: 15 minutes (default)
 
-### Theme files: 1 day or 7 days (decision for Bo)
+- **Default: 900 seconds**, set by `recipe.yml` (`cache.page.max_age: 900`).
+- **Why:** the recipe purges a node's own URLs on save, but not the pages that list it (views, menus, blocks). The page lifetime is the longest those can stay stale; 15 minutes keeps that short while still taking most anonymous traffic off the origin.
+- **An existing site may hold another value** in `config/sync` (one site copy has 3600 s). Production runs `config/sync`, so set it there: `drush cset system.performance cache.page.max_age 900 -y && drush cex -y` locally, commit, deploy. Check on the live site over SSH: `drush cget system.performance cache.page.max_age`.
+- **When to change:** raise it (3600) only if origin load is too high and editors accept listings up to an hour old. Lower it (300) if editors need listings to update within minutes and the recipe's sitewide purge (`PERF_PURGE_SITEWIDE_PATHS`) is off.
 
-- **Default: 1 day** for the `StaticFiles` rule. A changed logo or font shows within a day with nobody purging. Cost: more origin requests for static files.
-- **Alternative: 7 days**, only if `/themes/*` is purged after every deploy (below). Fewer origin requests; a missed purge leaves an old logo for up to a week.
+### Theme files: 1 day (default)
+
+- **Default: 1 day** for the `StaticFiles` rule.
+- **Why:** OIG deploys containers by hand, with no pipeline, so nothing guarantees a purge after each deploy. With 1 day, a changed logo or font shows within a day even if nobody purges. Front Door also "makes no guarantees" it keeps a file for the full lifetime [Learn], so a longer lifetime saves less than it looks.
+- **Cost:** each edge location asks the origin again once a day per file. Those are small static files served by Apache without Drupal.
+- **When to change:** move to 7 days only once a purge of `/themes/*` runs after every deploy (option (b) or (c) below), and only if Front Door's origin-request metrics show static files are a real share of origin load.
 
 ### Purge after a deploy
 

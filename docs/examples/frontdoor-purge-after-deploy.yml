@@ -28,7 +28,7 @@ resources:
       trigger:
         tags:
           include:
-            - <qa tag>
+            - qa      # default: same tag names as the Redis image (redis/bin/docker-deploy)
     - container: siteprod
       type: ACR
       azureSubscription: <arm-service-connection>
@@ -38,7 +38,7 @@ resources:
       trigger:
         tags:
           include:
-            - <prod tag>
+            - prod    # change both if the site uses other tags: App Service > Deployment Center > Settings > Tag
 
 stages:
   - stage: qa
