@@ -89,7 +89,7 @@ param acrPullIdentityId = '<uami-resource-id>'
 param maxmemory = '768mb'
 ```
 
-The Bicep and this `.bicepparam` example compile (`az bicep build` and `az bicep build-params`, Bicep 0.48.1) [V: lab, 2026-10-08]. **Not deployed** [ASSUMED until run in a non-production subscription].
+The Bicep and this `.bicepparam` example compile (`az bicep build` and `az bicep build-params`, Bicep 0.48.1) [V: lab, 2026-10-08]. Not deployed yet. Confirm on qa: [SETUP-GUIDE.md](SETUP-GUIDE.md#3-verify-in-order) section 3 after the first deployment.
 
 ## Drupal settings (App Service environment variables)
 

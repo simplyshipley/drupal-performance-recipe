@@ -6,7 +6,7 @@ Both models use the image in [redis-image.md](redis-image.md). The shared model 
 
 ## 1. One instance per site (current Bicep)
 
-- **Config:** single-site mode (`REDIS_PASSWORD`), one container app with 1 replica, internal ingress.
+- **Config:** single-site mode (`REDIS_PASSWORD`), one container app with 1 replica, TCP ingress inside the VNet.
 - **Sizing:** start at 0.5 vCPU / 1 GiB with `maxmemory 768mb`. Grow when `evicted_keys` rises steadily and the hit rate drops. Only the heavy bins (render, page, dynamic_page_cache, data, entity, menu) live in Redis.
 - **Cost:** one small Consumption container per site, billed for vCPU-seconds and GiB-seconds while running (always, with min 1 replica). About $50 a month per Redis at list prices: [hosting-and-cost.md](hosting-and-cost.md).
 - **Drupal:**
@@ -46,7 +46,7 @@ Both models use the image in [redis-image.md](redis-image.md). The shared model 
 - **FedRAMP boundary and data separation:**
   - Cached render output contains site content, and for logged-in users possibly non-public data.
   - A shared instance puts several systems' data in one process and memory space, separated only by ACL. That must be documented in each system's SSP and boundary diagram.
-  - If the sites are different FedRAMP systems or authorizations, a shared cache crosses boundaries and is likely not acceptable [ASSUMED: confirm with the ISSO].
+  - **Default: never share one cache between different FedRAMP systems or authorizations.** Why: the cache would hold both systems' data inside one boundary. When to change: only with the ISSO's written approval recorded in both SSPs.
 - **Drupal settings per site:** a shared instance would need each site to log in as its own user (`REDIS_USERNAME`). `settings.performance.php` doesn't read `REDIS_USERNAME` (one Redis per site, ruling H4), which is why shared mode isn't supported with the sites today.
 
 ## 3. Recommendation

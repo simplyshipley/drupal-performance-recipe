@@ -4,7 +4,7 @@
 
 Ruling (Bo, 2026-09-25): the Drupal sites use a **self-hosted Redis container**, not the managed service. Only the heavy cache bins use it. The fail-open wrapper keeps the site up when Redis is down (see `docs/azure.md` in the drupal-performance-recipe repository).
 
-**Nothing here has been deployed.** Everything is [ASSUMED] until run in a non-production subscription. Verified only:
+**Not deployed yet.** Settings below cite Microsoft Learn; what only a real deployment can show says **Confirm on qa**. Lab-verified:
 
 - `redis-containerapp.bicep` compiles with `az bicep build` (no warnings) [V: lab, 2026-10-08].
 - The base image `valkey/valkey:9.1.2-alpine3.24` exists on Docker Hub [V: pulled 2026-10-05].
@@ -27,7 +27,7 @@ Since 2026-09-28 it runs the custom image from `image/`, pulled from ACR ([docs/
 
 ## Deploy with Bicep
 
-One time: an identity that may pull from the registry [ASSUMED: standard az commands, not run here]:
+One time: an identity that may pull from the registry. Commands as in Learn, [image pull with managed identity](https://learn.microsoft.com/en-us/azure/container-apps/managed-identity-image-pull) (the Bicep needs this AcrPull assignment; `az containerapp create` makes it for you [Learn]):
 
 ```bash
 az identity create -g <rg> -n <prefix>-redis-pull
@@ -77,14 +77,14 @@ DevOps can create the same thing by hand from the pushed image. These are the se
 | Image | `<registry>.azurecr.us/drupal/redis:9.1.2-<rev>` (a version, not `qa` or `prod`: [HANDOFF.md](../docs/HANDOFF.md#the-image)), pulled with a managed identity that has AcrPull |
 | CPU / memory | 0.5 / 1Gi |
 | Replicas | min 1, max 1 (the default min is 0, which would scale Redis to zero) |
-| Ingress | TCP, internal (not external), target port 6379, exposed port 6379 |
+| Ingress | TCP, **external** (portal: "Accepting traffic from anywhere"), target port 6379, exposed port 6379. On an internal environment that publishes the app only at the environment's internal load balancer in the VNet; *internal* ingress hides it from App Service: "Clients elsewhere in the virtual network receive an HTTP 404 response" [Learn: [ingress overview](https://learn.microsoft.com/en-us/azure/container-apps/ingress-overview#how-ingress-visibility-interacts-with-the-environment-type)]. The Bicep example still says `external: false`: change it before deploying |
 | Secret | `redis-password` as a Key Vault reference (`keyvaultref:<secret URI>,identityref:<identity id>`); the identity needs Key Vault Secrets User |
 | Environment variables | `REDIS_PASSWORD` = secret `redis-password`; `REDIS_MAXMEMORY` = `768mb` (about 75 percent of memory) |
-| Probes | TCP liveness and readiness on 6379. Container Apps uses its own probes, not the image's Docker `HEALTHCHECK` [ASSUMED] |
+| Probes | TCP liveness and readiness on 6379. Container Apps runs only TCP or HTTP probes and "`exec` probes aren't supported" [Learn: [health probes](https://learn.microsoft.com/en-us/azure/container-apps/health-probes)], so the image's `HEALTHCHECK` command isn't used there |
 
 Optional variables the image reads (defaults in [docs/redis-image.md](../docs/redis-image.md)): `REDIS_MAXMEMORY_POLICY` (`volatile-lfu`), `REDIS_ADMIN_PASSWORD`, `REDIS_APP_USERS` + `REDIS_APP_PASSWORD_<NAME>` (shared mode: never set them, the sites don't support it), `REDIS_TLS*`. Never set a start command or arguments: the image's entrypoint builds the config, and it refuses to start without `REDIS_PASSWORD`.
 
-az CLI, same settings [ASSUMED: not run against a subscription; probes are not CLI flags, add them in the portal or with `az containerapp update --yaml`]:
+az CLI, same settings. Every flag is in the `az containerapp create` reference; probes have no flag, so add them in the portal (Health probes) or with `--yaml` [Learn]:
 
 ```bash
 RG=<rg>; LOC=usgovvirginia; P=<prefix>
@@ -100,7 +100,7 @@ az containerapp create -g $RG -n $P-redis --environment $P-cae \
   --image <registry>.azurecr.us/drupal/redis:9.1.2-1 \
   --user-assigned "$ID" --registry-server <registry>.azurecr.us --registry-identity "$ID" \
   --cpu 0.5 --memory 1Gi --min-replicas 1 --max-replicas 1 \
-  --ingress internal --transport tcp --target-port 6379 --exposed-port 6379 \
+  --ingress external --transport tcp --target-port 6379 --exposed-port 6379 \
   --secrets "redis-password=keyvaultref:https://<kv>.vault.usgovcloudapi.net/secrets/redis-password,identityref:$ID" \
   --env-vars REDIS_PASSWORD=secretref:redis-password REDIS_MAXMEMORY=768mb
 ```
@@ -112,7 +112,7 @@ az containerapp create -g $RG -n $P-redis --environment $P-cae \
 
 ## Private DNS
 
-An internal environment's apps resolve under `environmentDefaultDomain` [ASSUMED: standard pattern for internal Container Apps environments].
+An internal environment's apps resolve under `environmentDefaultDomain`. Steps as in Learn, [internal environment, Deploy with a private DNS](https://learn.microsoft.com/en-us/azure/container-apps/vnet-custom-internal):
 
 1. Create a private DNS zone with that name.
 2. Add a wildcard `*` A record pointing to `environmentStaticIp`.
@@ -142,14 +142,18 @@ An internal environment's apps resolve under `environmentDefaultDomain` [ASSUMED
    - To take Redis out during a long outage, set `REDIS_ENABLED=0` (back on: `1`, then `drush cr`).
    - Full list of the site's settings, with required and default values: [HANDOFF.md](../docs/HANDOFF.md#what-the-drupal-sites-need).
 
-3. **TLS.** Traffic between App Service and the Redis container stays in the VNet and is not TLS (`REDIS_SCHEME=tcp`). Container Apps TCP ingress does not terminate TLS for you [ASSUMED]. If your controls require encryption inside the VNet:
+3. **TLS. Default: off** (`REDIS_SCHEME=tcp`); traffic stays in the VNet.
+   - Why: TLS was deferred to DevOps (Bo, 2026-10-06). Learn lists TLS termination only for HTTP ingress, none for TCP [Learn: ingress overview, Protocol types], so Valkey itself would have to do TLS.
+   - When to change: when your security controls require encryption inside the VNet:
    - Set `REDIS_TLS=1` and the certificate files on the container ([docs/redis-image.md](../docs/redis-image.md)); don't add a start command. The port moves to 6380 (6379 closes), so the ingress target and exposed port and the probes move to 6380.
-   - On the site: `REDIS_PORT=6380`, `REDIS_SCHEME=tls`. `tls://` through drupal/redis 1.11 is [ASSUMED], not lab-tested.
+   - On the site: `REDIS_PORT=6380`, `REDIS_SCHEME=tls`. drupal/redis 1.11 passes `tls://<host>` to PhpRedis with no certificate options [V: redis `src/Client/PhpRedis.php:29-32`], so the certificate must chain to a CA the site container trusts. In the lab a private CA failed without its CA file and connected with it [V: lab TLS probe, 2026-10-05].
+   - Confirm on qa (App Service SSH): `php -r '$r=new Redis(); $r->connect("tls://".getenv("REDIS_HOST"),6380,2); $r->auth(getenv("REDIS_PASSWORD")); echo $r->ping(),PHP_EOL;'` prints `1`.
 
 ## Sizing
 
-- Start with `maxmemory` at about 75 percent of container memory (Bicep default: 768 MB in a 1 GiB container).
-- Guide values from the caching guide [ASSUMED]: small site 256 MB, medium 512 MB to 1 GB, large or faceted 1 to 2 GB.
+- **Default: 0.5 vCPU / 1 GiB, `REDIS_MAXMEMORY=768mb`** (about 75 percent of memory; the rest is Valkey overhead).
+- Why: a full anonymous crawl of a 580-page site copy stored about 60 MB in the six Redis bins [V: sitemap crawl, 2026-10-06, database tables with Redis off]. 768 MB leaves room for logged-in, search and facet variants.
+- When to change: raise both together (next pair 0.75 vCPU / 1.5 GiB [Learn: [containers](https://learn.microsoft.com/en-us/azure/container-apps/containers)], `1152mb`) if `evicted_keys` keeps growing week over week.
 - Measure after a crawl: `INFO memory` (`used_memory_peak_human`) and `INFO stats` (`evicted_keys`, `keyspace_hits`/`misses`).
 - Steady evictions with a low hit rate mean it is too small.
 - `drush cr` does not free memory (see `docs/troubleshooting.md` in the drupal-performance-recipe repository).
@@ -160,9 +164,8 @@ An internal environment's apps resolve under `environmentDefaultDomain` [ASSUMED
 |---|---|---|
 | Container restarts | Container Apps metric `RestartCount` | Any restart (Bicep `restartAlert`) |
 | Memory | Container Apps metric `WorkingSetBytes` | Above 90 percent of container memory (Bicep `memoryAlert`, threshold for 1 GiB) |
-| Evictions, hit rate | `redis-cli INFO stats` (no platform metric) | Scheduled check or exporter; alert on steady `evicted_keys` growth [ASSUMED approach] |
+| Evictions, hit rate | `redis-cli INFO stats` (Learn's metric list has none for Redis) | Default: run [SETUP-GUIDE.md](../docs/SETUP-GUIDE.md#3e-ongoing-health-inside-the-container) 3e one week after go-live, then monthly. Add an exporter only if evictions show up |
 | Connection errors seen by Drupal | Drupal syslog, channel `perf_redis_failopen` ("Redis unavailable, serving cache misses ...", about one per 30 s per instance) | Log Analytics query on App Service logs for that text; any hit = Redis outage while the site stayed up. Down longer than 15 minutes: set `REDIS_ENABLED=0` and restart (stops the warnings; dblog keeps only 1,000 rows) |
 | Recovery flush | Drupal log notice "Redis reachable again; emptied bin ..." | Informational |
 
-Metric names are [ASSUMED]; confirm with
-`az monitor metrics list-definitions --resource <redis app resource id>`.
+Metric names `RestartCount` and `WorkingSetBytes` are in Learn's [Container Apps metrics list](https://learn.microsoft.com/en-us/azure/azure-monitor/reference/supported-metrics/microsoft-app-containerapps-metrics). Learn calls `RestartCount` "cumulative ... since it was created", so the restart alert may stay fired after the first restart. Confirm on qa: restart the revision once, wait 30 minutes, then check Monitor → Alerts shows the restart alert as Resolved.

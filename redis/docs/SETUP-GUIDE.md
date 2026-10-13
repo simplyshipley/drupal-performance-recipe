@@ -4,7 +4,7 @@ One walkthrough from a pushed image to a Drupal site using it. The Azure steps a
 
 Labels:
 - **[V]**: run against this image on 2026-10-08, exact output shown.
-- **[ASSUMED]**: an Azure command not yet run against a subscription. Check the result the first time.
+- **[Learn]**: an Azure command checked against the Microsoft Learn CLI reference, not yet run against a subscription. The "Good:" line under it is what to confirm on qa.
 
 Replace `<rg>`, `<app>` (the Redis container app), `<webapp>` (the site's App Service) and `<registry>`.
 
@@ -71,7 +71,7 @@ The container needs (details in [HANDOFF.md](HANDOFF.md)):
 - [ ] Container Apps environment in the VNet (TCP needs a VNet environment), internal only.
 - [ ] Image pulled with an identity that has AcrPull.
 - [ ] 0.5 vCPU, 1 GiB, min 1 / max 1 replicas.
-- [ ] Ingress: TCP, internal, port 6379.
+- [ ] Ingress: TCP, **external**, port 6379 (on an internal environment that stays in the VNet; internal ingress hides it from App Service: [azure/README.md](../azure/README.md#without-the-bicep-portal-or-az-cli)).
 - [ ] Secret `redis-password` as a Key Vault reference (`keyvaultref:<secret URI>,identityref:<identity>`, identity with Key Vault Secrets User) → env `REDIS_PASSWORD`.
 - [ ] Env `REDIS_MAXMEMORY=768mb`.
 - [ ] TCP health probes on 6379.
@@ -89,7 +89,7 @@ Examples for all of this (Bicep, portal, az CLI): [azure/README.md](../azure/REA
 
 Stop at the first check that fails and go to [section 4](#4-troubleshoot).
 
-### 3a. The container is running [ASSUMED]
+### 3a. The container is running [Learn]
 
 ```bash
 az containerapp show -g <rg> -n <app> \
@@ -103,7 +103,7 @@ az containerapp logs show -g <rg> -n <app> --type console --tail 30
 ### 3b. Redis answers inside the container
 
 ```bash
-az containerapp exec -g <rg> -n <app> --command sh      # [ASSUMED]
+az containerapp exec -g <rg> -n <app> --command sh      # [Learn: az containerapp exec]
 ```
 
 Then, in that shell [V]:
@@ -141,7 +141,7 @@ php -r '$r=new Redis(); $r->connect(getenv("REDIS_HOST"),6379,2); $r->auth(geten
 ```
 
 - Good: the three settings, a private IP, `port open`, then `1` or `+PONG`.
-- If `REDIS_HOST` is empty in the SSH session but present in `/proc/1/environ`, run `while IFS= read -r v; do export "$v"; done < <(tr '\0' '\n' < /proc/1/environ | grep '^REDIS_')` first. App Service may not pass app settings to SSH sessions [ASSUMED].
+- If `REDIS_HOST` is empty in the SSH session but present in `/proc/1/environ`, run `while IFS= read -r v; do export "$v"; done < <(tr '\0' '\n' < /proc/1/environ | grep '^REDIS_')` first. Learn: app settings are "injected into the process as environment variables", and in SSH "you might see only a few environment variables" ([custom container, Configure environment variables](https://learn.microsoft.com/en-us/azure/app-service/configure-custom-container#configure-environment-variables)).
 
 ### 3d. Drupal uses it
 
@@ -173,10 +173,10 @@ redis-cli dbsize
 | Symptom | Likely cause | Check | Fix |
 |---|---|---|---|
 | Log: `redis-entrypoint: set REDIS_PASSWORD (single site) or REDIS_APP_USERS (shared); refusing to start without authentication` [V] | No password reached the container | Env vars and Secrets on the container app | Add the secret and the `REDIS_PASSWORD` env var, then create a new revision |
-| Revision never starts; system log mentions pull or unauthorized | The registry identity lacks AcrPull, or the registry server isn't set | `az containerapp logs show ... --type system` [ASSUMED] | Give the identity AcrPull, and set the registry with that identity |
+| Revision never starts; system log mentions pull or unauthorized | The registry identity lacks AcrPull, or the registry server isn't set | `az containerapp logs show -g <rg> -n <app> --type system` [Learn: `--type {console, system}`] | Give the identity AcrPull, and set the registry with that identity |
 | Can't create TCP ingress | The environment has no VNet | Environment settings | TCP ingress needs a VNet environment (Microsoft Learn) |
 | `getent hosts` prints nothing | Private DNS zone missing or not linked to the App Service VNet | Private DNS zone, VNet links | Zone = environment default domain, `*` A record → environment static IP, link to the VNet |
-| `port open` never prints | No VNet integration, or a network security group or route blocks 6379 | App Service → Networking; the subnets' security groups | Integrate the App Service; allow 6379 from its subnet |
+| `port open` never prints | No VNet integration, the app's ingress is internal instead of external, or a network security group or route blocks 6379 | App Service → Networking; the container app's Ingress page; the subnets' security groups | Integrate the App Service; set ingress to external; allow 6379 from its subnet |
 | `NOAUTH Authentication required.` [V] | The client sent no password | `REDIS_PASSWORD` on the App Service | Set it, as a Key Vault reference |
 | `WRONGPASS invalid username-password pair or user is disabled.` [V] | The passwords differ, or the Key Vault reference isn't resolving | App Service → Configuration: the Key Vault reference shows a green check | Give the site's identity Key Vault Secrets User; make both sides use the same secret |
 | Works, then `WRONGPASS` after a password change | The container still has the old secret | Revision start time | Restart the revision. With a Key Vault reference (no version), Container Apps restarts it within 30 minutes |

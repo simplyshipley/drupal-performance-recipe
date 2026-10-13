@@ -1,7 +1,7 @@
 // Self-hosted Redis for one Drupal site on Azure Container Apps.
 // Ruling (Bo, 2026-09-25): self-hosted Redis container, not the managed
-// service. NOT DEPLOYED: everything here is [ASSUMED] until run in a
-// non-production subscription. Validated only with `az bicep build`.
+// service. Not deployed yet: compiles with `az bicep build`; settings cite
+// Microsoft Learn in azure/README.md. Confirm on qa: docs/SETUP-GUIDE.md section 3.
 //
 // - Internal-only Container Apps environment in an existing VNet subnet
 //   (delegated to Microsoft.App/environments; /27 minimum for this
@@ -112,6 +112,8 @@ resource redis 'Microsoft.App/containerApps@2024-03-01' = {
         }
       ]
       ingress: {
+        // Learn: on an internal environment set external: true, or VNet
+        // clients (App Service) can't reach the app. See azure/README.md.
         external: false
         transport: 'tcp'
         targetPort: 6379
@@ -169,8 +171,9 @@ resource redis 'Microsoft.App/containerApps@2024-03-01' = {
   }
 }
 
-// Alerts (Container Apps platform metrics). Metric names [ASSUMED]; check
-// `az monitor metrics list-definitions --resource <redis app id>`.
+// Alerts (Container Apps platform metrics). RestartCount and WorkingSetBytes
+// are in Learn's Microsoft.App/containerapps metrics list; RestartCount is
+// cumulative, so confirm on qa that the restart alert resolves.
 resource restartAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = if (!empty(actionGroupId)) {
   name: '${namePrefix}-redis-restarts'
   location: 'global'

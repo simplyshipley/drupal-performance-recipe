@@ -1,6 +1,11 @@
 # Redis cache container: what it needs
 
-For the team that runs it in Azure. How you deploy it (portal, CLI, Terraform, Bicep, a pipeline) is your call. This page lists what the container and the Drupal sites need. The [azure/](../azure/) folder has a Bicep example (it compiles; it hasn't been deployed) and the same settings for the portal and CLI, for reference only.
+For the team that runs it in Azure. This page lists what the container and the Drupal sites need.
+
+- **Default way to deploy: the portal**, with the settings table in [azure/README.md](../azure/README.md#without-the-bicep-portal-or-az-cli).
+- Why: the sites' containers are deployed without pipelines (Bo, 2026-10-09), and one Redis app per site is a one-time setup.
+- When to change: if your team keeps Azure resources in Bicep or Terraform, start from the Bicep example instead.
+- The [azure/](../azure/) folder has the Bicep example (it compiles; it hasn't been deployed) and the same settings for the portal and CLI.
 
 ## The image
 
@@ -15,9 +20,10 @@ For the team that runs it in Azure. How you deploy it (portal, CLI, Terraform, B
   - "Avoid using static tags like `latest` for container images. Using static tags can lead to caching problems and can make your app difficult to troubleshoot. Instead, use unique tags for each deployment" ([Containers in Azure Container Apps](https://learn.microsoft.com/en-us/azure/container-apps/containers), `image` setting).
   - "Image pull validation is only performed when the container image reference changes during an update. When you update your container app with the same image reference, the validation process is skipped" ([Troubleshoot image pull failures](https://learn.microsoft.com/en-us/azure/container-apps/troubleshoot-image-pull-failures)).
   - Container Apps has no App Service-style deployment from a registry tag: "You aren't currently able to continuously deploy containers based on image changes in a container registry. You must instead use these source-code based continuous deployment pipelines" ([Azure Functions custom container, Container Apps tab](https://learn.microsoft.com/en-us/azure/azure-functions/functions-how-to-custom-container)). The GitHub Actions deploy also asks for "a unique tag such as the Git commit SHA ... instead of a generic tag like latest" ([GitHub Actions for Container Apps](https://learn.microsoft.com/en-us/azure/container-apps/github-actions)).
-  - So `qa` and `prod` record which version each environment should run. Options, your call:
-    - Set the app's image to the exact version (`9.1.2-N`) in the portal, with `az containerapp update --image`, or in your pipeline. That creates a new revision.
-    - OIG deploys containers without pipelines, so the portal step above is the normal way. Optional example pipeline that redeploys when `qa` or `prod` moves (like App Service's Deployment Center): [azure/pipelines/](../azure/pipelines/README.md).
+  - So `qa` and `prod` record which version each environment should run.
+    - **Default:** set the app's image to the exact version (`9.1.2-N`) in the portal (the app → Revisions and replicas → Create new revision → Edit the container), then move the `qa` or `prod` tag to that version. That creates a new revision.
+    - Why: no deploy pipelines (Bo, 2026-10-09), and Learn says use unique tags (quotes above). When to change: only if DevOps adopts the optional pipeline below.
+    - Optional example pipeline that redeploys when `qa` or `prod` moves (like App Service's Deployment Center): [azure/pipelines/](../azure/pipelines/README.md).
     - Let an ACR webhook scoped to `drupal/redis:qa` or `:prod` start your pipeline, which then sets the exact version. ACR webhooks can be scoped to `repository:tag` ([ACR webhooks](https://learn.microsoft.com/en-us/azure/container-registry/container-registry-webhook)).
     - For contrast, App Service CI/CD adds an ACR webhook so a push restarts the app and pulls the image ([App Service custom container CI/CD](https://learn.microsoft.com/en-us/azure/app-service/deploy-ci-cd-custom-container)); Container Apps doesn't do that.
 
@@ -25,7 +31,7 @@ For the team that runs it in Azure. How you deploy it (portal, CLI, Terraform, B
 
 | Need | Value |
 |---|---|
-| Network | TCP on port 6379, reachable from the App Service only (not from the internet) |
+| Network | TCP on port 6379, reachable from the App Service only (not from the internet): an internal environment with the app's ingress set to **external**, which on an internal environment stays inside the VNet ([azure/README.md](../azure/README.md#without-the-bicep-portal-or-az-cli)) |
 | Copies | Exactly 1, always running (never scaled to zero) |
 | Size | 0.5 vCPU, 1 GiB memory |
 | Storage | None. Nothing is saved: a restart starts with an empty cache, which is safe (the sites fall back to the database and refill it) |
