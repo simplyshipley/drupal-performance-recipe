@@ -1,7 +1,8 @@
 # EXAMPLE (optional, DevOps-owned): purge Front Door's theme files after a new
 # site container is deployed. It deploys NOTHING: Deployment Center's registry
 # webhook still pulls the image and restarts the app; the same push starts this
-# pipeline, which waits, then purges /themes/*. Not run yet (ASSUMED).
+# pipeline, which waits, then purges /themes/*. Not run yet: confirm on the
+# first qa push (the pipeline run shows the purge step succeeded).
 # Guide: docs/frontdoor-setup-guide.md, "Purge after a deploy".
 # Service connection: manual ARM, Environment AzureUSGovernment, ACR Contributor
 # or Owner (for the trigger) + the purge-only role on each endpoint.
@@ -10,10 +11,12 @@ trigger: none
 pr: none
 
 variables:
-  # [ASSUMED] time for the webhook's pull and restart; Learn doesn't say how
-  # to tell when it has finished. Raise it if the first run purges too early.
-  # Option [ASSUMED]: poll a health URL until it answers 200 instead; that
-  # shows the app answers, not that it runs the new image.
+  # Default 10 (ruled 2026-10-09). Why: Learn gives no "pull finished" signal;
+  # it says the switch "might take a few minutes" and the platform waits up to
+  # 230 s for a container start by default (WEBSITES_CONTAINER_START_TIME_LIMIT).
+  # When to change: raise it if the app sets a longer start limit or the qa
+  # run still shows an old theme file. Don't poll a health URL instead: the old
+  # container keeps answering 200 until the new one is ready [Learn].
   waitMinutes: 10
 
 resources:

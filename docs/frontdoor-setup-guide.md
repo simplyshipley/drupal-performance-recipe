@@ -6,7 +6,7 @@ Front Door **Premium** (the OIG profiles, Bo 2026-10-09), Azure Government. One 
 
 Labels:
 - **[Learn]**: quoted from Microsoft Learn (links under [Sources](#sources)). Learn's pages are written for commercial Azure; Azure Government uses the portal at [portal.azure.us](https://portal.azure.us).
-- **[ASSUMED]** or **check on the first run**: Learn doesn't say. Confirm it on qa and correct this guide.
+- **Confirm on qa:** Learn doesn't say, so the guide states the behaviour it's designed for and gives the one check that proves it on the qa run. Correct the guide if the check disagrees.
 - **[Lab]**: proven on the local Front Door stand-in ([edge-waf.md](edge-waf.md), results in [tests.md](tests.md)), not on Azure.
 
 Nothing here has been run against real Azure yet. The qa run is the first.
@@ -24,10 +24,10 @@ APP="https://<app>.azurewebsites.us"     # the App Service's own host name (see 
 |---|---|---|
 | Front Door ID | Front Door profile → **Overview** → **Front Door ID** [Learn: "look for the Front Door ID value in the Overview page of your profile"] | 5 |
 | Endpoint and route names | Front Door profile → Settings → **Front Door manager** → expand the endpoint [Learn] | 1–4, 9 |
-| Endpoint host name | Same place. Commercial form is `<endpointname>-*.z01.azurefd.net` [Learn]; the Government form isn't documented (check on the first run) | Testing before DNS moves |
+| Endpoint host name | Same place: copy it from the endpoint row. Commercial form is `<endpointname>-*.z01.azurefd.net` [Learn]; Learn gives no Government form, so always copy it | Testing before DNS moves |
 | Rule set name | Front Door profile → Settings → **Rule sets** [Learn] | 3, 4 |
 | WAF policy name | The WAF policy resource, or Front Door manager → **Security policy** [Learn] | 7 |
-| App Service host name | Learn lists App Service in Azure Government as `azurewebsites.us` (commercial `azurewebsites.net`). Exact name: the app's Overview page (check on the first run) | 5 |
+| App Service host name | The app's **Overview** → **Default domain**. Azure Government uses `azurewebsites.us` (commercial `azurewebsites.net`) [Learn, compare page] | 5 |
 | Log Analytics workspace | Front Door profile → Monitoring → **Diagnostic settings** [Learn] | 7 |
 | Purge values (tenant, client, secret, subscription, resource group, profile, endpoint) | [Quick start: what's needed](quickstart-azure-frontdoor.md#whats-needed-one-copy-per-site-per-environment) (not repeated here) | 10 |
 
@@ -61,7 +61,7 @@ for i in 1 2 3; do curl -s -o /dev/null -D - "$SITE/" | grep -iE '^(x-cache|cach
 
 - **Where:** the same route. "Configure the query string behavior on the Front Door route" [Learn].
 - **Set:** **Use Query String**. Never **Ignore Query String**: it "ignore[s] the query strings until the cached asset expires" [Learn], so Drupal's CSS/JS aggregate URLs and pagers (`?page=2`) would get the wrong file or page.
-- Optional: **Ignore Specified Query Strings** with `utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, `utm_content`, `fbclid`, `gclid`. Whether the list accepts a wildcard like `utm_*` isn't documented [ASSUMED: list each name].
+- Optional: **Ignore Specified Query Strings** with `utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, `utm_content`, `fbclid`, `gclid`. List each name: the field is "The list of query string parameter names, separated by commas" [Learn, rule set actions], so `utm_*` isn't a pattern.
 
 **Test** with an aggregated CSS URL:
 
@@ -142,7 +142,7 @@ CONF
 a2enmod headers && a2enconf no-cache-docs
 ```
 
-- The same `<FilesMatch>` block works in the site's `.htaccess` only if `AllowOverride` permits it. Apache's default is `AllowOverride None`, which ignores `.htaccess` [Apache docs]. Whether the OIG image changes that is [ASSUMED unknown]: the site's `ExpiresDefault "access plus 1 year"` doesn't reach visitors today, so don't rely on `.htaccess`.
+- The same `<FilesMatch>` block works in the site's `.htaccess` only if `AllowOverride` permits it. Apache's default is `AllowOverride None`, which ignores `.htaccess` [Apache docs]. The site's `.htaccess` `ExpiresDefault "access plus 1 year"` doesn't reach visitors today (no `Cache-Control` or `Expires` on a live PDF, 2026-10-09, or on `/robots.txt`, 2026-10-13 [V: live GET]), so don't rely on `.htaccess`. Option A doesn't need it.
 
 **Option B (fallback): a Front Door rule.** Rule `NoCacheDocs`, above `StaticFiles`:
 
@@ -165,13 +165,13 @@ curl -s -o /dev/null -w '%{http_code}\n' -H "If-None-Match: $ETAG" "$SITE$PDF"
 curl -s -o /dev/null -w '%{http_code}\n' -H "If-Modified-Since: $LM" "$SITE$PDF"
 ```
 
-- Good: the image `TCP_MISS` then `TCP_HIT`. The PDF `cache-control: no-cache`, `x-cache` never `TCP_HIT` (with B: `CONFIG_NOCACHE` [Learn]), then `304` twice. That Front Door passes the `If-None-Match` / `If-Modified-Since` check to the origin is [ASSUMED]; check on the first run.
+- Good: the image `TCP_MISS` then `TCP_HIT`. The PDF `cache-control: no-cache`, `x-cache` never `TCP_HIT` (with B: `CONFIG_NOCACHE` [Learn]), then `304` for the `If-Modified-Since` check. Front Door "supports only Last-Modified" and "doesn't support etag" [Learn, caching], so a `200` for the `If-None-Match` check through Front Door is not a failure.
 - [Lab: Lando + local edge, 2026-10-09: no-cache on PDF/DOCX, edge never HIT, 304 for both checks, new ETag after the file was replaced, PNG/CSS unchanged].
 
 | You see | Do this |
 |---|---|
 | No `cache-control` on the PDF | A: mod_headers not loaded (`apache2ctl -M \| grep headers` over SSH) or the conf not enabled (`a2enconf`). B: the rule isn't linked to the route, or a rule above it stops evaluation |
-| `200` instead of `304` | Compare the ETag from two requests. Apache's default ETag is the file's time and size [Apache docs]; with several App Service instances it should match if they share the same file [ASSUMED]. If ETags differ, rely on the `If-Modified-Since` check |
+| `200` instead of `304` for `If-Modified-Since` | Compare `last-modified` from two requests; it must not change. Apache's default ETag is `MTime Size`, no inode [Apache docs], so instances serving the same file send the same ETag; the live site's two-part ETag matches that [V: live GET 2026-10-13] |
 | PDF `x-cache: TCP_HIT` | B: the **Caching: Disabled** override is missing, or `StaticFiles` lists `pdf`. Fix it, then purge the PDF path |
 | Image `CONFIG_NOCACHE` | `StaticFiles` has Caching Disabled, or an earlier rule stopped evaluation |
 | Empty files lose `Content-Type` | Learn: Front Door "strips the Content-Type header for empty files when caching is enabled" |
@@ -182,21 +182,21 @@ What Learn says:
 - Lifetime comes from "`Cache-Control: s-maxage`", then "`max-age`", then "`Expires`". With no `Cache-Control`, Front Door "randomly determines a cache duration between one and three days". The most is "366 days".
 - A rule's cache behavior: **Honor origin** (the origin's headers), **Override always** (the rule's duration, "ignoring the values from origin response directives"), **Override if origin missing** (the rule's duration only when the origin sends none).
 - A lifetime is a maximum: "Azure Front Door makes no guarantees about the amount of time that the content is stored in the cache."
-- Not stated by Learn: whether a rule's duration changes the `Cache-Control` browsers get [ASSUMED: browsers get the origin's header; check on qa by comparing `$SITE` and `$APP` headers for one theme file].
+- Learn says Override always overwrites "The TTL value returned from your origin" for Front Door's cache; it doesn't say what browsers get. Designed for: browsers get the origin's header. Confirm on qa, before section 5 blocks `$APP`: `for u in "$SITE" "$APP"; do curl -s -o /dev/null -D - "$u/core/misc/druplicon.png" | grep -i '^cache-control:'; done` (the same line twice).
 
 | Kind of response | Lifetime set by | Recommended | Why | A change reaches visitors by |
 |---|---|---|---|---|
 | Anonymous HTML pages | Drupal: Configuration → Performance → **Browser and proxy cache maximum age** | 15 min (the recipe's 900 s) | Bounds every page the recipe can't purge (views, menus) | Recipe purge on save (section 10), else expiry |
 | Logged-in pages | Drupal: `must-revalidate, no-cache, private` | Not cached | Front Door "doesn't cache" `private`/`no-cache` "even if you override" [Learn] | Always fresh |
-| 404 and 403 pages | Drupal sends the page max-age (core 404: `max-age=900, public` [Lab]) | Leave as is | Front Door caches only 200 responses; 4xx not cached [Microsoft Q&A answer by a Microsoft moderator, not docs; confirm on qa]. Drupal's own cache keeps them up to `cache_ttl_4xx` ([why 403s arrive in batches](caching-guide.md#why-403s-arrive-in-batches)) | Drupal clears them on any entity save |
+| 404 and 403 pages | Drupal sends the page max-age (core 404: `max-age=900, public` [Lab]) | Leave as is | Front Door caches only 200 responses; 4xx not cached [Microsoft Q&A answer by a Microsoft moderator, not docs]. Confirm on qa: GET `$SITE/no-such-page-check` twice; `x-cache` never `TCP_HIT`. Drupal's own cache keeps them up to `cache_ttl_4xx` ([why 403s arrive in batches](caching-guide.md#why-403s-arrive-in-batches)) | Drupal clears them on any entity save |
 | CSS/JS aggregates (`/sites/default/files/css`, `/js`) | Front Door rule `StaticFiles` (section 4) | Same as theme files | The hash in the name changes with the content | New URL |
 | CSS/JS with a `?` version string (aggregation off) | `StaticFiles` | Same as theme files | Drupal makes a new string on every cache rebuild (`drush cr`, `drush deploy`) [V: `drupal_flush_all_caches()` resets `asset.query_string`, core `common.inc:429`, Drupal 11.4]. Needs Use Query String (section 2) | New URL |
 | Images and fonts under `/core` and `/modules` | `StaticFiles` | Same as theme files | Same URL until a core or module update | Purge `/core/*`, `/modules/*` after an update, or expiry |
 | Theme files under `/themes` (logo, icons, sprites, fonts) | `StaticFiles` | **1 day** ([why](#theme-files-1-day-default)) | Same URL across deploys | Expiry within a day, or purge `/themes/*` after the deploy |
 | Uploaded images and image styles | `StaticFiles` | Same as theme files | Same URL when a file is replaced | The recipe purges the file and its image styles ([azure.md](azure.md#what-gets-purged-path-based-no-tags)) |
 | PDFs and Office files | Apache in the image: `no-cache` (decided, section 4) | Not cached | A replaced report must show at once | Browser asks each time (304) |
-| Redirects (301) | Drupal page max-age [ASSUMED] | Leave as is | Whether Front Door caches 301: not stated by Learn; check on qa | Purge the old path, or expiry |
-| `robots.txt` | The web server: no `Cache-Control` [ASSUMED; check with curl] | Leave as is | Front Door then keeps it 1–3 days [Learn] | Purge `/robots.txt` after editing it |
+| Redirects (301) | Drupal page max-age (`max-age=900, public` on a 301 [V: lab `tmp/codex-oig/run4-smoke.log`; core `FinishResponseSubscriber.php:164-168`]) | Leave as is | Learn doesn't say whether Front Door caches a 301; either way it's 15 minutes at most. Confirm on qa: GET a `/node/<nid>` that has an alias twice and read `x-cache` | Purge the old path, or expiry |
+| `robots.txt` | The web server: no `Cache-Control`, only `Last-Modified` [V: live GET 2026-10-13] | Leave as is | Front Door then keeps it 1–3 days [Learn] | Purge `/robots.txt` after editing it |
 
 ### Anonymous pages: 15 minutes (default)
 
@@ -214,7 +214,7 @@ What Learn says:
 
 ### Purge after a deploy
 
-New containers come from Deployment Center's registry webhook, which "causes your App Service app to restart and run `docker pull`" [Learn]. Nothing below changes that. Purge **after** the new container is serving: a purge before that lets Front Door fetch the old file again [ASSUMED]. Purges "can take up to 10 minutes to propagate" [Learn].
+New containers come from Deployment Center's registry webhook, which "causes your App Service app to restart and run `docker pull`" [Learn]. Nothing below changes that. Purge **after** the new container is serving: "While the new container is pulled and started, App Service continues to serve requests from the old container" [Learn, custom container], so an earlier purge lets Front Door fetch the old file again. Purges "can take up to 10 minutes to propagate" [Learn].
 
 **(a) By hand (DevOps).** Portal: Front Door profile → **Overview** → **Purge cache** → endpoint → domain → **Paths** `/themes/*` [Learn]. Or bash:
 
@@ -238,10 +238,12 @@ drush ws --type=azurecdn --count=5
 - No leading slash: purge refuses it ("Path invalidations cannot start with slashes.", purge `PathInvalidation.php:43-44`); the Azure purger adds it. `p:invalidate` sends at once, "without going through the queue" (`InvalidateCommand.php:75`), so no `p:queue-work` [Lab: sync_wildcard, `scripts/test-local.sh:1118`].
 - Uses the site's own purge app (section 8): no new Azure access. Needs the recipe's wildcard patch ([azure.md](azure.md#what-gets-purged-path-based-no-tags)).
 
-**(c) Automatic, without touching deploys (optional, DevOps-owned).** [Example pipeline](examples/frontdoor-purge-after-deploy.yml): the same registry push that fires the webhook starts an Azure DevOps pipeline (the ACR trigger from [the Redis example](../redis/azure/pipelines/README.md)). It waits a fixed time (default 10 minutes [ASSUMED]: Learn doesn't say how to tell when a webhook pull has finished), then runs `az afd endpoint purge`. It deploys nothing.
+**(c) Automatic, without touching deploys (optional, DevOps-owned).** [Example pipeline](examples/frontdoor-purge-after-deploy.yml): the same registry push that fires the webhook starts an Azure DevOps pipeline (the ACR trigger from [the Redis example](../redis/azure/pipelines/README.md)). It waits a fixed time, then runs `az afd endpoint purge`. It deploys nothing.
+
+- **Default wait: 10 minutes** (ruled 2026-10-09). **Why:** Learn gives no signal that a webhook pull has finished; it says the switch "might take a few minutes", and by default the platform waits up to 230 seconds for a container to start (`WEBSITES_CONTAINER_START_TIME_LIMIT`) [Learn]. 10 minutes covers the pull plus that wait. **When to change:** raise it if the app sets a longer `WEBSITES_CONTAINER_START_TIME_LIMIT`, or if the qa run shows an old theme file after the purge.
 
 - Service connection: manual, Environment AzureUSGovernment, with ACR Contributor or Owner for the trigger and the purge role from section 8 on the endpoint.
-- Not documented by Learn, prove on the first run: the same list as the [Redis example](../redis/azure/pipelines/README.md#not-documented-by-microsoft-learn-prove-with-the-first-live-run).
+- Confirm on the first qa push: the items Learn doesn't document, listed in the [Redis example](../redis/azure/pipelines/README.md#not-documented-by-microsoft-learn-prove-with-the-first-live-run).
 
 **(d)** A registry webhook calling a Logic App or Function also works but needs its own app, identity and code: not simpler than (c).
 
@@ -275,7 +277,7 @@ curl -s -o /dev/null -w 'direct, faked header %{http_code}\n' -H 'X-Azure-FDID: 
 curl -s -o /dev/null -w 'front door %{http_code}\n' "$SITE/"
 ```
 
-- Good: `direct 403`, `direct, faked header 403`, `front door 200`. Learn: "the service replies with an HTTP 403 status code". The 403 page text isn't documented (check on the first run).
+- Good: `direct 403`, `direct, faked header 403`, `front door 200`. Learn: "the service replies with an HTTP 403 status code". The test reads only the status code.
 - Not covered by the local edge (it has no App Service).
 
 | You see | Do this |
@@ -287,22 +289,22 @@ curl -s -o /dev/null -w 'front door %{http_code}\n' "$SITE/"
 
 ### Keep SSH (drush) and deployments working
 
-Needed (Bo, 2026-10-09): the team runs `drush` from the **SSH** link in the App Service's left sidebar in the portal, and that has to keep working; new containers are deployed through App Service **Deployment Center** continuous deployment (the registry webhook), never by a pipeline (Bo, 2026-10-09). Cloud Shell (`az webapp ssh`) isn't used for `drush`. Both go through the app's **advanced tool site** (SCM): `https://<app>.scm.azurewebsites.us`. Learn gives `<app>.scm.azurewebsites.net` (commercial) and `azurewebsites.us` for Government App Service; the Government SCM form is [ASSUMED].
+Needed (Bo, 2026-10-09): the team runs `drush` from the **SSH** link in the App Service's left sidebar in the portal, and that has to keep working; new containers are deployed through App Service **Deployment Center** continuous deployment (the registry webhook), never by a pipeline (Bo, 2026-10-09). Cloud Shell (`az webapp ssh`) isn't used for `drush`. Both go through the app's **advanced tool site** (SCM): `https://<app>.scm.azurewebsites.us`. Learn gives `<app>.scm.azurewebsites.net` (commercial) and `azurewebsites.us` for Government App Service, but no Government SCM form. Read the real one: App Service → Development Tools → **Advanced Tools** → **Go** opens it in a new tab.
 
 What Learn says:
-- The SCM site "is both the web deploy endpoint and the Kudu console" and "has an individual rules collection". With **Use main site rules** selected, "The SCM site uses the rules from the main site" [Learn]. Then only Front Door passes, so SSH and the registry webhook get 403 [ASSUMED; the webhook 403 is reported on Microsoft Q&A].
-- With no SCM rules, "the unmatched rule behavior is to allow all access" [Learn]. The default state of the checkbox isn't documented (check on the first run).
+- The SCM site "is both the web deploy endpoint and the Kudu console" and "has an individual rules collection". With **Use main site rules** selected, "The SCM site uses the rules from the main site" [Learn]. Then only Front Door passes. The portal SSH session runs through Kudu and needs "network access to the SCM endpoint" [Learn, SSH], so SSH gets 403. The webhook gets 403 too (reported on Microsoft Q&A; confirm on qa with the webhook **Ping** below).
+- With no SCM rules, "the unmatched rule behavior is to allow all access" [Learn]. Learn doesn't give the checkbox's default. Confirm on qa: the **Advanced tool site** shows **Use main site rules** unchecked, or `az webapp config show -g <rg> -n <app> --query scmIpSecurityRestrictionsUseMain` prints `false`.
 - Kudu in the browser needs Microsoft Entra sign-in and a role with `Microsoft.Web/sites/publish/Action`, for example Website Contributor [Learn].
 - Deployment Center continuous deployment adds a registry webhook. "The endpoint for a webhook must be publicly accessible from the registry", and it needs **Basic Auth Publishing Credentials** on, or "401 unauthorized" [Learn]. The webhook's source IPs aren't documented.
-- `az webapp config container set` or a restart: "Each time the app restarts, App Service performs the `docker pull` command" [Learn]. These go through Azure Resource Manager, not SCM [ASSUMED].
+- `az webapp config container set` or a restart: "Each time the app restarts, App Service performs the `docker pull` command" [Learn]. These go through Azure Resource Manager, not SCM: "When you send a request through any of the Azure APIs, tools, or SDKs, Resource Manager receives the request" [Learn, ARM overview].
 
 | Option | Advanced tool site | SSH / drush | Deploy | Trade-off |
 |---|---|---|---|---|
 | **A (use this)** | **Use main site rules** unchecked, no rules (allow all) | Portal SSH link, from anywhere after sign-in | Deployment Center webhook works | SCM open to the internet, protected by Entra sign-in and the webhook's basic-auth credentials |
-| B (not for OIG) | Unchecked; Allow agency/VPN IP ranges; unmatched **Deny** | Portal SSH link from the agency network or VPN only (the browser's address must be on the list) [ASSUMED] | Webhook blocked: the registry must reach the SCM site and its source addresses aren't published. Only works with a pipeline, which OIG doesn't use | Smaller exposure; an IP list to maintain |
+| B (not for OIG) | Unchecked; Allow agency/VPN IP ranges; unmatched **Deny** | Portal SSH link from the agency network or VPN only: SSH needs your client to reach the SCM endpoint [Learn, SSH], so the browser's address must be on the list | Webhook blocked: the registry must reach the SCM site and its source addresses aren't published. Only works with a pipeline, which OIG doesn't use | Smaller exposure; an IP list to maintain |
 | Don't | **Use main site rules** checked | Blocked | Webhook blocked | — |
 
-**Where:** same Access Restrictions page → **Advanced tool site** tab (Learn names "Main site" and "Advanced tool site"; the tab layout: check on the first run) → set per the option → **Save**.
+**Where:** same Access Restrictions page → **Advanced tool site** tab (Learn names the two "Main site" and "Advanced tool site") → set per the option → **Save**.
 
 **Test:**
 
@@ -311,7 +313,7 @@ SCM="https://<app>.scm.azurewebsites.us"
 curl -s -o /dev/null -w 'scm %{http_code}\n' "$SCM/"
 ```
 
-- From an allowed place: anything but `403` (a sign-in redirect or `401` is fine [ASSUMED]). From a blocked place (option B, phone off Wi-Fi): `403` [Learn].
+- From an allowed place: anything but `403`. Access restrictions refuse with 403 [Learn], so a sign-in redirect or `401` means you got through. From a blocked place (option B, phone off Wi-Fi): `403` [Learn].
 - SSH: portal → the App Service → **SSH** in the left sidebar (under Development Tools) → **Go** → from the site root, `drush status` shows the database connected.
 - Deploy: registry → **Services** → **Webhooks** → the app's webhook → **Ping**, then a 2xx in **HTTP STATUS** [Learn]. Then restart or redeploy: the site comes back through Front Door on the new image.
 
@@ -363,7 +365,7 @@ AzureDiagnostics
 
 ## 8. Purge access (service principal)
 
-- **Where and set:** one app registration per environment, with a custom role allowed only `Microsoft.Cdn/profiles/afdEndpoints/purge/action`, assigned at its own endpoint: [azure.md, Service principal for purging](azure.md#service-principal-for-purging). That role setup is [ASSUMED], not tried on Azure.
+- **Where and set:** one app registration per environment, with a custom role allowed only `Microsoft.Cdn/profiles/afdEndpoints/purge/action`, assigned at its own endpoint: [azure.md, Service principal for purging](azure.md#service-principal-for-purging). The action exists in Learn's list of `Microsoft.Cdn` operations (`afdendpoints/Purge/action`). Confirm on qa: the section 10 test purges with no `AuthorizationFailed`.
 - **Test:** section 10. **Errors:** `AuthorizationFailed` and the others are in the [quick start table](quickstart-azure-frontdoor.md#if-something-goes-wrong).
 
 ## 9. Compression
@@ -434,7 +436,7 @@ qa first. Promote to prod only when every qa test passes.
 5. A week later: review the WAF log, switch qa to Prevention, test 7 again.
 6. Repeat 1–4 for prod with prod's own values (Front Door ID, endpoint, service principal). Never point prod settings at qa or the reverse.
 
-**Hand to DevOps:** this guide, the [quick start](quickstart-azure-frontdoor.md), [azure.md, Service principal](azure.md#service-principal-for-purging) and [hardening.md, Edge](hardening.md#edge-front-door-waf). **Ask back:** each test's output, the tier (Standard or Premium), the Government endpoint host form, and the 403 page text, so the [ASSUMED] items here can be corrected.
+**Hand to DevOps:** this guide, the [quick start](quickstart-azure-frontdoor.md), [azure.md, Service principal](azure.md#service-principal-for-purging) and [hardening.md, Edge](hardening.md#edge-front-door-waf). **Ask back:** each test's output, including every **Confirm on qa** check, so this guide can be corrected where it disagrees.
 
 ## Sources
 
@@ -450,5 +452,6 @@ Read 2026-10-09 (commercial Learn pages; Government differences from the "compar
 - [HTTP headers](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-http-headers-protocol), [Monitor Front Door](https://learn.microsoft.com/en-us/azure/frontdoor/monitor-front-door), [Configure logs](https://learn.microsoft.com/en-us/azure/frontdoor/standard-premium/how-to-logs)
 - [WAF policy settings](https://learn.microsoft.com/en-us/azure/web-application-firewall/afds/waf-front-door-policy-settings), [Create a WAF policy](https://learn.microsoft.com/en-us/azure/web-application-firewall/afds/waf-front-door-create-portal), [WAF monitoring](https://learn.microsoft.com/en-us/azure/web-application-firewall/afds/waf-front-door-monitor)
 - SCM, SSH and deployments: [Access restrictions overview](https://learn.microsoft.com/en-us/azure/app-service/overview-access-restrictions), [Kudu](https://learn.microsoft.com/en-us/azure/app-service/resources-kudu), [SSH](https://learn.microsoft.com/en-us/azure/app-service/configure-linux-open-ssh-session), [Custom container](https://learn.microsoft.com/en-us/azure/app-service/configure-custom-container?pivots=container-linux), [Container CI/CD](https://learn.microsoft.com/en-us/azure/app-service/deploy-ci-cd-custom-container), [Disable basic auth](https://learn.microsoft.com/en-us/azure/app-service/configure-basic-auth-disable), [ACR webhooks](https://learn.microsoft.com/en-us/azure/container-registry/container-registry-webhook), [Cloud Shell in a virtual network](https://learn.microsoft.com/en-us/azure/cloud-shell/vnet/overview); Microsoft Q&A (community, not docs): [ACR webhook 403 from SCM](https://learn.microsoft.com/en-us/answers/questions/320722/container-registry-webhook-to-app-service-with-pri)
+- Read 2026-10-13 (excerpts in the session's `tmp/verify-sweep-20261013/frontdoor/`): [App Service on Linux FAQ (container start limit)](https://learn.microsoft.com/en-us/troubleshoot/azure/app-service/faqs-app-service-linux), [ARM overview](https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/overview), [Networking permissions (Microsoft.Cdn)](https://learn.microsoft.com/en-us/azure/role-based-access-control/permissions/networking), [site config (`scmIpSecurityRestrictionsUseMain`)](https://learn.microsoft.com/en-us/azure/templates/microsoft.web/sites/config-web)
 - Apache: [core (FileETag, AllowOverride)](https://httpd.apache.org/docs/2.4/mod/core.html), [mod_headers](https://httpd.apache.org/docs/2.4/mod/mod_headers.html)
 - [Connect to Azure Government (portal)](https://learn.microsoft.com/en-us/azure/azure-government/documentation-government-get-started-connect-with-portal), [Compare Azure Government and global Azure](https://learn.microsoft.com/en-us/azure/azure-government/compare-azure-government-global-azure)

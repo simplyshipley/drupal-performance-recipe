@@ -245,10 +245,10 @@ for i in 1 2; do curl -s -o /dev/null -D - https://<site-host>/ | grep -i -E '^H
 # [not run in this project] good: 2nd request x-cache shows a cache hit; Cache-Control max-age=900, public
 ```
 
-- The edge stand-in reports `TCP_HIT`/`TCP_MISS`; the real Front Door value was not verified here: compare 1st and 2nd request.
-- `X-Azure-ClientIP`, `X-Azure-SocketIP`, `X-Azure-FDID` are added by Front Door ([caching-guide.md](caching-guide.md)). `X-Azure-Ref` is not mentioned in the repo docs.
+- Front Door's `x-cache` values are `TCP_HIT`/`TCP_REMOTE_HIT`, `TCP_MISS`, `PRIVATE_NOSTORE`, `CONFIG_NOCACHE` [Learn: [caching](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-caching)]; the edge stand-in reports `TCP_HIT`/`TCP_MISS`. Use GET, not `curl -I`: only GET is cached.
+- `X-Azure-ClientIP`, `X-Azure-SocketIP`, `X-Azure-FDID` are added by Front Door ([caching-guide.md](caching-guide.md)). `X-Azure-Ref` is "A unique reference string that identifies a request", used to search the logs [Learn: [HTTP headers](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-http-headers-protocol)]; see [frontdoor-setup-guide.md §7](frontdoor-setup-guide.md#7-waf).
 
-Purge from the command line, when the Drupal side is not enough (flags: check `az afd endpoint purge -h`; the repo only names the command):
+Purge from the command line, when the Drupal side is not enough (flags per Learn's [az afd endpoint](https://learn.microsoft.com/en-us/cli/azure/afd/endpoint) reference: `--content-paths` required, `--domains` optional; more in [frontdoor-setup-guide.md](frontdoor-setup-guide.md#purge-after-a-deploy)):
 
 ```bash
 az afd endpoint purge --resource-group <rg> --profile-name <afd-profile> --endpoint-name <endpoint> --content-paths '/node/1'
