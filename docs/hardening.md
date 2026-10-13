@@ -4,7 +4,7 @@ Controls for the Azure Front Door, App Service and Drupal stack, plus how to wor
 
 ## Approach
 
-The goal is that anyone scanning or attacking from one IP gets slowed, challenged and then blocked, while authorized testers are let through on purpose. Every control below is \[ASSUMED\] until tested in non-production; confirm each Azure feature is in FedRAMP scope for our cloud.
+The goal is that anyone scanning or attacking from one IP gets slowed, challenged and then blocked, while authorized testers are let through on purpose. Azure features below cite Microsoft Learn; test each control in non-production first ([Testing and checklist](#testing-and-checklist)). Front Door, WAF and App Service are in FedRAMP High scope in Azure Government ([Learn, audit scope](https://learn.microsoft.com/en-us/azure/azure-government/compliance/azure-services-in-fedramp-auditscope)).
 
 - **Layered defense:** Front Door WAF at the edge, locked origin, web server limits in the container, Drupal flood control and modules, then detection and automatic blocking.
 - **Blocking is not fixing:** Assessors still need to test the application itself. A vulnerability hidden behind the WAF is still a vulnerability; the WAF buys time and noise reduction.
@@ -12,10 +12,12 @@ The goal is that anyone scanning or attacking from one IP gets slowed, challenge
 
 ## Edge: Front Door WAF
 
-The WAF policy on Front Door Premium is the main barrier, because it acts before traffic reaches App Service. Start in Detection mode, review logs for a week, then switch to Prevention. \[ASSUMED\]
+The WAF policy on Front Door Premium is the main barrier, because it acts before traffic reaches App Service. Start in Detection mode, then switch to Prevention: Detection "is useful while you tune ... but it provides no protection" ([Learn, best practices](https://learn.microsoft.com/en-us/azure/web-application-firewall/afds/waf-front-door-best-practices)).
+
+- **Default: 7 days in Detection.** Why: Learn gives no period; a week covers weekday and weekend traffic and weekly jobs. When to change: stay longer while the last days still show new false positives; qa can be shorter.
 
 - **Managed rules:** Microsoft's Default Rule Set (OWASP-based) and the Bot Manager rule set, in Prevention mode, with exclusions only where Drupal forms trigger false positives (for example rich-text body fields).
-- **Rate limits, keyed on client IP:**
+- **Rate limits, keyed on the socket IP** (the address that opened the connection, [Learn](https://learn.microsoft.com/en-us/azure/web-application-firewall/afds/waf-front-door-rate-limit)):
 
 | Rule | Match | Suggested limit | Action |
 | --- | --- | --- | --- |
@@ -26,7 +28,7 @@ The WAF policy on Front Door Premium is the main barrier, because it acts before
 
 - **Blocked paths (custom rule, Block):** `/.env`, `/.git*`, `/vendor/*`, `/core/install.php`, `/update.php`, `/core/*.txt` (CHANGELOG, INSTALL), `/wp-admin*`, `/xmlrpc.php`, `/phpmyadmin*`, and any `*.php` except `/index.php`.
 - **Geo-filtering:** If an audience is US-only, block or challenge other countries for everything but static files.
-- **JavaScript challenge:** For bot-heavy paths like search, use the JS challenge action where available instead of an outright block. \[ASSUMED availability\]
+- **JavaScript challenge:** For bot-heavy paths like search, use the JS challenge action instead of an outright block: a Premium action for custom rules and Bot Manager 1.x, HTML only ([Learn](https://learn.microsoft.com/en-us/azure/web-application-firewall/waf-javascript-challenge)).
 - **Scanner signatures:** Blocking known scanner user agents is easy to bypass but cuts noise; treat it as a bonus, not a control.
 
 ## Bot controls and response headers at Front Door (2026-09-29)
@@ -35,7 +37,7 @@ These are the Azure versions of what the local edge emulates ([edge-waf.md](edge
 `bot_challenge` and `security_headers`). They come from the uspsoig.gov check
 ([uspsoig-cache-bot-check.md](uspsoig-cache-bot-check.md)).
 
-Everything not stated on the Microsoft pages listed under Sources below is marked [ASSUMED], including availability in our Azure Government SKU.
+Azure Government: availability "implies that all corresponding service features are available", and Learn lists no Front Door or WAF exceptions ([Learn, compare](https://learn.microsoft.com/en-us/azure/azure-government/compare-azure-government-global-azure#service-availability)). **Confirm on qa:** `az network front-door waf-policy managed-rule-definition list -o table` lists `Microsoft_BotManagerRuleSet` 1.1.
 
 Sources opened:
 - https://learn.microsoft.com/en-us/azure/web-application-firewall/afds/waf-front-door-custom-rules
@@ -57,8 +59,8 @@ Things that must keep working:
 - partners fetching RSS or PDFs.
 
 Prefer, in order:
-- **Verified bots:** Bot Manager's "good bots" group, i.e. verified search engines. [ASSUMED: group names as in Bot Manager 1.1]
-- **Monitor IP ranges:** exact IP ranges published by the monitor vendor (`RemoteAddr` `IPMatch`).
+- **Verified bots:** Bot Manager's `GoodBots` group (1.1: search engine crawlers `Bot200100`, verified link checkers, feed fetchers and others) ([Learn, DRS](https://learn.microsoft.com/en-us/azure/web-application-firewall/afds/waf-front-door-drs)).
+- **Monitor IP ranges:** exact IP ranges published by the monitor vendor (`SocketAddr` `IPMatch`). Not `RemoteAddr`: it comes from `X-Forwarded-For`, "which a client can set" ([Learn](https://learn.microsoft.com/en-us/azure/web-application-firewall/afds/asn-match-condition)). Monitors need this rule: Bot Manager 1.1 counts "Site health monitoring services" as unknown bots.
 - **A secret header:** for partners, a header value rotated like a password.
 
 Never allow by user agent alone; it is trivially spoofed.
@@ -69,7 +71,7 @@ Never allow by user agent alone; it is trivially spoofed.
   "priority": 5,
   "ruleType": "MatchRule",
   "matchConditions": [
-    { "matchVariable": "RemoteAddr", "operator": "IPMatch", "negateCondition": false,
+    { "matchVariable": "SocketAddr", "operator": "IPMatch", "negateCondition": false,
       "matchValue": [ "<monitor-cidr-1>", "<monitor-cidr-2>" ] }
   ],
   "action": "Allow"
@@ -83,13 +85,8 @@ JavaScript challenge is a Front Door **Premium** custom-rule and Bot Manager 1.x
 supported. Its cookie is `afd_azwaf_jsclearance`, valid for 5–1,440 minutes (default 30). Custom
 rule conditions are ANDed, so one rule with both conditions means "both headers missing".
 
-The action string `JSChallenge` and the "header missing" test (regex `.+` negated) are [ASSUMED]:
-verify both in a non-production policy.
-
-**Spot check (2026-09-29):**
-- The Front Door WAF REST reference (api-version 2022-05-01) lists `ActionType` as `Allow`, `Block`, `Log`, `Redirect` and `AnomalyScoring`, with **no JSChallenge**.
-- The JS challenge page says the action exists on Premium, so it needs a newer API version or portal setting.
-- `JSChallenge` stays [ASSUMED] until checked in our tenant.
+- **Action value:** `JSChallenge` is in the REST `ActionType` from API version 2024-02-01 (not in 2022-05-01) [Microsoft REST specs, `FrontDoor/stable/*/webapplicationfirewall.json`]. The az CLI's `--action` takes only Allow, Block, Log, Redirect, so set it in the portal (below).
+- **Missing header:** how a condition on an absent header evaluates isn't documented. **Confirm on qa** with the rule on `Log`: `curl -s -o /dev/null -A 'Mozilla/5.0 Chrome/130.0' "$SITE/"`, then Logs: `AzureDiagnostics | where Category == "FrontDoorWebApplicationFirewallLog" | where action_s == "Log"`. Good: a row for this rule from the curl, none from a normal browser visit.
 - The bot rule set name `Microsoft_BotManagerRuleSet` is verified (see the second link under Evidence).
 
 **Match both headers missing, not either.** Real browsers can lack `Sec-Fetch-Mode`: Chrome before 76, Firefox before 90 and Safari before 16.4 do not send it, and privacy tools can strip it. So:
@@ -105,15 +102,15 @@ verify both in a non-production policy.
   "ruleType": "MatchRule",
   "matchConditions": [
     { "matchVariable": "RequestMethod", "operator": "Equal", "matchValue": ["GET", "HEAD"] },
-    { "matchVariable": "RequestHeader", "selector": "User-Agent", "operator": "Regex",
+    { "matchVariable": "RequestHeader", "selector": "User-Agent", "operator": "RegEx",
       "matchValue": ["(Chrome|Firefox|Safari|Edg)/"] },
-    { "matchVariable": "RequestHeader", "selector": "Sec-Fetch-Mode", "operator": "Regex",
+    { "matchVariable": "RequestHeader", "selector": "Sec-Fetch-Mode", "operator": "RegEx",
       "negateCondition": true, "matchValue": [".+"] },
-    { "matchVariable": "RequestHeader", "selector": "Accept-Language", "operator": "Regex",
+    { "matchVariable": "RequestHeader", "selector": "Accept-Language", "operator": "RegEx",
       "negateCondition": true, "matchValue": [".+"] },
-    { "matchVariable": "RequestHeader", "selector": "Cookie", "operator": "Regex",
+    { "matchVariable": "RequestHeader", "selector": "Cookie", "operator": "RegEx",
       "negateCondition": true, "matchValue": ["S?SESS[0-9a-f]+="] },
-    { "matchVariable": "RequestUri", "operator": "Regex", "negateCondition": true,
+    { "matchVariable": "RequestUri", "operator": "RegEx", "negateCondition": true,
       "transforms": ["Lowercase"],
       "matchValue": ["\\.(css|js|png|jpe?g|gif|svg|ico|webp|woff2?|pdf|xml|rss|json|txt|csv|docx?|xlsx?|zip)(\\?|$)",
                      "/(sites/[^/]+/files|system/files|core|modules|themes)/", "/(rss\\.xml|feed)"] }
@@ -130,19 +127,16 @@ az CLI:
 
 ```bash
 az network front-door waf-policy rule create -g <rg> --policy-name <policy> \
-  --name ChallengeBrowserNoSecFetch --priority 20 --rule-type MatchRule --action Log --defer
+  --name ChallengeBrowserNoBrowserHeaders --priority 20 --rule-type MatchRule --action Log \
+  --match-variable RequestHeader.User-Agent --operator RegEx --values "(Chrome|Firefox|Safari|Edg)/"
 az network front-door waf-policy rule match-condition add -g <rg> --policy-name <policy> \
-  --name ChallengeBrowserNoSecFetch --match-variable RequestHeader.User-Agent \
-  --operator RegEx --values "(Chrome|Firefox|Safari|Edg)/"
-az network front-door waf-policy rule match-condition add -g <rg> --policy-name <policy> \
-  --name ChallengeBrowserNoSecFetch --match-variable RequestHeader.Sec-Fetch-Mode \
+  --name ChallengeBrowserNoBrowserHeaders --match-variable RequestHeader.Sec-Fetch-Mode \
   --operator RegEx --values ".+" --negate true
-# ... RequestMethod and RequestUri conditions as in the JSON; then:
-az network front-door waf-policy rule update -g <rg> --policy-name <policy> \
-  --name ChallengeBrowserNoSecFetch --action JSChallenge
+# ... Accept-Language, Cookie, RequestMethod and RequestUri conditions as in the JSON.
+# After review, in the portal: WAF policy > Custom rules > ChallengeBrowserNoBrowserHeaders > Action: JS Challenge
 ```
 
-The `az network front-door waf-policy` commands apply to Standard/Premium policies. Check the flag names with `--help` on your CLI version [ASSUMED].
+Flags as in the Learn CLI reference ([waf-policy rule](https://learn.microsoft.com/en-us/cli/azure/network/front-door/waf-policy/rule?view=azure-cli-latest), front-door extension, CLI 2.75.0+). There is no `--defer`, and `--action` has no JSChallenge.
 
 Evidence:
 - Microsoft REST reference: https://learn.microsoft.com/en-us/rest/api/frontdoor/webapplicationfirewall/policies/create-or-update
@@ -151,8 +145,9 @@ Evidence:
 
 ### Bot Manager
 
-Enable the managed rule set `Microsoft_BotManagerRuleSet` (verified name; 1.0 in Microsoft's example,
-1.1 if offered; availability in Azure Government [ASSUMED]) next to DRS:
+Enable the managed rule set `Microsoft_BotManagerRuleSet` **1.1** (default) next to DRS. Why: Learn says
+"use the most recent version of the rule set" (its CLI example still shows 1.0). When to change: when
+Learn's DRS page lists a newer version. Azure Government: the check under [Bot controls](#bot-controls-and-response-headers-at-front-door-2026-09-29).
 - **Bad bots:** Block.
 - **Unknown bots:** Log first, then JSChallenge.
 - **Good (verified) bots:** Allow.
@@ -167,13 +162,13 @@ large cloud and hosting providers, and exclude the allow-listed monitors and par
 ```json
 { "name": "ChallengeDataCenters", "priority": 30, "ruleType": "MatchRule",
   "matchConditions": [
-    { "matchVariable": "RemoteAddr", "operator": "<ASN operator>", "matchValue": ["<asn-list>"] },
-    { "matchVariable": "RequestUri", "operator": "Regex", "negateCondition": true,
+    { "matchVariable": "SocketAddr", "operator": "AsnMatch", "matchValue": ["<asn>", "<asn>"] },
+    { "matchVariable": "RequestUri", "operator": "RegEx", "negateCondition": true,
       "matchValue": ["\\.(css|js|png|jpe?g|gif|svg|ico|woff2?|pdf|xml|rss)(\\?|$)"] } ],
   "action": "Log" }
 ```
 
-The ASN operator and match-variable names are [ASSUMED]; they were not on the opened page.
+`AsnMatch` on `SocketAddr`, AS numbers as decimal strings without `AS` (Premium) ([Learn, ASN match](https://learn.microsoft.com/en-us/azure/web-application-firewall/afds/asn-match-condition)). The CLI's `--operator` list lacks it: use the portal or the JSON.
 
 ### Response headers (rules engine, or origin)
 
@@ -215,7 +210,7 @@ Lab test `generator_removed`: PASS with the module, FINDING without it
 
 ## App Service and container
 
-The origin must be unreachable except through Front Door, or every edge control can be bypassed. \[ASSUMED\]
+The origin must be unreachable except through Front Door, or every edge control can be bypassed. Learn: accept requests only from the `AzureFrontDoor.Backend` service tag and check `X-Azure-FDID`, because "IP address filtering alone isn't sufficient" ([Learn, origin security](https://learn.microsoft.com/en-us/azure/frontdoor/origin-security)).
 
 - **Access restrictions:** Allow only the `AzureFrontDoor.Backend` service tag with the `X-Azure-FDID` header; deny all else. Keep the advanced tool site (SCM, Kudu) on its own rules: it carries `drush` over SSH and deployments ([options](frontdoor-setup-guide.md#keep-ssh-drush-and-deployments-working)). Premium: Private Link origin.
 - **Platform settings:** HTTPS only, minimum TLS 1.2, FTP and FTP basic auth publishing credentials off; **SCM** basic auth publishing credentials stay **on**, because the Deployment Center webhook from the registry needs them ("401 unauthorized" otherwise, [frontdoor-setup-guide.md](frontdoor-setup-guide.md#keep-ssh-drush-and-deployments-working)), managed identity for Azure access, no secrets in images.
@@ -229,7 +224,7 @@ The origin must be unreachable except through Front Door, or every edge control 
 
 ## Drupal
 
-Drupal's own controls catch what gets past the edge and protect logged-in features. Verify each module's Drupal 10.6 support and security coverage on drupal.org before adopting it. \[ASSUMED\]
+Drupal's own controls catch what gets past the edge and protect logged-in features. Before adopting a module, check its drupal.org page for the security-coverage shield, and that `composer require` resolves on the site's core.
 
 - **Flood control (core):** Tighten `user.flood` (`ip_limit`, `ip_window`, `user_limit`, `user_window`). It only works per real IP, which depends on the client IP setup.
 - **Modules to evaluate:**
@@ -249,7 +244,7 @@ Drupal's own controls catch what gets past the edge and protect logged-in featur
 
 ## Detection and automated response
 
-Switching IPs defeats per-IP limits, so detection must look at behavior across IPs and push blocks back to the edge. \[ASSUMED\]
+Switching IPs defeats per-IP limits (clients on different socket IPs "each have their own rate limits", [Learn](https://learn.microsoft.com/en-us/azure/web-application-firewall/afds/waf-front-door-rate-limit)), so detection must look at behavior across IPs and push blocks back to the edge.
 
 - **Logs:** Front Door access and WAF logs, App Service logs and Drupal syslog, all sent to Log Analytics, with Microsoft Sentinel on top if available.
 - **Alerts:** Spikes in WAF blocks, many 404s or 403s from one IP or ASN, failed logins across many accounts, requests for blocked paths, and admin access from new locations.
@@ -259,12 +254,12 @@ Switching IPs defeats per-IP limits, so detection must look at behavior across I
 
 ## Working with penetration testers
 
-Authorized testers should be let in deliberately, on a schedule, with the allowlist removed afterward. FedRAMP assessments are run by a third-party assessor (3PAO) under FedRAMP's penetration test guidance; confirm current requirements with the assessor. \[ASSUMED\]
+Authorized testers should be let in deliberately, on a schedule, with the allowlist removed afterward. FedRAMP's [Penetration Test Guidance](https://www.fedramp.gov/resources/documents/CSP_Penetration_Test_Guidance.pdf) (v3, 2022-06-30) has a FedRAMP-recognized 3PAO test under written Rules of Engagement. **Default:** write ours from its Appendix D template. When to change: if the assessor brings its own template.
 
 - **Rules of engagement:** Written scope (hosts, paths, accounts), test window, tester source IPs, contacts on both sides, and what counts as out of bounds.
 - **Two passes:**
   1. **Protections on:** Testers from the internet with no allowlist. Proves the WAF, rate limits and auto-blocking work. Record what got blocked and how fast.
-  2. **Allowlisted:** A WAF custom rule with the highest priority allows the testers' IPs, ideally also requiring a secret header, and only for the test window. Proves the application itself is sound behind the WAF.
+  2. **Allowlisted:** A WAF custom rule with the highest priority allows the testers' IPs (`SocketAddr`), ideally also requiring a secret header, and only for the test window. Proves the application itself is sound behind the WAF.
 - **During testing:** Keep logging and alerts on so the test also exercises detection. Tell the on-call team, so real incidents aren't ignored.
 - **Afterward:** Remove the allowlist rule, confirm removal in the WAF policy, and track findings to fixes, not WAF exceptions.
 - **Multiple IPs:** A tester rotating IPs to evade blocks is a legitimate test of pass 1; the detection section is what should catch it.

@@ -1,8 +1,8 @@
 # Research: a local stand-in for Azure Front Door caching and Azure WAF
 
 Researched 2026-09-26 for the `edge/` service. Every Microsoft statement below comes from a
-learn.microsoft.com page that was opened in this session. Each claim is labelled [V: page] when
-a source was read, or [ASSUMED] when it was not checked.
+learn.microsoft.com page that was opened in this session. Each claim is labelled [V: page] with the
+source read. Rechecked 2026-10-13 (evidence in the session's `tmp/verify-sweep-20261013/azure-waf/`).
 
 ## Sources opened
 
@@ -27,7 +27,7 @@ a source was read, or [ASSUMED] when it was not checked.
 - **Rules engine cache behaviours:** Honor origin, Override always, and Override if origin missing. The rules engine overrides the route. [V: S1]
 - **Query-string modes:** Ignore Query String, Use Query String, Ignore Specified, and Include Specified. [V: S1]
   - Parameter order does not matter: `q=1&r=2` is the same as `r=2&q=1`. [V: S1]
-  - Microsoft Learn "Caching - Azure Front Door" (S1, page dated 2025-09-25, read 2026-10-05) says "If there's more than one key-value pair in a query string of a request then their order doesn't matter" and, for Use Query String, "The order of the query string parameters doesn't matter." [V: S1] Duplicate parameters (the same name twice) are not mentioned, so their handling is unknown. These are the commercial docs; parity in Azure Government is [ASSUMED].
+  - Microsoft Learn "Caching - Azure Front Door" (S1, page dated 2025-09-25, read 2026-10-05) says "If there's more than one key-value pair in a query string of a request then their order doesn't matter" and, for Use Query String, "The order of the query string parameters doesn't matter." [V: S1] Duplicate parameters (the same name twice) are not mentioned, so their handling is unknown. These are the commercial docs. Azure Government: availability "implies that all corresponding service features are available", and its Front Door entry lists no exceptions ([compare](https://learn.microsoft.com/en-us/azure/azure-government/compare-azure-government-global-azure#service-availability)).
 - **Validators:** Front Door uses Last-Modified only. ETag is not supported. `REVALIDATED_HIT` exists. [V: S1]
 - **Request headers not forwarded when caching is on:** Content-Length, Transfer-Encoding, Accept, Accept-Charset, Accept-Language and Vary. [V: S1]
 - **Authorization requests:** These are not cached unless the response has must-revalidate, public or s-maxage. [V: S1]
@@ -84,12 +84,12 @@ a source was read, or [ASSUMED] when it was not checked.
 - **Block response:** 403 with "The request is blocked." and a tracking reference. [V: S7]
   - A custom body can use `{{azure-ref}}`.
   - Rate-limit blocks return 429. [V: S7]
-- **Custom rules and geo-filtering:** custom rules evaluate before managed rules, and geo-match conditions are available. [ASSUMED: the geo page was not opened]
+- **Custom rules and geo-filtering:** "custom rules are processed before processing the rules in a managed rule set", and geo-filtering is a custom rule with `GeoMatch` on `SocketAddr`. [V: [WAF overview](https://learn.microsoft.com/en-us/azure/web-application-firewall/afds/afds-overview), [geo-filtering](https://learn.microsoft.com/en-us/azure/web-application-firewall/afds/waf-front-door-tutorial-geo-filtering)]
 
 ## Existing emulators
 
 - **LocalStack Azure Front Door:** control plane only. It has no proxying, no caching and no WAF. [V: S8]
-- **Azemu (github ZeroDeth/azemu):** a community Go emulator. Not evaluated. [ASSUMED]
+- **Azemu (github ZeroDeth/azemu):** a community Go emulator. Not used: not Microsoft's, and the edge below covers what the tests need. Revisit only if the local edge stops covering a test.
 - **Conclusion:** there is no maintained data-plane emulator of Front Door or its WAF.
 
 ## Candidate evaluation

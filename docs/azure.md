@@ -4,9 +4,9 @@ Azure settings for the recipe. For DevOps and developers deploying it to Azure A
 
 Setting up Front Door purging for qa and prod: start with the one-page [Front Door quick start](quickstart-azure-frontdoor.md).
 
-Nothing here was run against Azure. Everything is [ASSUMED] unless it names lab evidence. Confirm each Azure service is in FedRAMP scope for your cloud (see the caching guide).
+Nothing here was run against Azure. Azure statements cite Microsoft Learn or Microsoft's REST specs; the few only a real run can prove say **Confirm on qa** with the check. Every Azure service used here (App Service, Front Door, WAF, Key Vault, Container Apps, Container Registry, Entra ID, MySQL, Monitor) is in FedRAMP High scope in Azure Government ([Learn, audit scope](https://learn.microsoft.com/en-us/azure/azure-government/compliance/azure-services-in-fedramp-auditscope), read 2026-10-13).
 
-> **Redis ruling (Bo, 2026-09-25), replacing the earlier open decision:**
+> **Redis ruling (Bo, 2026-09-25):**
 > - OIG sites use a **self-hosted Redis container** (Azure Container Apps, see
 >   [redis/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis/azure/README.md)), not the managed service.
 > - **Only the heavy bins** go to Redis: `render`, `page`, `dynamic_page_cache`, `data`,
@@ -32,8 +32,8 @@ Nothing here was run against Azure. Everything is [ASSUMED] unless it names lab 
 
 ## App Service application settings (environment variables)
 
-App Service exposes "Application settings" to the container as environment variables
-[ASSUMED: standard App Service behaviour]. This is the complete list `settings.performance.php`
+App Service passes "app settings" to a custom container "by using the `--env` flag", and editing one "triggers an app restart"
+([Learn, configure-common](https://learn.microsoft.com/en-us/azure/app-service/configure-common#configure-app-settings)). This is the complete list `settings.performance.php`
 reads in production, checked against the code on 2026-10-08 (the two modules read no
 environment variables; they read the `$settings` this file sets). "Unset" means not set or empty.
 
@@ -63,7 +63,7 @@ environment variables; they read the `$settings` this file sets). "Unset" means 
 | `AZURE_CDN_PROFILE` | App setting | **Yes** for purge | empty | Front Door profile name |
 | `AZURE_CDN_ENDPOINT` | App setting | **Yes** for purge | empty | Front Door endpoint name |
 | `AZURE_CDN_ENDPOINT_TYPE` | Leave unset | No | `afdEndpoints` (recipe config) | Front Door vs classic CDN |
-| `AZURE_CDN_API_VERSION` | Leave unset | No | `2024-02-01` (recipe config) | Purge API version [ASSUMED valid for afdEndpoints purge in Azure Government] |
+| `AZURE_CDN_API_VERSION` | Leave unset | No | `2024-02-01` (recipe config) | Purge API version. A published stable version with `afdEndpoints` purge; [Azure Government check](#azure-government-patched-azure_cdn_purge) |
 | `PERF_PURGE_LIST_PATHS` | Optional app setting | No | `/,/node,/rss.xml` | Paths purged on `*_list` tag invalidations |
 | `PERF_PURGE_SITEWIDE_PATHS` | Optional app setting | No | empty (`/*` = everything) | Paths purged on menu and block changes |
 | `DRUPAL_CACHE_TTL_4XX` | Leave unset | No | `3600` | How long 4xx responses are cached; see guide "Why 403s arrive in batches" |
@@ -137,8 +137,14 @@ Endpoints, from Microsoft's docs:
 | Token scope | `https://management.azure.com/.default` | `https://management.usgovcloudapi.net/.default` | Microsoft's sovereign-cloud pattern `credential_scopes=[resource_manager + "/.default"]` ([Azure SDK for Python, sovereign clouds](https://learn.microsoft.com/en-us/azure/developer/python/sdk/azure-sdk-sovereign-domain)) |
 | Front Door | | Standard and Premium GA in US Gov Arizona and US Gov Texas | same "compare" page, Networking > Azure Front Door |
 
-Whether `api-version` `2024-02-01` is available for `afdEndpoints` purge in Azure Government is
-[ASSUMED], not verified.
+`api-version` `2024-02-01` (the recipe default) is a stable Microsoft.Cdn version that includes
+`afdEndpoints/{endpoint}/purge` [Microsoft REST specs, `Cdn/stable/2024-02-01/afdx.json`]; Learn's
+reference page shows the current one, `2025-04-15`. Learn lists no API versions per cloud.
+
+- **Default:** keep `2024-02-01`. Why: a published stable version, and the one the lab tests send.
+  When to change: if Azure Government rejects it (an API-version error in the `azurecdn` log);
+  then set `AZURE_CDN_API_VERSION` to a version the check below lists.
+- **Confirm on qa** (Azure Government CLI): `az provider show --namespace Microsoft.Cdn --query "resourceTypes[?resourceType=='profiles/afdEndpoints'].apiVersions" -o tsv`
 
 Settings (environment variables, read by `settings.performance.php`):
 
@@ -169,29 +175,31 @@ Government. Evidence: [V: tmp/ddev/run6-gov.log, tmp/lando-run5-gov.log].
 
 ## Service principal for purging
 
-Not run against Azure. Use a custom role with one action. Do not use the built-in roles:
+Use a custom role with one action. Do not use the built-in roles:
 "CDN Endpoint Contributor" covers classic CDN endpoints, not Front Door, and "CDN Profile
 Contributor" would let a leaked secret change the origins.
 
 1. Create an app registration with a client secret.
-2. Write `role.json`: one action, assignable only at the Front Door **endpoint**:
+2. Write `role.json`: one action, available in the Front Door's resource group. Learn advises against a
+   single resource in `AssignableScopes` ("possible ... it's not recommended"); the assignment in
+   step 4 is what limits it to the endpoint ([Learn, role definitions](https://learn.microsoft.com/en-us/azure/role-based-access-control/role-definitions#assignablescopes)).
 
    ```json
    {
      "Name": "<role name>",
      "Description": "Purge one Front Door endpoint, nothing else",
      "Actions": ["Microsoft.Cdn/profiles/afdEndpoints/purge/action"],
-     "AssignableScopes": ["<endpoint resource id>"]
+     "AssignableScopes": ["/subscriptions/<sub id>/resourceGroups/<front door resource group>"]
    }
    ```
 
-3. Create the role [not run against Azure]:
+3. Create the role:
 
    ```bash
    az role definition create --role-definition @role.json
    ```
 
-4. Assign it to the app, at the endpoint scope [not run against Azure]:
+4. Assign it to the app, at the endpoint scope:
 
    ```bash
    az role assignment create --assignee <app id> --role "<role name>" --scope <endpoint resource id>
@@ -200,8 +208,11 @@ Contributor" would let a leaked secret change the origins.
 5. Keep the secret in Key Vault with a short lifetime (for example 90 days). To rotate: add a
    new secret, update Key Vault, restart the app, delete the old secret.
 
-Go-live check: on a non-production profile, save a node and confirm the purge works with only
-this role (failures log to the `azurecdn` channel). Until then, "one action is enough" is [ASSUMED].
+One action is enough: the module makes only two calls, the token request (no Azure role) and the
+purge `POST` [V: `AzurePurger.php:182,208`], and that `POST` is the `afdEndpoints/purge/action`
+operation [Learn, [Microsoft.Cdn permissions](https://learn.microsoft.com/en-us/azure/role-based-access-control/permissions/networking)].
+**Confirm on qa:** save a node, then over SSH `drush watchdog:show --type=azurecdn --severity=Error --count=5`
+(good: no rows; `AuthorizationFailed` = the role or its scope is wrong).
 
 What the module sends [V: mock log, tmp/ddev/run3-final.log]:
 
@@ -239,7 +250,9 @@ Drupal's cache tag invalidations into paths [V: `PathMapper.php`, `PerfPurgePath
 See the caching guide sections "Azure Front Door for Drupal" and "Client IP pass-through".
 The recipe's part: Drupal sends `Cache-Control: max-age=900, public` for anonymous pages and
 `must-revalidate, no-cache, private` for logged-in users [V: headers_anon / headers_auth]. Front
-Door must honour origin cache headers and bypass the cache for `SESS*` cookies [ASSUMED].
+Door never caches `private`/`no-cache` responses, "even if you override the caching behavior by
+using the Rules Engine" [Learn, [caching](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-caching)]. Honouring
+origin headers and the `SESS` cookie bypass are set in [frontdoor-setup-guide.md](frontdoor-setup-guide.md#3-bypass-the-cache-for-logged-in-users-and-admin-paths) [Lab: edge_bypass_session].
 
 ## Redis: self-hosted container (ruled)
 

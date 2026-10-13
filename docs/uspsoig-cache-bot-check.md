@@ -9,7 +9,7 @@ Exported from the Claude Doc https://claude.ai/code/artifact/1223714d-40ac-47a3-
 Front Door does not cache the homepage HTML: both requests returned `x-cache: CONFIG_NOCACHE`, so every visitor goes to App Service even though Drupal marks the page cacheable for 30 minutes. Turning on Front Door HTML caching for anonymous visitors is the largest available improvement.
 
 - **Also found:** a plain `curl` with a browser user agent got the full page twice, so the current bot blocking does not stop simple scripted clients.
-- **Scope:** the homepage only, two requests. Other page types and static assets are untested (see the last sections).
+- **Scope:** the homepage only, two requests. CSS, JS and images were checked on Oct 6 (re-check below); the other page types in [Not yet tested](#not-yet-tested) were not.
 
 ## Method and scope
 
@@ -40,9 +40,9 @@ Two slow GET requests to `https://www.uspsoig.gov/` on 2026-09-29 at 20:31:05 an
 
 ## Recommended caching strategy
 
-These follow from the homepage headers; the Front Door configuration itself was not visible. [ASSUMED where noted]
+These follow from the homepage headers; the Front Door configuration itself was not visible.
 
-1. **Cache anonymous HTML at Front Door, honoring Drupal's `max-age`.** Start near 5 minutes, then move toward Drupal's 30 once path purging (performance recipe) is live. Bypass on `SESS`/`SSESS` cookies and `/user*`, `/admin*`, `/node/*/edit`, `/batch`, `/search*`. Expect most anonymous traffic to leave App Service. [ASSUMED]
+1. **Cache anonymous HTML at Front Door, honoring Drupal's `max-age`.** Default 900 s, as the recipe sets ([why](frontdoor-setup-guide.md#anonymous-pages-15-minutes-default)). Bypass on `SESS`/`SSESS` cookies and `/user*`, `/admin*`, `/node/*/edit`, `/batch`, `/search*`. Some requests still reach App Service, because "each Front Door edge site manages its own cache" ([Learn](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-caching)). **Confirm on prod:** Front Door profile > Analytics > Reports > Cache (cache hit ratio).
 2. **Long lifetimes for static assets:** aggregated CSS/JS, `/themes/*`, `/libraries/*`, files. Keep "Use query string"; ignore only `utm_*`, `fbclid`, `gclid`.
 3. **Turn on Front Door compression** to add Brotli for text.
 4. **Headers at the edge:** add `includeSubDomains` to HSTS if all subdomains are HTTPS; roll out a stricter CSP in report-only mode; remove the Generator meta tag.
@@ -50,7 +50,7 @@ These follow from the homepage headers; the Front Door configuration itself was 
 
 ## Bot blocking
 
-Plain curl with a Chrome user agent got the page twice, so current bot rules do not stop low-rate scripted clients. Curl cannot be blocked completely, but it can be made much harder. Feature availability in our Azure Government SKU is [ASSUMED] until checked.
+Plain curl with a Chrome user agent got the page twice, so current bot rules do not stop low-rate scripted clients. Curl cannot be blocked completely, but it can be made much harder. JS challenge, Bot Manager and AS-number rules need Front Door **Premium**; Azure Government has no listed exceptions ([hardening.md](hardening.md#bot-controls-and-response-headers-at-front-door-2026-09-29), with the qa check).
 
 | Layer | Rule | Stops curl? | Watch out for |
 | --- | --- | --- | --- |
@@ -61,16 +61,16 @@ Plain curl with a Chrome user agent got the page twice, so current bot rules do 
 | Rate limits (existing) | Per-IP limits | Only fast clients | Low and slow evades it |
 
 - **Keep working:** search engines, search.gov, the Digital Analytics Program, uptime monitors, accessibility scanners, and partners fetching RSS/PDFs (allow by verified bot, IP, or a secret header).
-- **Rollout:** each new rule in Detection mode for a week, review what it would have blocked, then Prevention.
+- **Rollout:** each new rule on `Log` for 7 days ([why](hardening.md#edge-front-door-waf)), review what it would have blocked, then Prevention.
 - **Local testing:** the header-consistency rule is being added to the local edge/WAF in the performance recipe with a test (browser-like request passes, bare curl is challenged).
 
 ## Header hardening to fix
 
-The homepage sends the basic headers but two need tightening and a few are missing. Set them once at Front Door (rules engine response headers) or in the origin web server so every response gets them. Items marked [ASSUMED] need checking before rollout.
+The homepage sends the basic headers but two need tightening and a few are missing. Set them once at Front Door (rules engine response headers) or in the origin web server so every response gets them.
 
 | Header | Now | Recommended | Notes |
 | --- | --- | --- | --- |
-| `Strict-Transport-Security` | `max-age=31536000` | `max-age=31536000; includeSubDomains; preload` | Only after confirming every uspsoig.gov subdomain serves HTTPS. Federal policy requires HSTS on .gov sites [ASSUMED: confirm current CISA/OMB wording] |
+| `Strict-Transport-Security` | `max-age=31536000` | `max-age=31536000; includeSubDomains; preload` | Only after confirming every uspsoig.gov subdomain serves HTTPS. Federal policy requires HSTS: "all publicly accessible Federal websites and web services provide service through a secure connection (HTTPS-only, with HSTS)" ([CISA BOD 18-01](https://www.cisa.gov/news-events/directives/bod-18-01-enhance-email-and-web-security), building on OMB M-15-13) |
 | `Content-Security-Policy` | `default-src https: data: 'unsafe-inline' 'unsafe-eval'` | See rollout below | Current policy allows any HTTPS script and inline/eval code, so it gives almost no XSS protection |
 | `Permissions-Policy` | not sent | `camera=(), microphone=(), geolocation=(), payment=(), usb=()` | Adjust if a feature is used |
 | `X-Frame-Options` | `SAMEORIGIN` | keep, plus CSP `frame-ancestors 'self'` | CSP is the modern control |
@@ -81,7 +81,7 @@ The homepage sends the basic headers but two need tightening and a few are missi
 
 ### CSP rollout
 
-1. **Inventory third parties** the site loads (analytics such as the Digital Analytics Program, fonts, video embeds, forms). [ASSUMED: not inventoried yet]
+1. **Inventory third parties** the site loads (analytics such as the Digital Analytics Program, fonts, video embeds, forms). Oct 6 found Google Tag Manager and `hotlineform.uspsoig.gov` (below). Default: finish the list from the report-only reports in step 2, which name every blocked host.
 2. **Send `Content-Security-Policy-Report-Only`** with a starting policy, collecting reports for 2 to 4 weeks:
     `default-src 'self'; script-src 'self' <analytics hosts>; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' <analytics hosts>; frame-src <video hosts>; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests`
 3. **Remove `'unsafe-eval'`** first, then work toward removing inline scripts (Drupal's CSP module can add nonces).
