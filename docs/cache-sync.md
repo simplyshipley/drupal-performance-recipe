@@ -48,7 +48,7 @@ The fixes (small and in scope):
 
    `$config['perf_purge_paths.settings']['enabled'] = FALSE;` in settings.php turns it off. It queues through azure's `path_queuer`, so the queue, processors and chunking are unchanged.
 2. **`patches/azure_cdn_purge-wildcardpath-purged.patch`.** Wildcard invalidations are now sent to Azure. Add it to the root composer.json patches ([install.md](install.md)).
-3. **Alias and file hooks in `perf_purge_paths`** (formerly the optional `perf_purge_deleted` module). They run while the alias or file still exists, because tags arrive too late for a deleted one (open decision 1). They use the same queuer, so switching path purging off turns them off too. Nothing to install ([install.md](install.md#deleted-and-renamed-aliases-and-deleted-files)).
+3. **Alias and file hooks in `perf_purge_paths`** (formerly the optional `perf_purge_deleted` module). They run while the alias or file still exists, because tags arrive too late for a deleted one ([known gap 1](#defaults-for-the-known-gaps)). They use the same queuer, so switching path purging off turns them off too. Nothing to install ([install.md](install.md#deleted-and-renamed-aliases-and-deleted-files)).
 
    | Hook | Queues |
    |---|---|
@@ -80,9 +80,9 @@ These counts were measured with azure_cdn_purge's node hook removed by perf_purg
 | One save queues each path once | `sync_single_save` | – | **PASS** (fail-proof: with `SYNC_NEGATIVE=1` only the alias is queued, so it FAILS [V: tmp/ddev/sync-single-failproof.log]) |
 | Node with alias: alias, `/node/N`, trailing slash, `?query` | `sync_alias` | FAIL: only the alias (and its query variants) purged; `/node/N`, `/node/N/`, `alias/` stale | **PASS** |
 | New node shows in listings (`/`, `/node`, `/rss.xml`, `?page=0`) | `sync_listing` | FAIL: all stale, new title missing | **PASS** |
-| Alias changed (UI-style update of the same alias) | `sync_alias_change` | FAIL: old alias served 200 from the edge | **PASS**: the old alias was purged and is now 404. The old alias was in the purge request (mock log) because the alias lookup still returned it when `node:N` was mapped. The `path_alias` update made no new revision. That this timing holds on every save path is [ASSUMED]. See open decision 1. |
-| Node deleted | `sync_delete` | FAIL: alias and `/node/N` stale | **PASS** with the delete hooks: alias and `/node/N` both 404 [V: tmp/lando-deleted-on.log]. **FINDING** without it [V: tmp/lando-deleted-off.log]: `/node/N` was purged (now 404), but the **alias stays cached** until its TTL. Cause [V: Drupal 10.6.17 core read in the Lando lab, 2026-10-05]: the alias is already deleted when the tags are mapped (ordering below). See open decision 1. |
-| Alias deleted on its own (the node stays) | `sync_alias_delete` | FINDING: alias and `alias/` stay `TCP_HIT` | **PASS** with the module: both purged (HIT → MISS). The edge then refetches a **200** from Drupal's page cache (open decision 1). FINDING without the module. |
+| Alias changed (UI-style update of the same alias) | `sync_alias_change` | FAIL: old alias served 200 from the edge | **PASS**: the old alias was purged and is now 404. The old alias was in the purge request (mock log) because the alias lookup still returned it when `node:N` was mapped. The `path_alias` update made no new revision. The timing no longer matters: `hook_path_alias_update` queues the old alias itself (`PerfPurgePathsHooks.php:149-159`) [V: Kernel test `testRenamingAnAliasQueuesTheOldAlias`]. |
+| Node deleted | `sync_delete` | FAIL: alias and `/node/N` stale | **PASS** with the delete hooks: alias and `/node/N` both 404 [V: tmp/lando-deleted-on.log]. **FINDING** without it [V: tmp/lando-deleted-off.log]: `/node/N` was purged (now 404), but the **alias stays cached** until its TTL. Cause [V: Drupal 10.6.17 core read in the Lando lab, 2026-10-05]: the alias is already deleted when the tags are mapped (ordering in known gap 1). |
+| Alias deleted on its own (the node stays) | `sync_alias_delete` | FINDING: alias and `alias/` stay `TCP_HIT` | **PASS** with the module: both purged (HIT → MISS). The hook also invalidates the node's tags, so Drupal's cached `200` for the alias is cleared (`PerfPurgePathsHooks.php:136-139`); PASS = nothing served from the edge cache and each URL fresh or a 404 (ruling x, 2026-10-06). FINDING without the module. |
 | File deleted (upload removed, cron cleanup) | `sync_file_delete` | FINDING: file and its image-style URL stay `TCP_HIT` | **PASS** with the module: both purged, now 404. FINDING without it. |
 | Image swapped, old file cleaned up | `sync_file_swap` | FINDING: old file and its image-style URL stay `TCP_HIT` | **PASS** with the module: old URLs purged (404), new file served with the right bytes. FINDING without it. |
 | Alias renamed on its own (admin "URL aliases" form) | probe only, no suite test | Old alias stays `TCP_HIT` (nothing is queued) | Old alias purged (HIT → MISS) with the module [V: tmp/lando-probe-alias-rename.log, module on and off] |
@@ -92,48 +92,44 @@ These counts were measured with azure_cdn_purge's node hook removed by perf_purg
 | Taxonomy term | `sync_other_entities` | FAIL: stale | **PASS** |
 | User edit | `sync_other_entities` | – | Nothing to purge: `/user/*` is bypassed at the edge |
 | Media | – | – | Not installed in the lab. A file replaced in place (same file entity, same URL) is purged through `file:N`. Switching a media item to a **new** file purges nothing at the edge: `media:N` tags map to no paths, and the old file URL stays public [V: code read, `PathMapper.php` maps only `node`, `taxonomy_term`, `file:N` and the site-wide tags; not run]. |
-| Menu link / block content shown on every page | `sync_menu_block` | FAIL | **FINDING** with the default: every page stays stale until the HTML TTL. **PASS** with `PERF_PURGE_SITEWIDE_PATHS=/*`. See open decision 2. |
+| Menu link / block content shown on every page | `sync_menu_block` | FAIL | **FINDING** with the default: every page stays stale until the HTML TTL. **PASS** with `PERF_PURGE_SITEWIDE_PATHS=/*`. Default and why: known gap 2. |
 | File replaced at the same URL (file entity saved) | `sync_file` | FAIL: old bytes for the static TTL | **PASS** |
 | Bulk: 60 nodes in one drush call | `sync_bulk` | PASS: 60 items, 2 requests of ≤50 paths | PASS: 124 items, 3 requests of ≤50 paths, queue empty |
-| Processing: cron vs drush vs late runtime | `sync_cron` | PASS | PASS: stale until a processor runs. The test runs only `purge_processor_cron`'s cron hook, never a full cron (2026-10-08). The late-runtime processor is not installed. See open decision 3. |
+| Processing: cron vs drush vs late runtime | `sync_cron` | PASS | PASS: stale until a processor runs. The test runs only `purge_processor_cron`'s cron hook, never a full cron (2026-10-08). The late-runtime processor is not installed. Default and why: known gap 3. |
 | Wildcard purge (`news/*`) | `sync_wildcard` | FAIL: marked done, no API call | **PASS** (patch) |
 | Save while Redis is down (fail-open) | `sync_redis_down` (wrappers, Redis stopped) | – | See the full-suite logs |
 | Purge API returns 5xx | `purge_retry` (existing) | – | PASS: the item stays queued and is retried |
-| Redirect module, language prefixes | – | – | Not in the lab and untested. Only the default-language alias is queued [ASSUMED gap for multilingual sites]. |
-| Content moderation | – | – | Not installed. State changes are node saves [ASSUMED, untested]. |
+| Redirect module, language prefixes | – | – | Redirect (`auto_redirect: true`): the old alias was purged (`TCP_MISS`) and then answered `301` [V: OIG site copy on Lando, 2026-10-08]. Language prefixes: none queued, see known gap 1. |
+| Content moderation | – | – | A state change saves the node (core `EntityModerationForm.php:151-158`, 10.6.17), so the node's paths are queued as for any save. Moderation resets `status` from the state on save (`ModerationHandler.php:52-55`), so `sync_publish_cycle`, which sets `status` directly, FAILS on moderated sites [V: OIG site copy on Lando, 2026-10-08]. |
 
-## Open decisions (for Bo)
+## Defaults for the known gaps
 
-1. **Old aliases (delete, and alias changes without timing luck).**
+Each gap has a default the recipe ships today. Suite `FINDING` lines point here ([tests.md](tests.md)).
+
+1. **Old aliases (delete, rename, retarget).**
+   - **Default: the alias and file hooks are on** whenever path purging is on (`PerfPurgePathsHooks.php:126-167`). Nothing to install or set.
+   - **Why:** core invalidates a deleted node's tags after its alias is gone, so the tag mapping alone can't find the alias (below). Without the hooks a deleted page's alias stays cached at the edge until it expires [V: tmp/lando-deleted-off.log].
+   - **When to change:** never on its own. The hooks go off only with path purging (`$config['perf_purge_paths.settings']['enabled'] = FALSE;`).
    - **Verified ordering on delete** [V: Drupal 10.6.17 core, read in the Lando lab on 2026-10-05]:
-     `core/lib/Drupal/Core/Entity/EntityStorageBase.php:450-462` runs the predelete hook, then `doDelete()`, then `postDelete()`, then the delete hook. `core/modules/path/src/Plugin/Field/FieldType/PathFieldItemList.php:57-65` removes the node's aliases during `doDelete()`. `core/lib/Drupal/Core/Entity/EntityBase.php:557-568` invalidates the entity's cache tags in `postDelete()`, after the alias is gone. `core/modules/path_alias/src/Entity/PathAlias.php:119-125` clears the alias cache.
    - **Consequence:** the tag-to-path mapping (`perf_purge_paths`, and any `hook_entity_delete` that builds a URL, such as index_now) runs too late: the alias is already deleted. The alias can still be read in `hook_entity_predelete` / `hook_node_predelete` on the node, and in `hook_path_alias_predelete` / `hook_path_alias_delete`: `PathFieldItemList.php:65` calls the `path_alias` storage `delete()`, which runs the predelete and delete hooks with the alias entity (`EntityStorageBase.php:452` and `:462`; hook names built at `:213-218`) inside the node's `doDelete()` (`:456`), before the node's `postDelete()` tag invalidation (`:460`). The delete hook was run in the lab and it works [V: tmp/lando-deleted-on.log].
-   - **Status: option A is built and ships** as part of `perf_purge_paths` (lab-tested as the separate `perf_purge_deleted`: 3 new tests plus `sync_delete`, on and off).
-   - A. The hooks (built, in `perf_purge_paths`, nothing to install).
-   - B. Short HTML TTL and accept the window.
-   - C. The redirect module.
 
-   Recommendation: A on sites that delete or rename public pages or files often, otherwise B.
-
-   **What the lab found while testing option A:**
+   **What the lab found:**
    - **`path_alias:N` never fires.** Core invalidates only `route_match` for an alias (`PathAlias.php:41` and `:168-170`) [V: core read; tags recorded in the lab for a rename and for a delete: tmp/lando-probe-alias-tags.log]. So the mapping row for `path_alias:N` is dead on stock core, and a rename in the admin "URL aliases" form leaves the old alias cached. `hook_path_alias_update` is what covers it [V: tmp/lando-probe-alias-rename.log: nothing queued and `TCP_HIT` without the module; old alias queued and purged with it].
    - **Drupal's page cache outlives the alias.** After deleting only the alias entity, Drupal still answers the old alias with `200` from its page cache; a query-string variant or `drush cr` gives 404 [V: tmp/lando-probe-alias-only-delete-origin.log]. The purge is correct, but the edge refetches that 200 and keeps it for the HTML TTL. A node delete does not have this problem, because `node:N` clears the page cache. Fixed since: both alias hooks invalidate the cache tags of the entity the alias points to (`PerfPurgePathsHooks.php`).
    - **Covered:** an alias pointed at a different system path with the same text. The alias is queued and the tags of both system paths are invalidated [V: Kernel tests `AliasAndFileHooksTest::testRetargetingAnAlias*`, failing before the fix and passing after: tmp/jrock-alias-retarget/; not run in the lab].
-   - **Open gap, needs Bo's ruling:** an alias added on its own (admin URL aliases form) is purged at the edge, but Drupal's own cached 404 is cleared only by entity saves (the `4xx-response` tag). The edge can refetch that cached 404 for up to `cache_ttl_4xx` (3600 s) [V: tmp/drop-fast404-20261007/17 log].
+   - **Alias added on its own** (admin URL aliases form, no entity save): the edge copy is purged, but Drupal's cached 404 stays until `cache_ttl_4xx` (3600 s, `settings.performance.php:108`) [V: tmp/drop-fast404-20261007/17-probe-standalone-alias.log]. **Default: accept it.** Why: pages are normally published by saving the node, which clears `4xx-response` (core `EntityBase.php:538-541`). When to change: if editors often add aliases by hand, lower `DRUPAL_CACHE_TTL_4XX` to 900, or ask for the code change (invalidate `4xx-response` in `pathAliasInsert()`).
    - **Queue volume:** an import that creates N aliased nodes queues about 2N extra paths (the alias and `alias/` for each).
-   - **Not covered** [INFERRED from the hook code, not run]: aliases of other languages (no language prefix is queued).
-   - **Queue volume per deleted file:** the file URL plus one URL per image style, whatever the file type or scheme (private, temporary, PDFs). `PathsQueuer::pathsForFile()` does not filter, and the tag mapping is unchanged [V: code; a deleted PNG queued 1 + 4 paths in the Lando lab]. A cleanup that deletes many files queues that many times (1 + number of styles).
+   - **Other languages:** only the stored alias, without a language prefix, is queued (`PathMapper.php:71` looks it up with no language; the hooks queue `getAlias()`). Fine for single-language sites: one OIG site copy has `language` on with one language and an empty prefix [V: its `language.negotiation.yml`]. A site that adds a prefixed language needs a code change first.
+   - **Queue volume per deleted file:** public files only; private and temporary files queue nothing (`PathMapper.php:112-116`, Kernel test `testDeletingPrivateOrTemporaryFileQueuesNothing`). An image queues its URL plus one URL per image style that supports it (`:121-125`; core `ImageStyle::supportsUri()` accepts only image-toolkit extensions), a PDF just its URL [V: a deleted PNG queued 1 + 4 paths in the Lando lab]. A cleanup that deletes many images queues 1 + number of styles each.
 2. **Menus and blocks (site-wide changes).**
-   - A. `PERF_PURGE_SITEWIDE_PATHS=/*`: a full endpoint purge on each save, which causes an origin load spike.
-   - B. Wait for the HTML TTL.
-
-   Recommendation: B with a short TTL. Use A where menus change rarely and must be correct at once.
+   - **Default: no site-wide purge.** `PERF_PURGE_SITEWIDE_PATHS` is empty (`settings.performance.php:269`), so other pages show a menu or block change when their edge copy expires: at most the page lifetime, 900 s (`recipe.yml`).
+   - **Why:** `/*` purges the whole endpoint on every menu link, block or menu save, and the next requests all go to the origin at once.
+   - **When to change:** set `PERF_PURGE_SITEWIDE_PATHS=/*` on a site where menu and block changes are rare (a few a day) and must show at once. `sync_menu_block` then passes [V].
 3. **Stale window.**
-   - A. Cron every 1–5 minutes.
-   - B. `purge_processor_lateruntime`, which purges during the editor's request. It needs an Azure token and API call per save, which adds latency to saves.
-   - C. A scheduled drush run.
-
-   Recommendation: A (5 minutes) with a short HTML TTL.
+   - **Default: the cron processor** (`purge_processor_cron`, installed by `recipe.yml`), with cron every 5 minutes from the site's scheduler (the recipe doesn't schedule cron). A saved page stays stale at the edge for up to one interval plus Azure's purge time.
+   - **Why:** the editor's save makes no Azure call. The late-runtime processor isn't installed; it would add a token request and a purge call to every save.
+   - **When to change:** if 5 minutes is too long, run `drush p:queue-work --finish` on its own 1-minute schedule ([Cron contention](#cron-contention-found-2026-09-29-lando)).
+   - **Confirm on qa:** save a page; `drush p:queue-volume` shows 1 or more, and 0 five minutes later. `drush state:get system.cron_last` shows the last cron run (Unix time).
 
 ## Cron contention (found 2026-09-29, Lando)
 
@@ -152,8 +148,8 @@ The test now waits up to 180 s for the lock before running cron, and reports the
 
 ## Recommended settings
 
-- **HTML TTL:** 15–60 min. This bounds every remaining gap.
-- **Static assets:** long TTL. Aggregates are content-hashed, and same-URL replacements are purged via `file:N`.
+- **HTML TTL:** 900 s, the recipe's value. It bounds every remaining gap ([why, and when to change it](frontdoor-setup-guide.md#anonymous-pages-15-minutes-default)).
+- **Static assets:** 1 day at Front Door ([why](frontdoor-setup-guide.md#theme-files-1-day-default)). Aggregates are content-hashed, and same-URL replacements are purged via `file:N`.
 - **Processors:** cron processor on and cron every 5 minutes, plus `drush p:queue-work` in deploys.
 - **perf_purge_paths:**
   - Keep path purging on (the default).

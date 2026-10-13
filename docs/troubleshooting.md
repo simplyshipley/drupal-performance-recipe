@@ -16,7 +16,7 @@ With the default settings a Redis outage is absorbed by `modules/perf_redis_fail
 - **Slow first request after Redis hangs:** expected. It is bounded by the module's 2 s connect and read timeout, once per retry window per PHP-FPM instance [V: redis_hang 2.04 s, tmp/jrock-cut/13-ddev-suite.log].
 - **Still HTTP 500 with `RedisException`:** check that the `perf_redis_failopen` module is installed.
 - **Planned or long outage:** set `REDIS_ENABLED=0` (the bins use the database, no deploy).
-- **Report page:** the redis module's `/admin/reports/redis` talks to Redis directly and is not wrapped [ASSUMED: it may error while Redis is down; admin only]. The status report only shows "Not connected" [V: redis.install].
+- **Report page:** the redis module's `/admin/reports/redis` is not wrapped. It uses a client only if one already connected in that request, else it shows "Not connected" [V: redis 8.x-1.11 `ReportController.php:47-53`, `:84-93`]. The status report also shows "Not connected" [V: redis.install].
 
 ## `drush cr` does not delete Redis keys
 
@@ -128,13 +128,13 @@ Core's Fast 404 is set in `docroot/sites/default/settings.config.php` (`system.p
 node's alias. Check `perf_purge_paths.settings:enabled` and see
 [azure.md](azure.md#what-gets-purged-path-based-no-tags) for what the module queues.
 
-## Redis report page shows two warnings
+## Redis report page warnings
 
-`/admin/reports/redis` shows both of these on a recipe site. Both are expected; do not "fix" them.
+Both are expected on a recipe site; do not "fix" them.
 
 - "Using an allkeys eviction policy may drop cache tag checksums ...": the checksums are in the
   database, not Redis (`azure.md` ruling), so an evicted key is only a cache miss. We now use
-  `volatile-lfu`, so the warning may not appear [ASSUMED: report not re-read after the change].
+  `volatile-lfu`, so it no longer appears: it shows only for a policy starting with `allkeys` [V: redis 8.x-1.11 `ReportController.php:282-294`; image default `REDIS_MAXMEMORY_POLICY=volatile-lfu`, `redis/image/Dockerfile:15`].
 - "No cache tags found, make sure that the redis cache tag checksum service is used": same
   reason. Moving the checksum service to Redis made a Redis outage a site outage (HTTP 500).
 
@@ -165,5 +165,6 @@ See [lando.md](lando.md) (vhost must be under `services.appserver.config.vhosts`
 ## `all predefined address pools have been fully subnetted` on `ddev start`
 
 Docker ran out of network subnets (32 networks existed) [V]. Remove unused networks of
-throwaway projects only (`docker network ls`, then `docker network remove <name>`); networks
-of stopped DDEV/Lando projects are recreated when those projects start [ASSUMED].
+projects you have deleted (`docker network ls`, then `docker network remove <name>`). Compose
+creates a project's network on `docker compose up` [Docker docs: Compose networking]; the docs don't
+say a stopped container reattaches, so leave networks of projects you still use.

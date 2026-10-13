@@ -108,7 +108,7 @@ Test `cache_mode_guard`:
 ## Pitfalls
 
 - **Forgetting to switch back.** `dev` stays on until you change it. `ddev perf-cache status` tells you which mode is active. The test wrappers restore your mode, but a crash of the host shell (not the script) can leave `prod-like` on.
-- **With Redis configured, `off` is not "dev".** `settings.performance.php` puts the heavy bins on Redis after `settings.local.php`, which overrides its null backends. Use `dev` if you want no caches.
+- **With Redis configured, `off` is not "dev".** `settings.performance.php` puts the heavy bins on Redis after `settings.local.php`, which overrides its null backends. For no caches, use `dev`.
 - **In `dev`, `X-Drupal-Cache` is `MISS` on every request, not absent.** The page cache middleware still runs, but its bin is a null backend.
 - **Changing modes needs a container rebuild.** The command does it. If you set `PERF_CACHE_MODE` in the environment instead, run `drush cr` yourself.
 - **Never deploy a `perf-cache-mode` file.** In production, leave `PERF_CACHE_MODE` unset; the block is then a no-op.

@@ -9,7 +9,7 @@ Run commands through your environment wrapper (`ddev composer`, `lando drush`, a
 - Drush: `composer require drush/drush` (the 10.6 project template does not include it) [V].
 - PHP extensions `redis` (phpredis) and `apcu` in the web container.
   - DDEV's PHP 8.3 image has both (phpredis 6.3.0) [V: `php -m`].
-  - For Azure images, add them to your Dockerfile [ASSUMED].
+  - Azure image: confirm on qa over the SSH link: `php -m | grep -E '^(redis|apcu)$'` (two lines). If missing, add `redis apcu` to the OIG base image's `install-php-extensions` list (DevOps), or a `RUN install-php-extensions redis apcu` in the site Dockerfile's **final** stage; the build stage's extensions don't reach the running image [V: OIG site copy `Dockerfile`; installer supports both for PHP 8.3, mlocati/docker-php-extension-installer].
 
 ## 2. Let Composer place recipes
 
@@ -28,7 +28,7 @@ The recipe is two Composer packages:
   modules and the settings include). The recipe requires it.
 
 Composer reads `composer.json` only at a repository's root, so a `vcs` repository on this GitHub
-repo cannot supply the modules package [ASSUMED: Composer behaviour, not tested].
+repo cannot supply the modules package [getcomposer.org Repositories: a subfolder `package-path` exists only for Subversion; monorepos use `path` repositories].
 
 **OIG sites (chosen 2026-10-07): commit the files into the site repo.** No package repositories:
 copy the recipe to `recipes/`, the modules to `docroot/modules/custom/`, and `composer require` the
@@ -71,7 +71,7 @@ require $app_root . '/modules/custom/drupal-performance-modules/settings/setting
 
 - Where each setting comes from (module README or our own choice): [sources.md](sources.md).
 - Every block is controlled by environment variables and does nothing when they are unset. The full list is at the top of `settings.performance.php`.
-- Redis is used only when `REDIS_HOST` is set [ASSUMED: code guard at settings.performance.php "Redis cache backend" block; the no-Redis path was not run in the lab].
+- Redis is used only when `REDIS_HOST` is set, the `redis` extension is loaded, the module code exists and Drupal is not installing [V: guard at `settings.performance.php:141-144`].
 
 - With DDEV's `ddev/ddev-redis` add-on: it adds its own `settings.ddev.redis.php`. Retire it (rename with the `__ARCHIVED_` prefix) so this file is the only Redis configuration [V].
 
@@ -96,7 +96,7 @@ Do not run a full `drush cron` here: it runs every module's cron job. On the OIG
 [V: tmp/codex-oig/sitemap/cron-A.log]. The recipe no longer needs a cron run (the Themed Fast 404 page build is gone).
 
 Result:
-- 11 modules installed: big_pipe, syslog, redis, purge, purge_ui, purge_processor_cron, purge_queuer_coretags, purge_drush, azure_cdn_purge, page_cache, dynamic_page_cache.
+- 12 modules installed: page_cache, dynamic_page_cache, big_pipe, syslog, redis, purge, purge_ui, purge_processor_cron, purge_drush, azure_cdn_purge, perf_redis_failopen, perf_purge_paths [V: `recipe.yml`].
 - `system.performance`: page max-age 900, CSS/JS aggregation on.
 - `purge.plugins` with the Azure purger.
 - `azure_cdn_purge.settings`: `endpoint_type: afdEndpoints`, `chunk_size: 50`, empty credentials.
@@ -162,8 +162,8 @@ drush cex
 ```
 
 - Credentials are runtime overrides from `settings.performance.php`. The stored config is empty (`drush cget azure_cdn_purge.settings` shows `tenant_id: ''`, `client_secret: ''`); `--include-overridden` shows the environment values [V].
-- `drush cex` exports stored values, not overrides [ASSUMED: core behaviour; cex not run in the lab].
-- Do not save the Azure CDN settings form on a site with overrides: the form writes whatever it displays into stored config [ASSUMED].
+- `drush cex` exports stored values, not overrides [V: core `core.services.yml:415-417` primes the export storage from `config.storage`, the stored config; Drupal 10.6.17].
+- Do not save the Azure CDN settings form on a site with overrides: it shows and saves the stored values, not the environment ones, so anything typed there lands in stored config and the next `drush cex` [V: azure_cdn_purge 1.0.4 `AzureCdnSettingsForm.php:23-33`, `:232-245`; core `ConfigFormBaseTrait.php:50-52`].
 
 ## 7. Set environment variables
 
@@ -201,7 +201,7 @@ watchdog table and site-specific views that reference it. To switch:
 drush pm:uninstall dblog -y
 ```
 
-[ASSUMED: not run in the lab.] The caching guide's client-IP test reads `/admin/reports/dblog`. With dblog removed, check the IP in the syslog stream instead.
+**Default: keep dblog.** Why: uninstalling deletes the watchdog table, and the [client IP test](azure.md#client-ip) reads `/admin/reports/dblog`. In a container, `syslog` entries are kept only if something listens on `/dev/log` (core `SysLog.php:63,116` calls PHP `syslog()`; glibc sends to `/dev/log`, `bits/syslog-path.h`). When to change: only after confirming on qa that syslog entries arrive: `ls -l /dev/log` over the SSH link must show a socket.
 
 ## Optional: unpublished content as 404/410
 

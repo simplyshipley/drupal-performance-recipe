@@ -10,7 +10,8 @@ For Drupal developers installing it.
 
 Evidence labels used in every doc:
 - **[V: evidence]**: verified in the SYNTHETIC lab sites (DDEV `perflab106`, Lando `perflab106lando`, Drupal 10.6.17, PHP 8.3) on 2026-09-25, with the evidence named.
-- **[ASSUMED]**: not tested here.
+- **[Learn]**: quoted from Microsoft Learn (the page is named or linked).
+- **Confirm on qa: `<command>`**: Microsoft documents nothing and only a run on real Azure can prove it; the doc states the expected result.
 
 ## Front Door path purging is on by default
 
@@ -79,7 +80,7 @@ include $app_root . '/modules/custom/drupal-performance-modules/settings/setting
    - [Command reference](docs/command-reference.md): every check and test command, with good output
 8. [Edge: local Front Door + WAF stand-in](docs/edge-waf.md) (setup, static asset caching test, differences) and [research notes](docs/research-afd-waf.md)
 9. [Cache modes for local testing](docs/cache-modes.md) (`perf-cache dev|prod-like|status`)
-10. [Cache sync: Drupal, Redis, purge queue and Front Door](docs/cache-sync.md) (edge cases, findings, open decisions)
+10. [Cache sync: Drupal, Redis, purge queue and Front Door](docs/cache-sync.md) (edge cases, findings, defaults for the known gaps)
 11. [Contrib modules evaluated](docs/contrib-modules.md) (purge_queuer_url, purge_file, query_string_optimizer, index_now: adopted / not adopted / watch)
 12. [Redis image for Azure](redis/docs/redis-image.md) and [one vs shared Redis](redis/docs/redis-sharing.md)
 13. [uspsoig.gov caching and bot check](docs/uspsoig-cache-bot-check.md) (findings that drove the bot and header work)
@@ -89,7 +90,7 @@ include $app_root . '/modules/custom/drupal-performance-modules/settings/setting
 ## Lab results (2026-10-05, perf_purge_deleted)
 
 Run with the then-separate `perf_purge_deleted` module, since merged into `perf_purge_paths` ([install.md](docs/install.md#deleted-and-renamed-aliases-and-deleted-files)).
-- **Full suites:** DDEV 53 PASS / 0 FAIL / 1 FINDING [V: tmp/ddev/run19-deleted.log]; Lando 53 / 0 / 1 [V: tmp/lando-run17-deleted.log]. The one FINDING is `sync_menu_block` (open decision 2). Before: 49 / 0 / 2.
+- **Full suites:** DDEV 53 PASS / 0 FAIL / 1 FINDING [V: tmp/ddev/run19-deleted.log]; Lando 53 / 0 / 1 [V: tmp/lando-run17-deleted.log]. The one FINDING is `sync_menu_block` ([known gap 2](docs/cache-sync.md#defaults-for-the-known-gaps)). Before: 49 / 0 / 2.
 - **New:** `sync_delete` is now PASS, plus 3 new tests (`sync_alias_delete`, `sync_file_delete`, `sync_file_swap`), all PASS.
 - **Module off vs on (Lando):** the 4 delete tests report FINDING with it off [V: tmp/lando-deleted-off.log] and PASS with it on [V: tmp/lando-deleted-on.log]. On, with `PERF_PURGE_PATHS=0` (historical: that variable is removed; `SYNC_NEGATIVE=1` now uses `PERF_LAB_PURGE_OFF=1`): 4 FAIL [V: tmp/lando-deleted-failproof.log].
 - **purge_file trial:** it purges the file URL but not the image-style URLs ([contrib-modules.md](docs/contrib-modules.md#purge_file-131-not-adopted-trialled-2026-10-05)) [V: tmp/lando-purge-file-trial.log].
@@ -104,7 +105,7 @@ Redis server switched to Valkey 9.1.2 in both labs and the Azure image. DDEV 49 
 - **Default** `EDGE_CHALLENGE_MISSING=both`: 49 PASS / 0 FAIL / 2 FINDING [V: tmp/lando-run15-default.log].
 - **Strict** `EDGE_CHALLENGE_MISSING=either` (edge and test both set): 49 / 0 / 2 [V: tmp/lando-run14-strict.log].
 - **Fail-proof:** a test expecting `both` against an `either` edge FAILS bot_challenge [V: tmp/lando-strict-failproof.log].
-- The 2 findings are open decisions 1 and 2 in docs/cache-sync.md.
+- The 2 findings are known gaps 1 and 2 in [docs/cache-sync.md](docs/cache-sync.md#defaults-for-the-known-gaps).
 
 ## Earlier lab results (2026-09-29, bot challenge + headers)
 
@@ -113,7 +114,7 @@ DDEV 49 PASS / 0 FAIL / 2 FINDING [V: tmp/ddev/run16-bot.log]; Lando 49 / 0 / 2 
 ## Earlier lab results (2026-09-28, cache sync)
 
 Full suite incl. 14 cache-sync tests: DDEV 46 PASS / 0 FAIL / 2 FINDING [V: tmp/ddev/run15.log], Lando 46 / 0 / 2
-[V: tmp/lando-run11.log]. Findings = open decisions in docs/cache-sync.md.
+[V: tmp/lando-run11.log]. Findings = known gaps in [docs/cache-sync.md](docs/cache-sync.md#defaults-for-the-known-gaps).
 
 ## Earlier lab results (2026-09-26, cache modes)
 

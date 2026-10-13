@@ -1,16 +1,15 @@
 # Contrib modules evaluated
 
 What was checked, and why each module is or is not in the recipe. Research date 2026-10-05.
-Evidence labels as in the [README](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/README.md): [V: source] = read in the module's source code, [REPORTED] = relayed from an issue thread or a page summary, [INFERRED] = reasoning,
-untested. The problem they were measured against is the open delete and menu gaps in
-[cache-sync.md](cache-sync.md#open-decisions-for-bo).
+Evidence labels as in the [README](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/README.md): [V: source] = read in the module's source code, [REPORTED] = relayed from an issue thread or a page summary. The problem they were measured against is the delete and menu gaps in
+[cache-sync.md](cache-sync.md#defaults-for-the-known-gaps).
 
 | Module | Version | Verdict | Reason in one line |
 |---|---|---|---|
 | `purge_queuer_url` | 8.x-1.2 | **Not adopted** | Registry growth, `LIKE` scans, fan-out on broad tags |
-| `purge_file` | 1.3.1 | **Not adopted** (trialled 2026-10-05) | Purges the file URL on delete but not its image-style URLs; `perf_purge_deleted` covers both |
+| `purge_file` | 1.3.1 | **Not adopted** (trialled 2026-10-05) | Purges the file URL on delete but not its image-style URLs; `perf_purge_paths`'s file hook covers both |
 | `query_string_optimizer` | 1.0.x-dev | **Not adopted** | No security coverage; Front Door already ignores parameter order |
-| `index_now` | 3.1.11 | **Watch** | Likely submits `/node/N`, not the alias, on delete [INFERRED] |
+| `index_now` | 3.1.11 | **Watch** | Submits `/node/N`, not the alias, on delete [V: source + core delete order] |
 
 ## purge_queuer_url 8.x-1.2: not adopted
 
@@ -20,7 +19,8 @@ queues every recorded URL with that tag [V: `src/StackMiddleware/UrlRegistrar.ph
 8.x-1.2].
 
 - **Why it looks attractive:** a deleted page's alias was recorded under `node:N` before the
-  delete, so it would close open decision 1 without an alias lookup [INFERRED; untested].
+  delete, so it would cover known gap 1 without an alias lookup (follows from the source lines
+  above; not run, because the module is not adopted).
 - **Registry growth:** no expiry anywhere in the source. Issue #3386394 reports a 2.2 GB table
   that forced an uninstall [REPORTED].
 - **Scans on the editor's request:** the lookup is `tag_ids LIKE '%;<id>;%'`. A leading wildcard
@@ -54,7 +54,7 @@ tmp/lando-purge-file-trial-tests.log]:
 - **Image styles:** the derivative stayed `TCP_HIT` with 200. It queues only the file's own URL, so `sync_file_delete` and `sync_file_swap` report FINDING.
 - **Same-URL replacement:** `sync_file` PASS, unchanged.
 - **Also:** it purges on insert, which the recipe does not need.
-- **Verdict:** not adopted. `perf_purge_deleted` covers the file URL and its image-style URLs ([cache-sync.md](cache-sync.md#open-decisions-for-bo)).
+- **Verdict:** not adopted. `perf_purge_paths` (formerly `perf_purge_deleted`) covers the file URL and its image-style URLs ([cache-sync.md](cache-sync.md#defaults-for-the-known-gaps)).
 
 ## query_string_optimizer 1.0.x-dev: not adopted
 
@@ -67,10 +67,10 @@ point.
 ## index_now 3.1.11: watch
 
 It submits changed URLs to search engines. It uses `hook_entity_delete` and `Url::fromRoute`, so
-on delete it likely submits `/node/N` rather than the alias [INFERRED from source:
-`src/Hook/EntityActions.php:93-101`, `src/AbstractEntityOperations.php:163-168`; untested]. That
+on delete it submits `/node/N` rather than the alias [V: source at 3.1.11,
+`src/Hook/EntityActions.php:91-103`, `src/AbstractEntityOperations.php:162-168`]. That
 is the same ordering problem as the purge gap: by `hook_entity_delete` the alias is already gone
-([cache-sync.md](cache-sync.md#open-decisions-for-bo)). It is a search-engine feature, not a
+([cache-sync.md](cache-sync.md#defaults-for-the-known-gaps), known gap 1). It is a search-engine feature, not a
 cache feature, and is not part of the recipe.
 
 ## Others looked at (purge gaps)
@@ -84,5 +84,5 @@ cache feature, and is not part of the recipe.
 | `fastly`, `cloudflare` | Idea source only | They purge by tag at the CDN, which Front Door cannot do [REPORTED] |
 
 Survey with the full table: session note `contrib-purge-module-survey.md` (outside this repo).
-All drupal.org facts there came from fetched page summaries, and `purge_queuer_url`'s delete and
-menu behaviour was [INFERRED], not tested in the lab.
+All drupal.org facts there came from fetched page summaries. `purge_queuer_url`'s delete and
+menu behaviour is read from its source, not run (not adopted).

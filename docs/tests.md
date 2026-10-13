@@ -84,7 +84,7 @@ The suite switches to `prod-like` for its run and restores the previous cache mo
 
 17 `sync_*` tests (alias, single save, listing, alias change, delete, alias delete, publish cycle, revert, 404-then-create, term/user, menu, same-URL file, file delete, file swap, bulk/chunking, cron processor, wildcard) plus `sync_redis_down` (wrappers, Redis stopped). `sync_cron` no longer runs a full `drush cron`; it only processes the purge queue. Results and before/after table: [cache-sync.md](cache-sync.md).
 
-- **`FINDING`:** a third status for known gaps left as open decisions. It does not count as FAIL.
+- **`FINDING`:** a third status for a known gap the recipe accepts by default ([cache-sync.md](cache-sync.md#defaults-for-the-known-gaps)). It does not count as FAIL.
 - **Kernel test for the new-alias hook:** `AliasAndFileHooksTest::testCreatingNodeQueuesItsNewAlias` (commit 223d6ba). Mutation-proven: it fails without the hook attribute and without the `queuePaths()` call [V: tmp/drop-fast404-20261007/ log 20]. Edge proof: `TCP_HIT`/404 became `TCP_MISS`/200 after the purge, and without the hook stayed `TCP_HIT`/404 [V: tmp/drop-fast404-20261007/16-probe-published-new-path.log]. `sync_new_path_404` is the suite test for this case.
 - **Fail-proof:** `SYNC_NEGATIVE=1` switches path purging off through the settings.php line `$config['perf_purge_paths.settings']['enabled'] = FALSE;`. The lab settings.php sets it when `PERF_LAB_PURGE_OFF=1`. Every test that depends on the module then FAILS: 17. `sync_new_path_404` and `sync_wildcard` do not use it [V: tmp/jrock-build2/ddev-sync-negative.log].
 

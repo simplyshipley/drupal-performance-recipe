@@ -6,7 +6,7 @@ Sep 25, 2026 · @Bo Shipley
 
 Working reference for setting up, testing and tuning caching on Drupal 10.6 sites on Azure App Service (Docker), Azure Database for MySQL (HA) and Azure Front Door, in a FedRAMP environment. Read it if you run or tune these sites.
 
-- **Evidence labels:** \[V\] = verified by a command or file read (the source is named). \[ASSUMED\] = based on how Drupal and Azure generally behave, not yet tested on our sites. Promote a claim from \[ASSUMED\] to \[V\] only after the lab or a real site proves it.
+- **Evidence labels:** \[V\] = verified by a command or file read (the source is named). \[Learn\] = quoted from Microsoft Learn. "Confirm on qa" = only a run on a real site can prove it; the command is given.
 - **Living doc:** Add findings per site in the checklist section, and log every change at the bottom.
 - **FedRAMP:** Before adopting any Azure service below, confirm it is in the FedRAMP audit scope for our cloud (Azure Government or commercial), and document it in the System Security Plan.
 
@@ -24,17 +24,17 @@ A request can be answered by any of six layers, outermost first. Fix problems at
 | OPcache / APCu | Compiled PHP / fast local bins (bootstrap, config, discovery) | Container restart | Not cleared by `drush cr` |
 
 - **Bin vs entry:** A bin is a type of cache and, with the database backend, one `cache_*` table. An entry is one row: one block, view or page variation, identified by its `cid`.
-- **When entries are built:** On page requests, not ahead of time. Exceptions: `drush cr` immediately refills system bins (container, bootstrap, config, discovery), and cron jobs such as Search API indexing render content. \[ASSUMED\]
-- **OPcache:** Images often set `opcache.validate_timestamps=0`, so code changes need a container restart. \[ASSUMED\]
+- **When entries are built:** On page requests, not ahead of time. Exceptions: `drush cr` immediately refills system bins (container, bootstrap, config, discovery), and cron jobs such as search indexing render content. \[V: drush 13.8.0 `CacheRebuildCommands.php:61` calls core `drupal_rebuild()`, which rebuilds the container (`utility.inc:31-41`), theme info and the router (`common.inc:462`, `:477-485`); core search indexing renders each node (`NodeSearch.php:507-526`); Drupal 10.6.17\]
+- **OPcache:** PHP's default `opcache.validate_timestamps=1` rechecks files every 2 s; with `0`, changed files need a restart \[php.net OPcache configuration\]. Deploys bring a new container, so this only matters for files edited over SSH. Confirm on qa: `php -i | grep -E 'opcache.(validate_timestamps|revalidate_freq)'` over the SSH link.
 
 ## Diagnosing cache table growth
 
 Drupal caps each database bin at 5,000 rows, but only when cron runs, so tables can grow without limit between cron runs.
 
-- **Evidence:** \[V: `core/lib/Drupal/Core/Cache/DatabaseBackend.php` lines 30 and 404, and `core/modules/system/src/Hook/SystemHooks.php` line 323, Drupal 11.4 lab; ASSUMED identical in 10.6\]
+- **Evidence:** \[V: `core/lib/Drupal/Core/Cache/DatabaseBackend.php` lines 30 and 404, and `core/modules/system/src/Hook/SystemHooks.php` line 323, Drupal 11.4 lab; Drupal 10.6.17: `DatabaseBackend.php` lines 30 and 407-423, `system.module` lines 1009-1011\]
 
 - **Observed:** `cache_render` refilled from 500 to 1,500 to 4,000 to 90,000+ rows within 20 to 30 seconds of `drush cr`. Some tables exceed 1 GB, and deletes and writes on them slow the site.
-- **How cleanup works:** Cron finds the `created` time of the 5,001st-newest row and deletes everything older in one `DELETE`. A large delete on an HA database holds locks and commits slowly. \[ASSUMED for the HA effect\]
+- **How cleanup works:** Cron finds the `created` time of the 5,001st-newest row and deletes everything older in one `DELETE`. On zone-redundant HA every write waits for the standby's storage: "you can expect 5-10 percent increased latency for application writes and commits", and large transactions can lengthen a failover \[Learn: MySQL Flexible Server high availability\].
 - **Disk space:** InnoDB does not shrink a table after `DELETE`. Use `TRUNCATE` or `OPTIMIZE TABLE` to reclaim space.
 - **Setting:** `$settings['database_cache_max_rows']`. A value of `-1` means unlimited. Check it and "Cron last run" on every site.
 - **HeidiSQL row counts are estimates:** Its table list uses MySQL statistics, which MySQL 8 caches for up to 24 hours (`information_schema_stats_expiry`). Use `SELECT COUNT(*)`. An open transaction in the client also shows an old snapshot.
@@ -92,7 +92,7 @@ WHERE table_schema = DATABASE() AND table_name LIKE 'cache%' ORDER BY data_lengt
 
 ## Search pages and paragraphs
 
-Search pages and paragraphs are the suspected main sources of cache rows. Confirm with the query below before changing anything. \[ASSUMED\]
+Search pages and paragraphs are the usual main sources of cache rows; no real site has been measured yet. Confirm on qa before changing anything: run the query below with `drush sqlq`.
 
 ```sql
 SELECT SUM(cid LIKE 'entity_view:paragraph:%') AS paragraphs,
@@ -118,12 +118,12 @@ Swap in the search view's machine name if it isn't `search`. Add `SUM(LENGTH(dat
 
 ## Azure Front Door for Drupal
 
-Front Door is the first priority because we already own it. Configure these steps in order. \[ASSUMED throughout; verify each in non-production\]
+Front Door is the first priority because we already own it. Configure these steps in order. Learn-checked settings, where to find each value and a test for each: [frontdoor-setup-guide.md](frontdoor-setup-guide.md).
 
 1. **Lock the origin.** Restrict App Service access to the `AzureFrontDoor.Backend` service tag, and require the `X-Azure-FDID` header to equal our profile ID. Premium tier: Private Link to the App Service is stronger.
 2. **Proxy settings in `settings.php`.** Set `reverse_proxy` to TRUE, set `reverse_proxy_addresses` and `reverse_proxy_trusted_headers` (For, Host, Port, Proto), and set `trusted_host_patterns` to the public domain.
-3. **Let Drupal decide caching.** Set "Browser and proxy cache maximum age" to 15 to 60 minutes. Anonymous pages get `Cache-Control: public`, logged-in pages stay private. The Front Door route honors origin headers.
-4. **Rules engine.** Bypass the cache for a `Cookie` header containing `SESS`, and for `/user*`, `/admin*`, `/node/*/edit`, `/batch` and `/system/ajax`. Cache `/sites/default/files/*`, `/core/*`, `/themes/*` and `/modules/*` static files for days, except PDFs and Office files ([quickstart-azure-frontdoor.md](quickstart-azure-frontdoor.md#pdfs)).
+3. **Let Drupal decide caching.** "Browser and proxy cache maximum age" is 15 minutes, the recipe's value ([why](frontdoor-setup-guide.md#anonymous-pages-15-minutes-default)). Anonymous pages get `Cache-Control: public`, logged-in pages stay private. The Front Door route honors origin headers.
+4. **Rules engine.** Bypass the cache for a `Cookie` header containing `SESS`, and for `/user*`, `/admin*`, `/node/*/edit`, `/batch` and `/system/ajax`. Cache `/sites/default/files/*`, `/core/*`, `/themes/*` and `/modules/*` static files for 1 day ([why](frontdoor-setup-guide.md#theme-files-1-day-default)), except PDFs and Office files ([quickstart-azure-frontdoor.md](quickstart-azure-frontdoor.md#pdfs)).
 5. **Query strings: "Use query string", never "Ignore".** Drupal 10.1+ aggregated CSS and JavaScript URLs carry required parameters (`delta`, `language`, `theme`, `include`). Ignore only `utm_*`, `fbclid` and `gclid`.
 6. **Compression and WAF.** Managed rules, bot protection and rate limiting (Premium for managed rule sets). Rate-limit bots on search and query-string URLs.
 7. **Purging.** Front Door purges by path, not tag. Keep HTML lifetimes short and asset lifetimes long, and use `az afd endpoint purge` for urgent changes. See the Purge section.
@@ -132,7 +132,7 @@ Front Door is the first priority because we already own it. Configure these step
 
 ## Client IP pass-through
 
-Front Door and App Service already send the visitor's IP in headers. Drupal or the container's web server must trust the right hop, and the origin lockdown is what makes the headers safe to trust. \[ASSUMED\]
+Front Door and App Service already send the visitor's IP in headers. Drupal or the container's web server must trust the right hop, and the origin lockdown is what makes the headers safe to trust. Front Door headers: \[Learn, [frontdoor-setup-guide.md](frontdoor-setup-guide.md#6-client-ip) section 6\]. Which hop Drupal sees depends on the image: run the [client IP test](azure.md#client-ip) on qa first.
 
 | Header | Set by | Contains |
 | --- | --- | --- |
@@ -149,12 +149,12 @@ Front Door and App Service already send the visitor's IP in headers. Drupal or t
 
 ## Redis or Valkey
 
-Moving the high-churn bins to Redis removes the big cron deletes from the HA database. It hides a variation explosion rather than fixing it, so fix the burst source too. \[ASSUMED\]
+Moving the high-churn bins to Redis removes the big cron deletes from the HA database. It hides a variation explosion rather than fixing it, so fix the burst source too. \[V: the redis backend's `garbageCollection()` is empty (redis 8.x-1.11 `CacheBase.php:490-492`), and while Redis is on the database copies of those bins stay empty (ruling xviii, 2026-10-06)\]
 
 ### Setup
 
 - **Container image:** Add the `phpredis` PHP extension, plus APCu for fast local bins.
-- **Drupal:** Install `drupal/redis`. Set `$settings['redis.connection']['interface'] = 'PhpRedis'` with host, `tls://` scheme, port 6380 and password. Set `$settings['cache']['default'] = 'cache.backend.redis';` and include the module's example services file.
+- **Drupal:** Install `drupal/redis`. Set `$settings['redis.connection']['interface'] = 'PhpRedis'` with host, port 6379 and password (plain `tcp` inside the VNet; TLS deferred, ruling xii, 2026-10-06). Set `$settings['cache']['default'] = 'cache.backend.redis';` and include the module's example services file.
 - **Bins to move first:** `render`, `page`, `dynamic_page_cache`, `data`, `entity`.
 - **Server settings:** `maxmemory` set explicitly, `maxmemory-policy volatile-lfu`, persistence off.
   - Source: redis README, "Eviction policy": "safe and recommended to use a volatile policy", "volatile-lfu" for typical scenarios.
@@ -163,7 +163,7 @@ Moving the high-churn bins to Redis removes the big cron deletes from the HA dat
 
 ### Does `drush cr` clear Redis?
 
-Yes, when Drupal is configured for Redis. Drush connects over the network, so a separate container doesn't matter. The module may mark a full clear with a timestamp instead of deleting keys, so the key count may not drop right away. \[ASSUMED; to verify in the lab\] For a full wipe, `redis-cli FLUSHDB` on Drupal's database, only if nothing else shares it.
+Yes, when Drupal is configured for Redis. Drush connects over the network, so a separate container doesn't matter. The module marks a full clear with a timestamp instead of deleting keys, so the key count does not drop; old keys age out by TTL or eviction \[V: redis 8.x-1.11 `CacheBase.php:511-519`; `redis_invalidate_all_as_delete` is TRUE, `settings.performance.php:199`; lab: [troubleshooting.md](troubleshooting.md#drush-cr-does-not-delete-redis-keys)\]. For a full wipe, `redis-cli FLUSHDB` on Drupal's database, only if nothing else shares it.
 
 ### Sizing
 
@@ -173,30 +173,30 @@ Yes, when Drupal is configured for Redis. Drush connects over the network, so a 
 | Medium (many pages or languages) | 512 MB to 1 GB | 0.75 to 1.5 GB |
 | Large or faceted | 1 to 2 GB | 1.5 to 3 GB |
 
-Container memory is about 1.3 to 1.5 times `maxmemory`. These are starting points \[ASSUMED\]; measure with `redis-cli INFO memory` (`used_memory_peak_human`) and `INFO stats` (`evicted_keys`, hit and miss counts) after a crawl. The module's compression option (`redis_compress_length`, confirm the name) can cut render-cache memory several times.
+**Default: `maxmemory` 768 MB in a 1 GiB container**, the Redis Bicep's values (`redis/azure/redis-containerapp.bicep` lines 45-52). Why: a full crawl of an OIG site copy (580 pages) filled the six Redis bins with about 60 MB of data \[V: database cache tables, 2026-10-06\], so 768 MB holds many times that plus search and bot variants. When to change: raise it if `evicted_keys` keeps growing; the table above is for much larger sites. Measure with `redis-cli INFO memory` (`used_memory_peak_human`) and `INFO stats` (`evicted_keys`, hit and miss counts) after a crawl. The module's compression option (`redis_compress_length`, on at 100 bytes: redis README, `settings.performance.php:191`) can cut render-cache memory several times.
 
 ### Container vs managed service
 
 - **App Service sidecar:** Works on one instance only. With several instances, each has its own Redis, so tag invalidations miss the others and users see stale content.
 - **Separate App Service:** Not workable. App Service only accepts HTTP and HTTPS inbound, so the Redis port can't be reached.
-- **Workable self-hosted options:** Azure Container Apps with TCP ingress in a VNet, Container Instances in a VNet, or a VM or AKS. Confirm FedRAMP scope.
+- **Workable self-hosted options:** Azure Container Apps with TCP ingress in a VNet (the ruled choice, 2026-09-25; FedRAMP High in Azure Government \[Learn: Azure services in FedRAMP audit scope\]), Container Instances in a VNet, or a VM or AKS.
 - **Hardening if self-hosted:** A hardened image (for example Iron Bank, if available), ACL authentication, TLS, private networking, no persistence, logs to Log Analytics, and patching we own.
-- **Recommendation:** The managed service (Azure Cache for Redis or its successor Azure Managed Redis; check FedRAMP status and retirement timeline) unless cost, scope or a Valkey requirement rules it out.
+- **Decided (Bo, 2026-09-25):** a self-hosted container on Azure Container Apps; Valkey 9.1.2 (2026-10-05). Cost comparison: [hosting-and-cost.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis/docs/hosting-and-cost.md).
 
 ## Purge and purge queue
 
-The Purge module queues Drupal's cache-tag invalidations and sends them to an external cache. For Front Door, invalidated tags must be translated into paths. \[ASSUMED\]
+The Purge module queues Drupal's cache-tag invalidations and sends them to an external cache. For Front Door, invalidated tags must be translated into paths: the recipe's `perf_purge_paths` does it \[V: [cache-sync.md](cache-sync.md)\].
 
-- **Modules:** `purge`, `purge_queuer_coretags` (queues invalidated tags), a processor (`purge_processor_cron` or late runtime), `purge_drush` (`drush p:queue-work`, `drush p:diagnostics`), and a Front Door purger.
+- **Modules (`recipe.yml`):** `purge`, `perf_purge_paths` (tags to paths; `purge_queuer_coretags` adds nothing, the Azure purger takes no tags), `purge_processor_cron`, `purge_drush` (`drush p:queue-work`, `drush p:diagnostics`), and a Front Door purger.
 - **Front Door purger:** Use Azure CDN Purge (`azure_cdn_purge`). It provides a purger, queuer and processor, and works with Front Door when the endpoint type is `afdEndpoints`.
 - **Path only:** Front Door has no cache tags, so pair the purger with its path queuer and short HTML lifetimes.
 - **Evidence:** drupal.org issues #3420242, #3301320.
 - **Local testing:** Point the purger at a mock HTTP container. Check that editing content queues items, that processing the queue sends the expected calls, and that failures are retried. Then test against a non-production Front Door profile using a service principal.
-- **Until then:** Short HTML cache lifetimes plus `az afd endpoint purge` for urgent changes.
+- **Urgent changes:** `az afd endpoint purge`, or `drush p:invalidate` over the SSH link ([frontdoor-setup-guide.md](frontdoor-setup-guide.md)).
 
 ## Local DDEV lab (Drupal 10.6)
 
-A SYNTHETIC local site reproduces the problems and proves each fix before it reaches a real site. It is planned, not built yet.
+A SYNTHETIC local site reproduces the problems and proves each fix before it reaches a real site. Built: DDEV `perflab106` and Lando `perflab106lando` ([README](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/README.md)).
 
 - **Stack:** `ddev config --project-type=drupal10 --php-version=8.3 --database=mysql:8.0`, then `drupal/recommended-project:^10.6`.
 - **Content:** Paragraphs, Search API (database backend) with a faceted or exposed search view, and Devel-generated synthetic nodes with nested paragraphs.
@@ -225,14 +225,14 @@ Use Drupal core's Fast 404 for 404s, and reduce 403s at the source (Our choice, 
 
 ### Why 403s arrive in batches
 
-Every save of any entity with a URL (node, term, user, media) invalidates the `4xx-response` tag, which clears every cached 403 and 404 site-wide. Only entity saves do this; adding a URL alias on its own does not (open gap, see [cache-sync.md](cache-sync.md)). \[V: `core/lib/Drupal/Core/Entity/EntityBase.php` lines 564-566, Drupal 11.4 lab; ASSUMED same in 10.6\] Cached 4xx pages otherwise last `$settings['cache_ttl_4xx']`, default 3600 seconds. Heavy unpublishing keeps that cache empty, so each wave of bot requests needs a full page load.
+Every save of any entity with a URL (node, term, user, media) invalidates the `4xx-response` tag, which clears every cached 403 and 404 site-wide. Only entity saves do this; adding a URL alias on its own does not ([known gap 1](cache-sync.md#defaults-for-the-known-gaps)). \[V: `core/lib/Drupal/Core/Entity/EntityBase.php` lines 564-566, Drupal 11.4 lab; lines 538-541 in 10.6.17\] Cached 4xx pages otherwise last `$settings['cache_ttl_4xx']`, default 3600 seconds. Heavy unpublishing keeps that cache empty, so each wave of bot requests needs a full page load.
 
 ### Reducing 403 load
 
 1. Remove unpublished content from the XML sitemap, menus and internal links.
 2. Return 404 or 410 to anonymous users for unpublished content (small custom event subscriber). Crawlers drop these; they keep retrying 403s. It also hides that the page exists.
 3. Redirect retired content to a replacement with the Redirect module.
-4. Front Door can't help here: it caches only 200 responses; 4xx not cached \[Microsoft Q&A answer by a Microsoft moderator, not docs; confirm on qa\].
+4. Front Door can't help here: it caches only 200 responses; 4xx not cached \[Microsoft Q&A answer by a Microsoft moderator, not docs\]. Confirm on qa: [frontdoor-setup-guide.md](frontdoor-setup-guide.md#how-long-front-door-caches-each-kind-of-response) (GET a missing page twice; `x-cache` never `TCP_HIT`).
 5. Rate-limit 403 bursts in the WAF (see the Hardening tab).
 6. Not recommended: overriding core so saves don't clear `4xx-response`; newly published pages would keep a stale 403.
 
@@ -244,13 +244,13 @@ Every save of any entity with a URL (node, term, user, media) invalidates the `4
 
 ## Proposed performance recipe
 
-A Composer `drupal-recipe` package plus a settings include file, because recipes can't write `settings.php`. Not built yet.
+A Composer `drupal-recipe` package plus a settings include file, because recipes can't write `settings.php`. Built: this repo.
 
-- **Recipe modules:** `redis`, `purge`, `purge_ui`, `purge_processor_cron`, `purge_queuer_coretags`, `purge_drush`, `azure_cdn_purge`.
+- **Recipe modules:** `redis`, `purge`, `purge_ui`, `purge_processor_cron`, `purge_drush`, `azure_cdn_purge`, `perf_redis_failopen`, `perf_purge_paths` (`recipe.yml`).
 - **Recipe configuration:** Page cache max age, CSS and JavaScript aggregation, BigPipe, `syslog` instead of `dblog`, core 403/404 pages, purge processors.
 - **`settings.performance.php`:** Redis connection and bins from environment variables, reverse proxy and trusted hosts, `database_cache_max_rows`, `cache_ttl_4xx`. Azure purge credentials come from App Service settings, never exported config.
 - **Local:** DDEV and Lando snippets for Redis or Valkey and a mock Front Door endpoint, plus a test script and Playwright checks.
-- **Open decisions:** Where the package lives, Redis or Valkey, 404 or 410 for unpublished content, and anything to leave out.
+- **Decided:** OIG sites commit the recipe into the site repo (2026-10-07); Valkey (2026-10-05); 404/410 for unpublished content documented, not built; `fast_404` and `themed_fast_404` left out (2026-10-07).
 
 ## Per-site checklist
 
@@ -270,17 +270,18 @@ Copy this list for each site and record the results beside it.
 - [ ] OPcache and APCu sized; container restarted on deploy
 - [ ] Components documented in the System Security Plan
 
-## Open questions
+## Open questions (answered 2026-10-13)
 
-- Valkey or Redis, and managed service or self-hosted container?
-- How many App Service instances does each site run? (Decides whether a sidecar is viable.)
-- Does `azure_cdn_purge` support Drupal 10.6, and does its path queuer cover our listing pages?
-- Which Azure services are in FedRAMP scope for our cloud?
-- Should the lab use a real site's module list?
+- **Valkey or Redis, managed or self-hosted?** Self-hosted container on Container Apps (Bo, 2026-09-25), Valkey 9.1.2 (2026-10-05).
+- **How many App Service instances per site?** Doesn't change the design: one shared Redis container serves every instance, so no sidecar. Check in the portal: App Service > Scale out.
+- **Does `azure_cdn_purge` support Drupal 10.6, and cover listings?** 1.0.4 ran on 10.6.17 in both labs \[V: README\]; listings come from `perf_purge_paths` (`PERF_PURGE_LIST_PATHS`).
+- **Which Azure services are in FedRAMP scope?** App Service, Front Door, WAF, Container Apps, Container Registry, Key Vault, MySQL and Azure Monitor (Log Analytics) are FedRAMP High in Azure Government \[Learn: Azure services in FedRAMP audit scope\].
+- **Should the lab use a real site's module list?** Done: the recipe was run on an OIG site copy (2026-10-06 and 2026-10-08).
 
 ## Change log
 
 | Date | Change |
 | --- | --- |
+| 2026-10-13 | Labels replaced by citations or defaults; stale "not built" and module lists fixed; open questions answered. |
 | 2026-09-25 | Added error pages and 403 load findings, module decisions (Fast 404 + Themed Fast 404), Azure CDN Purge for Front Door (path-based only), proposed performance recipe, and the Hardening tab. |
-| 2026-09-25 | First version, compiled from troubleshooting sessions. Most items are \[ASSUMED\] until the lab verifies them. |
+| 2026-09-25 | First version, compiled from troubleshooting sessions. Most items were assumptions until the lab verified them. |
