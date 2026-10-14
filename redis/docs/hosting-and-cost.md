@@ -6,6 +6,28 @@ For the DevOps team and managers deciding where, or whether, the sites' Redis (V
 - Prices: Microsoft's Azure pricing pages, region **US Gov Virginia** (each page's region list has it), read 2026-10-14. A month is 730 hours.
 - We haven't deployed or tested any option on this page in Azure.
 
+## Recommendation without container services
+
+DevOps has App Service only, with no Container Apps, Container Instances or Kubernetes (DevOps to Bo, 2026-10-13). Our recommendation for that setup (set 2026-10-14), with each reason sourced:
+
+1. **Now: run the sites without Redis.** No new Azure service, $0.
+   - Leave `REDIS_HOST` unset. The six cache bins the recipe would put on Redis then use Drupal core's database cache, as tested in the local lab ([evidence/no-redis-check](evidence/no-redis-check/README.md)). Details are in the summary below.
+   - Redis in App Service: Learn says "App Service currently allows your container to expose only one port for HTTP requests" (section 1), and marks sidecars "Not yet supported" for "National Clouds" (section 2).
+2. **When Redis is wanted: Azure Managed Redis, Microsoft's managed service (section 4).**
+   - Of the options on this page that run Redis, Azure Cache for Redis and Azure Managed Redis are the two that aren't App Service, Container Apps or Container Instances (table below).
+   - Microsoft: "Microsoft recommends upgrading to Azure Managed Redis as soon as possible, rather than waiting for the retirement deadline." ([retirement post](https://techcommunity.microsoft.com/blog/azure-managed-redis/azure-cache-for-redis-retirement-what-to-know-and-how-to-prepare/4458721))
+   - The same post lists "US Gov Cloud: July 2026" for Azure Managed Redis, and says "all dates are tentative".
+   - Before relying on it:
+     - DevOps creates one in US Gov Virginia with the settings in section 4: Balanced B1, high availability, cluster policy Non-clustered (Preview), access keys enabled, and a private endpoint.
+     - Confirm with Microsoft whether it's covered by the Azure Government FedRAMP authorization, and your security team decides, because Azure Managed Redis isn't in Microsoft's [Azure Government FedRAMP table](https://learn.microsoft.com/en-us/azure/azure-government/compliance/azure-services-in-fedramp-auditscope#azure-government-services-by-audit-scope) ("Last updated: February 2026").
+   - Cost, US Gov Virginia: $67.53 a month (B1 with high availability plus a private endpoint, before data processed; section 4).
+3. **Fallback: Azure Cache for Redis**, if Managed Redis can't be created in US Gov Virginia or the security team requires a service that's already in the FedRAMP table.
+   - It's in the Azure Government FedRAMP table (table below).
+   - Microsoft's post says "Creation blocked for new customers: April 1, 2026" ([retirement post](https://techcommunity.microsoft.com/blog/azure-managed-redis/azure-cache-for-redis-retirement-what-to-know-and-how-to-prepare/4458721)). The post doesn't define "new customers", so DevOps tries creating one in the subscription (section 3).
+   - It retires September 30, 2028 (section 3): "All remaining Azure Cache for Redis Basic, Standard, and Premium instances are disabled starting October 1, 2028." ([Retirement FAQ](https://learn.microsoft.com/en-us/azure/azure-cache-for-redis/retirement-faq)) Microsoft recommends upgrading to Azure Managed Redis (section 3).
+   - Cost, US Gov Virginia: Standard C1 $100.74 a month (section 3).
+- **Open for Bo:** his ruling of 2026-09-25 says "the Drupal sites use a **self-hosted Redis container**, not the managed service" ([azure/README.md](../azure/README.md)). Step 2 departs from "not the managed service" because DevOps has no container service (DevOps to Bo, 2026-10-13). Our recommendation: follow the ruling (template `redis/azure/redis-containerapp.bicep`) if DevOps gets Container Apps.
+
 ## Summary
 
 - **What DevOps has:** App Service only, with no Container Apps, Container Instances or Kubernetes (DevOps to Bo, 2026-10-13).
