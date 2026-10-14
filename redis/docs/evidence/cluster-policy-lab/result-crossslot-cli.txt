@@ -1,0 +1,6 @@
+$ printf "MULTI\nHGETALL site:render:entity_view:node:1\nHGETALL site:render:entity_view:node:2\nEXEC\n" | valkey-cli -p 7001
+OK
+QUEUED
+QUEUED
+CROSSSLOT Keys in request don't hash to the same slot
+

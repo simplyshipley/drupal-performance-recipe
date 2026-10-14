@@ -1,0 +1,4 @@
+single HGETALL a: {"data":"x"}
+single HGETALL b: {"data":"y"}
+MULTI/EXEC: false
+lastError: NULL

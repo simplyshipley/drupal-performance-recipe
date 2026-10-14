@@ -1,0 +1,16 @@
+date=2026-10-14T12:57:43+00:00 | Drupal 10.6.17 | PHP 8.3.31
+REDIS_HOST=(unset)
+render => Drupal\Core\Cache\DatabaseBackend
+page => Drupal\Core\Cache\DatabaseBackend
+dynamic_page_cache => Drupal\Core\Cache\DatabaseBackend
+data => Drupal\Core\Cache\DatabaseBackend
+entity => Drupal\Core\Cache\DatabaseBackend
+menu => Drupal\Core\Cache\DatabaseBackend
+date=2026-10-14T12:57:43+00:00 | Drupal 10.6.17 | PHP 8.3.31
+REDIS_HOST=redis
+render => Drupal\perf_redis_failopen\Cache\FailOpenCacheBackend
+page => Drupal\perf_redis_failopen\Cache\FailOpenCacheBackend
+dynamic_page_cache => Drupal\perf_redis_failopen\Cache\FailOpenCacheBackend
+data => Drupal\perf_redis_failopen\Cache\FailOpenCacheBackend
+entity => Drupal\perf_redis_failopen\Cache\FailOpenCacheBackend
+menu => Drupal\perf_redis_failopen\Cache\FailOpenCacheBackend

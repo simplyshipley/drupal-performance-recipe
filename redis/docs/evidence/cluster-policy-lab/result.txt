@@ -1,0 +1,36 @@
+phpredis 6.3.0, PHP 8.4.22
+== Plain Valkey, no cluster (control) (port 6379)
+  HSET  site:render:entity_view:node:1: ok
+  HSET  site:render:entity_view:node:2: ok
+  HSET  site:render:entity_view:node:3: ok
+  HSET  site:page:http://x/a: ok
+  HSET  site:page:http://x/b: ok
+  HGETALL site:render:entity_view:node:1: {"data":"x","created":"1"}
+  HGETALL site:render:entity_view:node:2: {"data":"x","created":"1"}
+  HGETALL site:render:entity_view:node:3: {"data":"x","created":"1"}
+  HGETALL site:page:http://x/a: {"data":"x","created":"1"}
+  HGETALL site:page:http://x/b: {"data":"x","created":"1"}
+  MULTI/EXEC result: [{"data":"x","created":"1"},{"data":"x","created":"1"},{"data":"x","created":"1"},{"data":"x","created":"1"},{"data":"x","created":"1"}]
+== Valkey cluster mode, 3 shards (port 7000)
+  HSET  site:render:entity_view:node:1: RedisException: MOVED 5580 127.0.0.1:7001
+  HSET  site:render:entity_view:node:1 lastError: MOVED 5580 127.0.0.1:7001
+  HSET  site:render:entity_view:node:2: RedisException: MOVED 9647 127.0.0.1:7001
+  HSET  site:render:entity_view:node:2 lastError: MOVED 9647 127.0.0.1:7001
+  HSET  site:render:entity_view:node:3: RedisException: MOVED 13710 127.0.0.1:7002
+  HSET  site:render:entity_view:node:3 lastError: MOVED 13710 127.0.0.1:7002
+  HSET  site:page:http://x/a: RedisException: MOVED 9940 127.0.0.1:7001
+  HSET  site:page:http://x/a lastError: MOVED 9940 127.0.0.1:7001
+  HSET  site:page:http://x/b: RedisException: MOVED 5815 127.0.0.1:7001
+  HSET  site:page:http://x/b lastError: MOVED 5815 127.0.0.1:7001
+  HGETALL site:render:entity_view:node:1: false
+  HGETALL site:render:entity_view:node:1 lastError: MOVED 5580 127.0.0.1:7001
+  HGETALL site:render:entity_view:node:2: false
+  HGETALL site:render:entity_view:node:2 lastError: MOVED 9647 127.0.0.1:7001
+  HGETALL site:render:entity_view:node:3: false
+  HGETALL site:render:entity_view:node:3 lastError: MOVED 13710 127.0.0.1:7002
+  HGETALL site:page:http://x/a: false
+  HGETALL site:page:http://x/a lastError: MOVED 9940 127.0.0.1:7001
+  HGETALL site:page:http://x/b: false
+  HGETALL site:page:http://x/b lastError: MOVED 5815 127.0.0.1:7001
+  MULTI/EXEC: RedisException: MOVED 5580 127.0.0.1:7001
+  MULTI/EXEC lastError: MOVED 5580 127.0.0.1:7001

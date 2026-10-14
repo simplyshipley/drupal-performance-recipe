@@ -1,0 +1,3 @@
+date=2026-10-14T12:57:42+00:00 | file=/opt/perf-recipe-src/drupal-performance-modules/settings/settings.performance.php | PHP 8.3.31
+REDIS_HOST=(unset) | phpredis loaded=yes | redis.connection set=no | bins on Redis: none
+REDIS_HOST=redis | phpredis loaded=yes | redis.connection set=yes | bins on Redis: render,page,dynamic_page_cache,data,entity,menu

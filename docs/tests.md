@@ -127,5 +127,5 @@ How the lab ran them: PHPUnit 10.5 installed in `/tmp/pu` inside the web contain
 - Playwright header checks and a simulated `X-Azure-ClientIP` (caching guide test plan item 5)
   are not in this suite.
 - Valkey 9.1.2: DDEV and Lando 49 PASS / 0 FAIL / 2 FINDING on 2026-10-05 [V: tmp/ddev/run18-valkey.log, tmp/lando-run16-valkey.log; server: tmp/valkey-server-evidence-20261005.txt].
-- The no-Redis path (REDIS_HOST unset) was not run.
+- The no-Redis path (REDIS_HOST unset), 2026-10-14: the settings file configures no Redis and the six Redis bins use `Drupal\Core\Cache\DatabaseBackend` on the DDEV lab [V: redis/docs/evidence/no-redis-check/]. The full suite wasn't run in that mode.
 - `perf_purge_deleted`: not run on Drupal 11 (both labs are 10.6.17); the guard for a missing `perf_purge_paths.queuer` service was not run (the labs always include the settings file). The old-alias-on-rename hook has no suite test, only a probe [V: tmp/lando-probe-alias-rename.log]: `sync_alias_change` passes without the module.
