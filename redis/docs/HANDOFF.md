@@ -34,7 +34,7 @@ For the team that runs it in Azure. This page lists what the container and the D
 | Network | TCP on port 6379, reachable from the App Service only (not from the internet): an internal environment with the app's ingress set to **external**, which on an internal environment stays inside the VNet ([azure/README.md](../azure/README.md#without-the-bicep-portal-or-az-cli)) |
 | Copies | Exactly 1, always running (never scaled to zero) |
 | Size | 0.5 vCPU, 1 GiB memory |
-| Storage | None (default). Nothing is saved: a restart starts with an empty cache, which is safe (the sites fall back to the database and refill it). Why: Redis holds only cache bins, copies Drupal rebuilds from the database; the redis module README says to disable snapshots "When using Redis solely as a cache". Unlike Solr, whose index is the only copy of the search data, there is nothing to lose. When to change: only if the sites start keeping data that exists nowhere else in Redis (queues, locks, sessions), which the README warns about ("may lead to data loss when using Redis to store persistent data such as queue items"). Then use Managed Redis with RDB persistence instead of adding a disk here ("Data Persistence requires a cache to have **High availability** enabled", Learn: Configure data persistence - Azure Managed Redis) |
+| Storage | None (default). Nothing is saved: a restart starts with an empty cache, which is safe (the sites fall back to the database and refill it). Why: Redis holds only cache bins, copies Drupal rebuilds from the database; the redis module README says to disable snapshots "When using Redis solely as a cache". Unlike Solr, whose index is the only copy of the search data, there is nothing to lose. When to change: only if the sites start keeping data that exists nowhere else in Redis (queues, locks, sessions), which the README warns about ("may lead to data loss when using Redis to store persistent data such as queue items"). Then use Managed Redis with RDB persistence instead of adding a disk here ("Data Persistence requires a cache to have **High availability** enabled", [Learn: Configure data persistence](https://learn.microsoft.com/en-us/azure/redis/how-to-persistence#prerequisites-and-limitations)), once Microsoft lists Managed Redis for Azure Government ([hosting-and-cost.md](hosting-and-cost.md#5-azure-managed-redis-not-until-microsoft-lists-it-for-azure-government)) |
 | Command and arguments | None. The image's entrypoint builds the config; a start command or arguments bypass it |
 | Image pull | An identity with **AcrPull** on the registry |
 | Health check | TCP on 6379. Inside the image, the `health` login has no password and may run PING only; a password or ACL problem shows up as app errors, not probe failures |
@@ -131,7 +131,7 @@ If Redis is unreachable the sites stay up and get slower. Drupal logs it on the 
 
 ## Cost
 
-About $50 a month per Redis in US Gov Virginia at list prices: [hosting-and-cost.md](hosting-and-cost.md).
+About $50 a month per Redis on Container Apps in US Gov Virginia at list prices. All the options, with Learn links and prices: [hosting-and-cost.md](hosting-and-cost.md).
 
 ## Tested so far
 

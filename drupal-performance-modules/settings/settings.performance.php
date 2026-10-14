@@ -29,8 +29,8 @@
  *   REDIS_ENABLED           1 (default) = the bins below use Redis. 0 = they
  *                           use the database, no deploy or drush needed. To
  *                           switch back: 1, then drush cr.
- *   REDIS_PORT              Default 6379. TLS: 6380 (Azure managed Redis: 6380
- *                           or 10000).
+ *   REDIS_PORT              Default 6379. TLS: 6380 (Azure Cache for Redis:
+ *                           6380; Azure Managed Redis: 10000).
  *   REDIS_SCHEME            tcp (default) or tls. The server must speak the
  *                           same one.
  *   REDIS_PASSWORD          Access key / password.

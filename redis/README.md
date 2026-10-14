@@ -82,4 +82,4 @@ The Drupal side (settings, modules, Lando lab `redis.conf`) stays in the drupal-
 
 - Without history: copy this folder into the new repo.
 
-- **Why Container Apps, and what it costs:** [docs/hosting-and-cost.md](docs/hosting-and-cost.md)
+- **Hosting options in Azure Government, with limits, Learn links and cost:** [docs/hosting-and-cost.md](docs/hosting-and-cost.md)
