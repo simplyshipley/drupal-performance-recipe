@@ -259,7 +259,7 @@ origin headers and the `SESS` cookie bypass are set in [frontdoor-setup-guide.md
 Deploy steps (Bicep, az CLI, private DNS, VNet integration, sizing, monitoring) are in
 [redis/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis/azure/README.md). Rules:
 
-- Set an explicit `maxmemory`, `volatile-lfu`, no persistence. Source: redis README, "Eviction policy" and "Redis RDB snapshots".
+- Set an explicit `maxmemory`, `volatile-lfu`, no persistence. Source: redis README, "Eviction policy" and "Redis RDB snapshots". No storage volume, unlike Solr: Redis holds only cache copies Drupal can rebuild, and lock, flood and the tag checksum stay in the database. Change only if queues, locks or sessions move into Redis.
 - Permanent Drupal items get a one-year TTL in Redis (`31536000` s) [V: lab key TTLs]. `drush cr`
   does not delete keys, so eviction is what frees memory.
 - One replica only: a second replica would be a separate cache.
