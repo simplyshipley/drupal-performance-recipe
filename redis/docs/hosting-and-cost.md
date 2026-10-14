@@ -26,6 +26,7 @@ DevOps has App Service only, with no Container Apps, Container Instances or Kube
    - Microsoft's post says "Creation blocked for new customers: April 1, 2026" ([retirement post](https://techcommunity.microsoft.com/blog/azure-managed-redis/azure-cache-for-redis-retirement-what-to-know-and-how-to-prepare/4458721)). The post doesn't define "new customers", so DevOps tries creating one in the subscription (section 3).
    - It retires September 30, 2028 (section 3): "All remaining Azure Cache for Redis Basic, Standard, and Premium instances are disabled starting October 1, 2028." ([Retirement FAQ](https://learn.microsoft.com/en-us/azure/azure-cache-for-redis/retirement-faq)) Microsoft recommends upgrading to Azure Managed Redis (section 3).
    - Cost, US Gov Virginia: Standard C1 $100.74 a month (section 3).
+   - The setup guide's steps use the Premium tier (P1, $404.42 a month, section 3) because Bo asked for it (2026-10-14). Which tier to buy is open for Bo.
 - **Open for Bo:** his ruling of 2026-09-25 says "the Drupal sites use a **self-hosted Redis container**, not the managed service" ([azure/README.md](../azure/README.md)). Step 2 departs from "not the managed service" because DevOps has no container service (DevOps to Bo, 2026-10-13). Our recommendation: follow the ruling (template `redis/azure/redis-containerapp.bicep`) if DevOps gets Container Apps.
 
 ## Summary
@@ -52,6 +53,7 @@ DevOps has App Service only, with no Container Apps, Container Instances or Kube
 | Redis as its own App Service | "only one port for HTTP requests" (section 1) | App Service: yes | n/a | Learn: "only one port for HTTP requests" (section 1) |
 | Redis sidecar in the site's App Service | "National Clouds": "Not yet supported" (section 2) | Not listed separately (App Service: yes) | n/a | "Not yet supported" in national clouds |
 | Azure Cache for Redis, Standard C1 | Gov endpoint `redis.cache.usgovcloudapi.net` (section 3) | Yes | $100.74 | "Creation blocked for new customers" since April 1, 2026; retires September 30, 2028 |
+| Azure Cache for Redis, Premium P1 | Same endpoint; "Pay As You Go (Per Shard, Two Node)" price (section 3) | Yes (the table lists the service, not its tiers) | $404.42 + private endpoint $9.13 | Same as Standard C1. Setup: [paid-redis-setup.md](paid-redis-setup.md) |
 | Azure Managed Redis, Balanced B1, high availability | Microsoft's post: "US Gov Cloud: July 2026" ("all dates are tentative") (section 4) | Not listed | $58.40 + private endpoint $9.13 | Not until it can be created in US Gov Virginia and the FedRAMP question is settled |
 | Azure Container Apps | TCP ingress for the Redis protocol (section 5) | Yes: FedRAMP High and DoD IL2 | $49.93 at the active rate, before the free grant | Not available to DevOps |
 | Azure Container Instances | TCP ports; VNet limits in Azure Government (section 5) | Yes | $39.35 (Linux) | Not available to DevOps |
@@ -109,6 +111,13 @@ FedRAMP column: Microsoft's [Azure Government services by audit scope](https://l
   |---|---|---|
   | Basic C1 (1 GB) | $0.055 | $40.15 |
   | Standard C1 (1 GB) | $0.138 | $100.74 |
+  | Premium P1 (6 GB) | $0.554 | $404.42 |
+
+  - What the Premium price includes: the pricing page's Premium column is "Pay As You Go (Per Shard, Two Node)", so $404.42 is two nodes, a primary and a replica. Learn: "A Premium cache has one primary and one replica node by default." ([zone redundancy FAQ](https://learn.microsoft.com/en-us/azure/azure-cache-for-redis/cache-how-to-zone-redundancy#why-cant-i-select-all-three-zones-during-cache-create))
+  - Each extra replica: the page's "Pay as You Go Price per additional node" for P1 is $0.277 an hour ($202.21 a month).
+  - Zones: "you will also pay some charges for the data transfer between AZs" (pricing page, "Zone Redundancy"). The page gives no figure for it.
+  - P1 with a private endpoint ($9.13 a month, section 4): $413.55 a month, before data processed.
+  - Setup steps: [paid-redis-setup.md](paid-redis-setup.md#1b-azure-cache-for-redis-premium-tier).
 
 ## 4. Azure Managed Redis: not in the Azure Government FedRAMP table
 

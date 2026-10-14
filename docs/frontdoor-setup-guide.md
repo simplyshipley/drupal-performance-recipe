@@ -2,7 +2,7 @@
 
 For the Azure team (DevOps). One section per item of the [quick start checklist](quickstart-azure-frontdoor.md#front-door-settings-azure-team), plus purging: where to set it, the value, how to test it, and what to do when the test fails. The quick start stays the one-page summary.
 
-Front Door **Premium** (the OIG profiles, Bo 2026-10-09), Azure Government. One Front Door endpoint per site per environment.
+Front Door **Premium** (the OIG profiles, Bo 2026-10-09), Azure Government. One Front Door endpoint per site per environment. Redis connects through the App Service (virtual network integration and app settings), not through Front Door: [section 11](#11-redis-cache-premium-environment).
 
 Labels:
 - **[Learn]**: quoted from Microsoft Learn (links under [Sources](#sources)). Learn's pages are written for commercial Azure; Azure Government uses the portal at [portal.azure.us](https://portal.azure.us).
@@ -425,6 +425,30 @@ curl -s -o /dev/null -D - -H 'Accept-Encoding: br, gzip' "$SITE$CSS" | grep -iE 
 | Queue 0, no errors, old title after 10 minutes | The page's URL is an alias the recipe didn't queue. Purge the path by hand and report it ([azure.md, what gets purged](azure.md#what-gets-purged-path-based-no-tags)) |
 | Queue never empties | Cron isn't running on the App Service |
 
+## 11. Redis cache (Premium environment)
+
+- **Default today: no Redis.** Run the sites without Redis until one of the conditions in [hosting-and-cost.md](../redis/docs/hosting-and-cost.md#summary) is met (set 2026-10-14). This section is for when Redis is wanted.
+- **What each one does** [Learn]:
+  - Front Door: "Azure Front Door is an advanced content delivery network (CDN) for the cloud." Its origin "refers to the application deployment that Azure Front Door retrieves contents from", and "An origin shouldn't be confused with your database tier or storage tier. The origin should be viewed as the endpoint for your application backend." Here the origin is the App Service (section 5).
+  - Redis: the App Service reaches it through the virtual network. "Virtual network integration is used only to make outbound calls from your app into your virtual network."
+  - The origin lock (section 5) is inbound: "Virtual network integration affects only outbound traffic from your app. To control inbound traffic to your app, use the access restrictions feature or private endpoints."
+- **Front Door settings:** sections 1–10 have no Redis setting.
+- **Service:** Azure Managed Redis (recommended), or Azure Cache for Redis, the fallback, if Managed Redis can't be created in US Gov Virginia or the security team requires a service in the FedRAMP table ([hosting-and-cost.md, Recommendation](../redis/docs/hosting-and-cost.md#recommendation-without-container-services), item 3, which prices Standard C1). The setup guide uses its Premium tier because Bo asked for it (2026-10-14). **Open for Bo:** his ruling of 2026-09-25 says OIG sites use "a **self-hosted Redis container**", "not the managed service" ([azure.md](azure.md#redis-self-hosted-container-ruled); [hosting-and-cost.md, Recommendation](../redis/docs/hosting-and-cost.md#recommendation-without-container-services)).
+- **Where and how:** [paid-redis-setup.md](../redis/docs/paid-redis-setup.md):
+  1. Create the cache in US Gov Virginia (its section 1).
+  2. Private endpoint and App Service virtual network integration (section 2).
+  3. App settings `REDIS_HOST`, `REDIS_SCHEME=tls`, `REDIS_PORT` (`10000` Managed Redis, `6380` Premium), `REDIS_PASSWORD` (Key Vault reference), `REDIS_PREFIX` (section 3).
+
+**Test** (App Service SSH console): [paid-redis-setup.md, section 5](../redis/docs/paid-redis-setup.md#5-verify-qa-first).
+
+- Good: a private IP for the cache's host name, `port open`, `1` or `+PONG`, and all six cache bins `Drupal\perf_redis_failopen\Cache\FailOpenCacheBackend`.
+- Not run against Azure yet.
+
+| You see | Do this |
+|---|---|
+| Any failed check | [paid-redis-setup.md, 5c](../redis/docs/paid-redis-setup.md#5c-if-a-check-fails) |
+| `drush` in SSH sees no `REDIS_*` settings | SSH "might see only a few environment variables" [Learn]. See [Redis setup guide 3c](../redis/docs/SETUP-GUIDE.md#3c-the-site-can-reach-it-app-service-ssh-console) |
+
 ## Order of work
 
 qa first. Promote to prod only when every qa test passes.
@@ -433,10 +457,11 @@ qa first. Promote to prod only when every qa test passes.
 2. Diagnostic settings (section 7) first, so later tests leave logs.
 3. Sections 1, 2, 9 (route), then 3 and 4 (rule set), then 5 (lock), 6 (client IP), 7 (WAF in Detection).
 4. Sections 8 and 10 (purge), with the App Service settings from the quick start.
-5. A week later: review the WAF log, switch qa to Prevention, test 7 again.
-6. Repeat 1–4 for prod with prod's own values (Front Door ID, endpoint, service principal). Never point prod settings at qa or the reverse.
+5. Section 11 (Redis), only if Redis is wanted.
+6. A week later: review the WAF log, switch qa to Prevention, test 7 again.
+7. Repeat 1–5 for prod with prod's own values (Front Door ID, endpoint, service principal, Redis cache). Never point prod settings at qa or the reverse.
 
-**Hand to DevOps:** this guide, the [quick start](quickstart-azure-frontdoor.md), [azure.md, Service principal](azure.md#service-principal-for-purging) and [hardening.md, Edge](hardening.md#edge-front-door-waf). **Ask back:** each test's output, including every **Confirm on qa** check, so this guide can be corrected where it disagrees.
+**Hand to DevOps:** this guide, the [quick start](quickstart-azure-frontdoor.md), [azure.md, Service principal](azure.md#service-principal-for-purging), [hardening.md, Edge](hardening.md#edge-front-door-waf) and, if Redis is wanted, [paid-redis-setup.md](../redis/docs/paid-redis-setup.md). **Ask back:** each test's output, including every **Confirm on qa** check, so this guide can be corrected where it disagrees.
 
 ## Sources
 
@@ -455,3 +480,4 @@ Read 2026-10-09 (commercial Learn pages; Government differences from the "compar
 - Read 2026-10-13 (excerpts in the session's `tmp/verify-sweep-20261013/frontdoor/`): [App Service on Linux FAQ (container start limit)](https://learn.microsoft.com/en-us/troubleshoot/azure/app-service/faqs-app-service-linux), [ARM overview](https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/overview), [Networking permissions (Microsoft.Cdn)](https://learn.microsoft.com/en-us/azure/role-based-access-control/permissions/networking), [site config (`scmIpSecurityRestrictionsUseMain`)](https://learn.microsoft.com/en-us/azure/templates/microsoft.web/sites/config-web)
 - Apache: [core (FileETag, AllowOverride)](https://httpd.apache.org/docs/2.4/mod/core.html), [mod_headers](https://httpd.apache.org/docs/2.4/mod/mod_headers.html)
 - [Connect to Azure Government (portal)](https://learn.microsoft.com/en-us/azure/azure-government/documentation-government-get-started-connect-with-portal), [Compare Azure Government and global Azure](https://learn.microsoft.com/en-us/azure/azure-government/compare-azure-government-global-azure)
+- Read 2026-10-14 (section 11): [What is Azure Front Door?](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-overview), [Origins and origin groups](https://learn.microsoft.com/en-us/azure/frontdoor/origin#origin), [App Service virtual network integration](https://learn.microsoft.com/en-us/azure/app-service/overview-vnet-integration#regional-virtual-network-integration) (and its [Network routing](https://learn.microsoft.com/en-us/azure/app-service/overview-vnet-integration#network-routing) section). Redis sources: [paid-redis-setup.md](../redis/docs/paid-redis-setup.md#sources)

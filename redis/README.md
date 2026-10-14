@@ -83,3 +83,4 @@ The Drupal side (settings, modules, Lando lab `redis.conf`) stays in the drupal-
 - Without history: copy this folder into the new repo.
 
 - **Hosting options in Azure Government, with limits, Learn links and cost:** [docs/hosting-and-cost.md](docs/hosting-and-cost.md)
+- **Set up Drupal with a paid Azure Redis service (image prerequisite, private endpoint, app settings, checks):** [docs/paid-redis-setup.md](docs/paid-redis-setup.md)
