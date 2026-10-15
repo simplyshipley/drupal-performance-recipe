@@ -44,6 +44,8 @@ When an App Service runs several instances, a new image restarts all of them, an
 - **`APP_VERSION`:**
   - Required. The OIG site copy's Dockerfile sets `ENV APP_VERSION=$BUILD_VERSION`, and without it the script refuses to deploy.
   - Must be unique per image. A rebuilt image that reuses a version is treated as already deployed.
+    - The OIG site copy's `bin/docker-build` accepts `latest` as the version. Every `latest` build gets the same `APP_VERSION`, so only the first one deploys. Build with a release number.
+  - Every site on the shared base image needs it. A site image without `APP_VERSION` gets no deploy: the script exits 1, and the web server still starts.
 - **`DEPLOY_LOCK_TTL`** (default 1800 seconds) must be longer than your slowest deploy.
   - If a deploy runs past it, the lock expires, and an instance that restarts can start a second deploy at the same time.
   - If the deploying instance dies, the lock stays held until the TTL runs out.
