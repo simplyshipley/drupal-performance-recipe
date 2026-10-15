@@ -18,8 +18,12 @@ When an App Service runs several instances, a new image restarts all of them, an
    - The lock is a row in the database `semaphore` table, and the name is the primary key, so only one instance's insert can succeed, however close together they start.
    - The others log "another instance is deploying; skipping" and start serving.
 3. **Check again.** If another instance finished between step 1 and step 2, the winner skips.
-4. **Deploy.** It runs `updatedb -y`, `config:import -y` and `cache:rebuild`. Then it records the version, releases the lock and runs `cron`.
-   - **If a command fails,** the deploy stops, the lock is released and nothing is recorded.
+4. **Deploy.** It turns maintenance mode on, then runs `updatedb -y`, `config:import -y` and `cache:rebuild`. Then it turns maintenance mode off, records the version, releases the lock and runs `cron`.
+   - **Why maintenance mode:** `updb` turns it on only while it has updates to run, and `cim` and `cr` would otherwise run with the site live.
+     - Maintenance mode is stored in the shared database, so every instance, old or new, shows the maintenance page during the deploy.
+     - In the lab that page was `503` with `cache-control: must-revalidate, no-cache, private`.
+   - **If maintenance mode was already on** (someone turned it on by hand), the script leaves it on.
+   - **If a command fails,** the deploy stops, maintenance mode goes off, the lock is released and nothing is recorded.
      - Nothing retries on its own: the other instances already skipped.
      - Fix the cause, then restart one instance.
    - **If cron fails,** that's only logged.
@@ -35,7 +39,7 @@ When an App Service runs several instances, a new image restarts all of them, an
 ( cd "${DRUPAL_DIR}" && drupal-deploy-once ) &
 ```
 
-- **Why in the background:** Learn says App Service waits `WEBSITES_CONTAINER_START_TIME_LIMIT` seconds for a container to become ready, and "The default value is 230" ([app settings reference](https://learn.microsoft.com/en-us/azure/app-service/reference-app-settings)).
+- **Why in the background:** the containers serve right away; during the deploy they all show the maintenance page (step 4). Learn says App Service waits `WEBSITES_CONTAINER_START_TIME_LIMIT` seconds for a container to become ready, and "The default value is 230" ([app settings reference](https://learn.microsoft.com/en-us/azure/app-service/reference-app-settings)).
   - In the background, the web server starts at once, as it already does on the instances that skip. A long `updb` then can't hold up the container start.
 - **`APP_VERSION`:**
   - Required. The OIG site copy's Dockerfile sets `ENV APP_VERSION=$BUILD_VERSION`, and without it the script refuses to deploy.
@@ -65,7 +69,7 @@ In the App Service log stream, look for:
 |---|---|---|
 | A drush command failed | Released by the script | Fix the cause, restart one instance |
 | The script was stopped (SIGTERM) | Released by the script | Restart one instance |
-| The script was killed (SIGKILL), or the container or instance went away mid-deploy | **Still held** until `DEPLOY_LOCK_TTL` runs out | Break it (below), or wait for the TTL, then restart one instance |
+| The script was killed (SIGKILL), or the container or instance went away mid-deploy | **Still held** until `DEPLOY_LOCK_TTL` runs out, and **the site stays in maintenance mode** | Break it (below), or wait for the TTL, then restart one instance. The retry turns maintenance mode off |
 
 The first three rows were tested in the lab. For the third, assume any hard stop leaves the lock held: the lab can't show how App Service stops a background process.
 
@@ -82,7 +86,8 @@ drush sql:query "SELECT name, expire, expire > UNIX_TIMESTAMP() AS held FROM sem
 
 1. Make sure no instance is still deploying. The log stream shows `deploying <version>` with no `deployed` or `failed` line after it.
 2. Release the lock: `drush php:eval "\Drupal::service('lock.persistent')->release('deploy_once');"`
-3. Restart one instance. It finds the version not recorded and runs all three commands again.
+3. Restart one instance. It finds the version not recorded, runs all three commands again, and turns maintenance mode off.
+4. To bring the site back before the retry, run `drush maint:set 0`.
 
 Breaking the lock while a deploy is still running lets a second instance deploy at the same time. That's the case this script exists to prevent.
 
@@ -98,7 +103,7 @@ Breaking the lock while a deploy is still running lets a second instance deploy 
 
 ## Lab tests (2026-10-15, DDEV lab site)
 
-All 24 checks passed. In the lab, `updb`, `cim`, `cr` and `cron` were replaced by a stand-in (`updatedb` took 3 seconds), because a real `cim` would have changed the lab's config. The lock and the version calls were real Drupal calls against the lab database.
+All 34 checks passed. In the lab, `updb`, `cim`, `cr` and `cron` were replaced by a stand-in (`updatedb` took 3 seconds), because a real `cim` would have changed the lab's config. The lock and the version calls were real Drupal calls against the lab database.
 
 - **Covered:**
   - 4 and 8 instances starting together: 1 deploy each time.
@@ -106,8 +111,15 @@ All 24 checks passed. In the lab, `updb`, `cim`, `cr` and `cron` were replaced b
   - A failed `cim`: the next start deploys.
   - A dead instance's lock: everyone skips until the lock is released or its TTL expires on its own.
   - A late instance, version `1.10`, a warning printed after the win, and `APP_VERSION` unset (exit 1).
+  - Maintenance mode:
+    - on for all three commands, and off before cron;
+    - off again after a failed `cim`;
+    - left on when it was already on;
+    - turned off by the retry after a killed deploy.
 - **Proof the tests can fail:**
   - A lock that always says yes (what a per-instance lock file does) gives 4 deploys out of 4.
   - Without the second check, the late instance deploys again.
   - Without `--input-format=string`, version `1.20` deploys again on restart.
+  - Without the maintenance step, the commands run with the site live.
+  - Without the marker, a retry leaves the site in maintenance mode.
 - **Not tested:** a real App Service, and the background start inside your entrypoint.

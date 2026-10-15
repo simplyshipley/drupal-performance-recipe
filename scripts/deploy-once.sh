@@ -24,6 +24,7 @@ VERSION="${APP_VERSION:-}"
 TTL="${DEPLOY_LOCK_TTL:-1800}"
 LOCK=deploy_once
 KEY=deploy_once.version
+MAINT_KEY=deploy_once.maintenance
 
 log() { printf 'deploy-once %s [%s]: %s\n' "$(date -u +%FT%TZ)" "${WEBSITE_INSTANCE_ID:-local}" "$*"; }
 deployed() { [[ "$($DRUSH state:get "$KEY" 2>/dev/null)" == "$VERSION" ]]; }
@@ -47,10 +48,25 @@ fi
 if deployed; then log "$VERSION was deployed by another instance; skipping"; exit 0; fi
 
 log "deploying $VERSION"
+# Maintenance mode for the whole deploy: updb alone sets it only while it has
+# updates to run, and cim/cr would otherwise run with the site live. Turned off
+# again even if a command fails. Left on if someone else turned it on; MAINT_KEY
+# marks it as ours, so a retry after a killed deploy still turns it off.
+maint_off() { $DRUSH maint:set 0 && $DRUSH state:delete "$MAINT_KEY"; }
+ours=0
+if [[ "$($DRUSH maint:get 2>/dev/null | tail -n 1)" != 1 || "$($DRUSH state:get "$MAINT_KEY" 2>/dev/null)" == 1 ]]; then
+  ours=1
+  for cmd in "state:set $MAINT_KEY 1 --input-format=integer" "maint:set 1"; do
+    # shellcheck disable=SC2086
+    $DRUSH $cmd || { rc=$?; log "could not turn on maintenance mode (exit $rc)"; exit "$rc"; }
+  done
+  trap 'maint_off >/dev/null 2>&1; release' EXIT
+fi
 for cmd in "updatedb -y" "config:import -y" "cache:rebuild"; do
   # shellcheck disable=SC2086
   $DRUSH $cmd || { rc=$?; log "drush $cmd failed (exit $rc); $VERSION not recorded"; exit "$rc"; }
 done
+[[ "$ours" == 0 ]] || maint_off || log "could not turn off maintenance mode: run drush maint:set 0"
 # string: auto format would store 1.10 as the number 1.1, and it would never match again.
 $DRUSH state:set "$KEY" "$VERSION" --input-format=string || { rc=$?; log "could not record $VERSION (exit $rc)"; exit "$rc"; }
 release; trap - EXIT
