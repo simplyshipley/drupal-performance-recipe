@@ -59,6 +59,33 @@ In the App Service log stream, look for:
 - Every other instance with `another instance is deploying; skipping`, `was deployed by another instance; skipping` or `already deployed; skipping`.
 - Then `drush state:get deploy_once.version` prints the new version.
 
+## If a deploy fails part way: the lock
+
+| What happened | Lock afterwards | What to do |
+|---|---|---|
+| A drush command failed | Released by the script | Fix the cause, restart one instance |
+| The script was stopped (SIGTERM) | Released by the script | Restart one instance |
+| The script was killed (SIGKILL), or the container or instance went away mid-deploy | **Still held** until `DEPLOY_LOCK_TTL` runs out | Break it (below), or wait for the TTL, then restart one instance |
+
+The first three rows were tested in the lab. For the third, assume any hard stop leaves the lock held: the lab can't show how App Service stops a background process.
+
+**Is it held?** From a shell on any instance (for example App Service SSH):
+
+```bash
+drush sql:query "SELECT name, expire, expire > UNIX_TIMESTAMP() AS held FROM semaphore WHERE name='deploy_once'"
+```
+
+- No row: not held.
+- `held` 1: held until `expire`, a Unix time; convert it with `date -d @<expire>`.
+
+**Break it:**
+
+1. Make sure no instance is still deploying. The log stream shows `deploying <version>` with no `deployed` or `failed` line after it.
+2. Release the lock: `drush php:eval "\Drupal::service('lock.persistent')->release('deploy_once');"`
+3. Restart one instance. It finds the version not recorded and runs all three commands again.
+
+Breaking the lock while a deploy is still running lets a second instance deploy at the same time. That's the case this script exists to prevent.
+
 ## Troubleshooting
 
 | Symptom | Fix |
