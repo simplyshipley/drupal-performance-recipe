@@ -1,0 +1,20 @@
+# deploy-site comparison 2026-10-15T21:02:20Z
+original   S1 4 instances start together                           deploys=4
+original   S2 1 starts, 3 more 1 s later (mid-deploy)              deploys=4
+original   S3 same 4 restart                                       deploys=0
+original   S4 cim fails: version recorded?                         recorded=yes lock_rows=0
+original   S5 next start after the failure                         deploys=0
+original   S6 maintenance during updb/cim/cr                       on=0 of 4; after=0
+minimal    S1 4 instances start together                           deploys=1
+minimal    S2 1 starts, 3 more 1 s later (mid-deploy)              deploys=1
+minimal    S3 same 4 restart                                       deploys=0
+minimal    S4 cim fails: version recorded?                         recorded=yes lock_rows=0
+minimal    S5 next start after the failure                         deploys=0
+minimal    S6 maintenance during updb/cim/cr                       on=0 of 4; after=0
+suggested  S1 4 instances start together                           deploys=1
+suggested  S2 1 starts, 3 more 1 s later (mid-deploy)              deploys=1
+suggested  S3 same 4 restart                                       deploys=0
+suggested  S4 cim fails: version recorded?                         recorded=no lock_rows=0
+suggested  S5 next start after the failure                         deploys=1
+suggested  S6 maintenance during updb/cim/cr                       on=4 of 4; after=0
+mutant     S1 minimal with the lock removed (proof the test can fail) deploys=4

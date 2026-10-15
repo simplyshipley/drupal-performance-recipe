@@ -18,7 +18,7 @@ The shared base image runs `assets/deploy-site` at container start. With several
 
 ## Lab results (2026-10-15, DDEV lab site)
 
-Four simulated instances per test, each with its own `/tmp` and a shared `private/`. The deploy commands were a stand-in that only logged them (`updb` took 3 seconds). The lock, the version file and maintenance mode were real. Raw log: [`compare-run-20261015.log`](../scripts/deploy-site/tests/compare-run-20261015.log).
+Four simulated instances per test, each with its own `/tmp` and a shared `private/`. The deploy commands were a stand-in that only logged them (`updb` took 3 seconds). The lock, the version file and maintenance mode were real. Raw log: [`compare-run-20261015.txt`](../scripts/deploy-site/tests/compare-run-20261015.txt).
 
 | Test | Original | Minimal | Suggested |
 |---|---|---|---|
