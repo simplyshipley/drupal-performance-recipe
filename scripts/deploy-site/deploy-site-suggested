@@ -1,0 +1,162 @@
+#!/bin/bash
+# Deploy commands for one site version, run on ONE instance however many start
+# at once. Settings: DEPLOY_ENABLED, DEPLOY_RUN_CR, DEPLOY_RUN_UPDB,
+# DEPLOY_RUN_ENTITY_UPDATES, DEPLOY_RUN_CIM, DRUPAL_VERSION, APP_VERSION,
+# DEPLOY_LOCK_TTL (seconds, default 900).
+
+cd "$DRUPAL_DIR" || exit 1
+
+VERSION_PATH="$DRUPAL_DIR/private/deployed-version.txt"
+MAINT_PATH="$DRUPAL_DIR/private/deploy-site.maintenance"
+LOCK_PATH_LOCAL="/tmp/deploy-site.lock"
+# Database lock: one row in Drupal's semaphore table. The name is the primary
+# key, so only one instance's INSERT can succeed, however close together they
+# start. Expires after DEPLOY_LOCK_TTL seconds if a deploy dies; keep it longer
+# than the slowest deploy.
+LOCK_TTL="${DEPLOY_LOCK_TTL:-900}"
+
+log() {
+  echo "deploy-site [${WEBSITE_INSTANCE_ID:-local}]: $*"
+}
+
+lock_acquire() {
+  drush sqlq "DELETE FROM semaphore WHERE name = 'deploy_site' AND expire < UNIX_TIMESTAMP()" >/dev/null 2>&1
+  drush sqlq "INSERT INTO semaphore (name, value, expire) VALUES ('deploy_site', 'deploy-site', UNIX_TIMESTAMP() + $LOCK_TTL)" >/dev/null 2>&1
+}
+
+lock_held() {
+  [ "$(drush sqlq "SELECT COUNT(*) FROM semaphore WHERE name = 'deploy_site'" 2>/dev/null | grep -E '^[0-9]+$')" = "1" ]
+}
+
+lock_release() {
+  drush sqlq "DELETE FROM semaphore WHERE name = 'deploy_site'" >/dev/null 2>&1
+}
+
+deployed_version() {
+  if [ -f "$VERSION_PATH" ]; then cat "$VERSION_PATH"; fi
+}
+
+maintenance() {
+  drush state:set system.maintenance_mode "$1" --input-format=integer >/dev/null
+}
+
+maintenance_is_on() {
+  [ "$(drush state:get system.maintenance_mode 2>/dev/null)" = "1" ]
+}
+
+# Runs one drush command; on failure the deploy stops and the version is not recorded.
+run() {
+  if ! drush "$@"; then
+    log "drush $* failed. $APP_VERSION not recorded; restart one instance to retry."
+    exit 1
+  fi
+}
+
+cacheclear() {
+  if [ "$DEPLOY_RUN_CR" = "1" ]; then
+    log "Rebuilding cache..."
+    if [ "$DRUPAL_VERSION" = "7" ]; then
+      run cc all
+    else
+      run cr
+    fi
+  fi
+}
+
+if [ "$DEPLOY_ENABLED" != "1" ]; then
+  log "Deployment is disabled. Skipping deployment."
+  exit 0
+fi
+
+if [ -z "$APP_VERSION" ]; then
+  log "APP_VERSION is not set. Skipping deployment."
+  exit 1
+fi
+
+if [ "$(deployed_version)" == "$APP_VERSION" ]; then
+  log "Current version ($APP_VERSION) already deployed."
+  exit 0
+fi
+
+if ! drush status --field=bootstrap | grep -q Successful; then
+  log "Drupal is not installed. Skipping deployment."
+  exit 0
+fi
+
+if [ -f "$LOCK_PATH_LOCAL" ]; then
+  log "Local deployment file exists. Continuing deployment."
+elif ! lock_acquire; then
+  if lock_held; then
+    log "Deployment lock is held by another instance. Skipping deployment commands."
+    exit 0
+  fi
+  log "Could not take the deployment lock (database error). Skipping deployment."
+  exit 1
+fi
+
+cleanup() {
+  status=$?
+  if [ -f "$MAINT_PATH" ]; then
+    maintenance 0 && rm -f "$MAINT_PATH"
+  fi
+  rm -f "$LOCK_PATH_LOCAL"
+  lock_release
+  exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 143' SIGTERM
+trap 'exit 130' SIGINT
+
+# Another instance may have finished between the version check and the lock.
+if [ "$(deployed_version)" == "$APP_VERSION" ]; then
+  log "Current version ($APP_VERSION) was deployed by another instance."
+  exit 0
+fi
+
+touch "$LOCK_PATH_LOCAL"
+log "Deploying site version $APP_VERSION..."
+
+# Maintenance mode for the whole deploy (updb alone sets it only while it has
+# updates to run). Left alone if someone else turned it on; MAINT_PATH marks it
+# as ours, so a retry after a killed deploy turns it off. Drupal 8+ only.
+if [ "$DRUPAL_VERSION" != "7" ] && { [ -f "$MAINT_PATH" ] || ! maintenance_is_on; }; then
+  touch "$MAINT_PATH"
+  maintenance 1 || { log "Could not turn on maintenance mode."; exit 1; }
+fi
+
+cacheclear
+
+REBUILD_CACHE_AGAIN=0
+
+if [ "$DEPLOY_RUN_UPDB" = "1" ]; then
+  log "Running database updates..."
+  run updb -y
+  REBUILD_CACHE_AGAIN=1
+fi
+
+if [ "$DRUPAL_VERSION" = "7" ]; then
+  log "Skipping D8+ deployment steps..."
+else
+  if [ "$DEPLOY_RUN_ENTITY_UPDATES" = "1" ]; then
+    log "Running entity updates..."
+    run en devel_entity_updates -y
+    run entup -y
+    cacheclear
+    REBUILD_CACHE_AGAIN=1
+  fi
+
+  if [ "$DEPLOY_RUN_CIM" = "1" ]; then
+    log "Importing configuration..."
+    run cim -y
+    REBUILD_CACHE_AGAIN=1
+  fi
+
+  if [ "$REBUILD_CACHE_AGAIN" = "1" ]; then
+    cacheclear
+  fi
+fi
+
+# Update the deployed version. The EXIT trap turns maintenance mode off and
+# releases the lock.
+echo "$APP_VERSION" > "$VERSION_PATH"
+log "Site version $APP_VERSION deployed."

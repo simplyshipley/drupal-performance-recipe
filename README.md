@@ -84,7 +84,8 @@ include $app_root . '/modules/custom/drupal-performance-modules/settings/setting
 11. [Contrib modules evaluated](docs/contrib-modules.md) (purge_queuer_url, purge_file, query_string_optimizer, index_now: adopted / not adopted / watch)
 12. [Redis image for Azure](redis/docs/redis-image.md) and [one vs shared Redis](redis/docs/redis-sharing.md)
 13. [uspsoig.gov caching and bot check](docs/uspsoig-cache-bot-check.md) (findings that drove the bot and header work)
-14. [Run the deploy commands on one instance](docs/deploy-once.md) (several App Service instances: `scripts/deploy-once.sh` replaces the entrypoint `LOCK_PATH` block)
+14. [Run the deploy commands on one instance](docs/deploy-once.md) (several App Service instances: `scripts/deploy-once.sh` replaces the base image's `assets/deploy-site`, Drupal 8+ only)
+   - The base image's `deploy-site` script, original vs a minimal fix vs a suggested fix, with lab results and diffs: [deploy-site.md](docs/deploy-site.md)
 15. Source guides: [Caching on Azure](docs/caching-guide.md), [Hardening](docs/hardening.md)
    (exported from the Claude Doc, 2026-09-25)
 

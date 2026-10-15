@@ -1,0 +1,99 @@
+#!/bin/bash
+
+cd "$DRUPAL_DIR" || exit 1
+
+VERSION_PATH="$DRUPAL_DIR/private/deployed-version.txt"
+LOCK_PATH="$DRUPAL_DIR/private/deploy-site.lock"
+LOCK_PATH_LOCAL="/tmp/deploy-site.lock"
+
+if [ "$DEPLOY_ENABLED" != "1" ]; then
+  echo "Deployment is disabled. Skipping deployment."
+  exit 0
+fi
+
+if [ -f "$VERSION_PATH" ]; then
+  DEPLOYED_VERSION=$(cat "$VERSION_PATH")
+else
+  DEPLOYED_VERSION=""
+fi
+
+if [ "$DEPLOYED_VERSION" == "$APP_VERSION" ]; then
+  echo "Current version ($APP_VERSION) already deployed."
+  exit 0
+fi
+
+if [ -f "$LOCK_PATH" ]; then
+  if [ -f "$LOCK_PATH_LOCAL" ]; then
+    echo "Local deployment file exists. Continuing deployment."
+  elif find "$LOCK_PATH" -mmin +360; then
+    echo "Deployment lock file is stale. Continuing deployment."
+  else
+    echo "Deployment lock file exists. Skipping deployment commands."
+    exit 0
+  fi
+fi
+
+touch "$LOCK_PATH"
+touch "$LOCK_PATH_LOCAL"
+echo "Deploying site version $APP_VERSION..."
+
+cleanup() {
+  rm -f "$LOCK_PATH" "$LOCK_PATH_LOCAL"
+  exit 0
+}
+
+cacheclear() {
+  if [ "$DEPLOY_RUN_CR" = "1" ]; then
+    echo "Rebuilding cache..."
+    if [ "$DRUPAL_VERSION" = "7" ]; then
+      drush cc all
+    else
+      drush cr
+    fi
+  fi
+}
+
+trap 'cleanup' SIGTERM SIGINT
+
+if ! drush status --field=bootstrap | grep -q Successful; then
+  echo "Drupal is not installed. Skipping deployment."
+  rm -f "$LOCK_PATH" "$LOCK_PATH_LOCAL"
+  exit 0
+fi
+
+cacheclear
+
+REBUILD_CACHE_AGAIN=0
+
+if [ "$DEPLOY_RUN_UPDB" = "1" ]; then
+  echo "Running database updates..."
+  drush updb -y
+  REBUILD_CACHE_AGAIN=1
+fi
+
+if [ "$DRUPAL_VERSION" = "7" ]; then
+  echo "Skipping D8+ deployment steps..."
+else
+  if [ "$DEPLOY_RUN_ENTITY_UPDATES" = "1" ]; then
+    echo "Running entity updates..."
+    drush en devel_entity_updates -y
+    drush entup -y
+    cacheclear
+    REBUILD_CACHE_AGAIN=1
+  fi
+
+  if [ "$DEPLOY_RUN_CIM" = "1" ]; then
+    echo "Importing configuration..."
+    drush cim -y
+    REBUILD_CACHE_AGAIN=1
+  fi
+
+  if [ "$REBUILD_CACHE_AGAIN" = "1" ]; then
+    cacheclear
+  fi
+fi
+
+# Update the deployed version
+echo "$APP_VERSION" > "$VERSION_PATH"
+echo "Site version $APP_VERSION deployed."
+rm -f "$LOCK_PATH" "$LOCK_PATH_LOCAL"

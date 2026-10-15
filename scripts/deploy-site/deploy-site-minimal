@@ -1,0 +1,114 @@
+#!/bin/bash
+
+cd "$DRUPAL_DIR" || exit 1
+
+VERSION_PATH="$DRUPAL_DIR/private/deployed-version.txt"
+LOCK_PATH_LOCAL="/tmp/deploy-site.lock"
+# Database lock: one row in Drupal's semaphore table. The name is the primary
+# key, so only one instance's INSERT can succeed, however close together they
+# start. Expires after DEPLOY_LOCK_TTL seconds if a deploy dies.
+LOCK_TTL="${DEPLOY_LOCK_TTL:-900}"
+
+lock_acquire() {
+  drush sqlq "DELETE FROM semaphore WHERE name = 'deploy_site' AND expire < UNIX_TIMESTAMP()" >/dev/null 2>&1
+  drush sqlq "INSERT INTO semaphore (name, value, expire) VALUES ('deploy_site', 'deploy-site', UNIX_TIMESTAMP() + $LOCK_TTL)" >/dev/null 2>&1
+}
+
+lock_release() {
+  drush sqlq "DELETE FROM semaphore WHERE name = 'deploy_site'" >/dev/null 2>&1
+}
+
+if [ "$DEPLOY_ENABLED" != "1" ]; then
+  echo "Deployment is disabled. Skipping deployment."
+  exit 0
+fi
+
+if [ -f "$VERSION_PATH" ]; then
+  DEPLOYED_VERSION=$(cat "$VERSION_PATH")
+else
+  DEPLOYED_VERSION=""
+fi
+
+if [ "$DEPLOYED_VERSION" == "$APP_VERSION" ]; then
+  echo "Current version ($APP_VERSION) already deployed."
+  exit 0
+fi
+
+if ! drush status --field=bootstrap | grep -q Successful; then
+  echo "Drupal is not installed. Skipping deployment."
+  exit 0
+fi
+
+if [ -f "$LOCK_PATH_LOCAL" ]; then
+  echo "Local deployment file exists. Continuing deployment."
+elif ! lock_acquire; then
+  echo "Deployment lock is held by another instance. Skipping deployment commands."
+  exit 0
+fi
+
+# Another instance may have finished between the version check and the lock.
+if [ -f "$VERSION_PATH" ] && [ "$(cat "$VERSION_PATH")" == "$APP_VERSION" ]; then
+  echo "Current version ($APP_VERSION) was deployed by another instance."
+  lock_release
+  exit 0
+fi
+
+touch "$LOCK_PATH_LOCAL"
+echo "Deploying site version $APP_VERSION..."
+
+cleanup() {
+  rm -f "$LOCK_PATH_LOCAL"
+  lock_release
+  exit 0
+}
+
+cacheclear() {
+  if [ "$DEPLOY_RUN_CR" = "1" ]; then
+    echo "Rebuilding cache..."
+    if [ "$DRUPAL_VERSION" = "7" ]; then
+      drush cc all
+    else
+      drush cr
+    fi
+  fi
+}
+
+trap 'cleanup' SIGTERM SIGINT
+
+cacheclear
+
+REBUILD_CACHE_AGAIN=0
+
+if [ "$DEPLOY_RUN_UPDB" = "1" ]; then
+  echo "Running database updates..."
+  drush updb -y
+  REBUILD_CACHE_AGAIN=1
+fi
+
+if [ "$DRUPAL_VERSION" = "7" ]; then
+  echo "Skipping D8+ deployment steps..."
+else
+  if [ "$DEPLOY_RUN_ENTITY_UPDATES" = "1" ]; then
+    echo "Running entity updates..."
+    drush en devel_entity_updates -y
+    drush entup -y
+    cacheclear
+    REBUILD_CACHE_AGAIN=1
+  fi
+
+  if [ "$DEPLOY_RUN_CIM" = "1" ]; then
+    echo "Importing configuration..."
+    drush cim -y
+    REBUILD_CACHE_AGAIN=1
+  fi
+
+  if [ "$REBUILD_CACHE_AGAIN" = "1" ]; then
+    cacheclear
+  fi
+fi
+
+# Update the deployed version
+echo "$APP_VERSION" > "$VERSION_PATH"
+echo "Site version $APP_VERSION deployed."
+rm -f "$LOCK_PATH_LOCAL"
+lock_release

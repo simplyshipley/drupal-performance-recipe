@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Test stand-in for drush (see compare-tests.sh). FAIL_ON=<cmd> makes it exit 7.
+case "$1" in
+  cr|cc|updb|en|entup|cim)
+    echo "FAKE $1 maint=$(/var/www/html/vendor/bin/drush state:get system.maintenance_mode 2>/dev/null)" >> "$CALLS"
+    [[ "${FAIL_ON:-}" == "$1" ]] && exit 7
+    [[ "$1" == updb ]] && sleep 3
+    exit 0 ;;
+  *) exec /var/www/html/vendor/bin/drush "$@" ;;
+esac

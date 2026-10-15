@@ -1,6 +1,8 @@
 # Run the deploy commands on one instance
 
-When an App Service runs several instances, a new image restarts all of them, and the entrypoint's drush commands (`updb`, `cim`, `cr`, `cron`) run once per instance. [`scripts/deploy-once.sh`](../scripts/deploy-once.sh) makes exactly one instance run them for each image version.
+When an App Service runs several instances, a new image restarts all of them, and the drush commands run at container start (`updb`, `cim`, `cr`, and `cron` where the setup runs it) run once per instance. [`scripts/deploy-once.sh`](../scripts/deploy-once.sh) makes exactly one instance run them for each image version.
+
+> **Base image with `assets/deploy-site`:** fix that script instead, so its `DEPLOY_RUN_*` switches and Drupal 7 support stay. See [deploy-site.md](deploy-site.md) for a minimal and a suggested version, tested side by side. `deploy-once.sh` is a standalone alternative for Drupal 8+ only.
 
 ## Why a file lock (`LOCK_PATH`) doesn't work
 
@@ -31,7 +33,7 @@ When an App Service runs several instances, a new image restarts all of them, an
 ## Change the entrypoint
 
 1. Add the script to the base image, for example `COPY deploy-once.sh /usr/local/bin/drupal-deploy-once`.
-2. In the entrypoint, remove the `LOCK_PATH` block and its drush lines.
+2. Stop the entrypoint running `assets/deploy-site`, which holds the `LOCK_PATH` lock and the drush commands.
 3. Put this in their place, before the web server starts:
 
 ```bash

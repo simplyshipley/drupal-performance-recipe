@@ -1,0 +1,760 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>deploy-site Versions</title>
+<style>
+/* Layout: one reading column; results table first, then diffs, then full files */
+:root { --bg:#f5f6f4; --panel:#ffffff; --fg:#1f2421; --muted:#5e6862; --line:#dde2dd; --accent:#2f6b4f; --add:#e2f3e6; --del:#f8e5e3; --hunk:#e8eef6; --ok:#1d7a46; --bad:#b0352b;
+  --sans:"Source Sans 3", system-ui, sans-serif; --mono:"Source Code Pro", ui-monospace, Menlo, monospace; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#121513; --panel:#1a1e1c; --fg:#e3e8e4; --muted:#9aa59e; --line:#2c332f; --accent:#7cc79f; --add:#173a24; --del:#42201c; --hunk:#1d2a3a; --ok:#6fd39a; --bad:#f08a7f; color-scheme:dark; } }
+:root[data-theme="dark"] { --bg:#121513; --panel:#1a1e1c; --fg:#e3e8e4; --muted:#9aa59e; --line:#2c332f; --accent:#7cc79f; --add:#173a24; --del:#42201c; --hunk:#1d2a3a; --ok:#6fd39a; --bad:#f08a7f; color-scheme:dark; }
+body { background:var(--bg); color:var(--fg); font-family:var(--sans); padding-inline:16px; padding-block:24px 48px; }
+main { max-width:1040px; margin:0 auto; display:grid; gap:28px; }
+h1 { font-size:1.7rem; margin:0; text-wrap:balance; }
+h2 { font-family:var(--mono); font-size:1.05rem; margin:0; }
+p { margin:0; color:var(--muted); max-width:70ch; line-height:1.5; }
+nav { position:sticky; top:env(safe-area-inset-top,0px); background:var(--bg); padding-block:8px; display:flex; flex-wrap:wrap; gap:8px; border-bottom:1px solid var(--line); z-index:1; }
+nav a { color:var(--accent); text-decoration:none; font-size:.85rem; padding:4px 10px; border:1px solid var(--line); border-radius:4px; background:var(--panel); }
+nav a:hover, nav a:focus-visible { outline:2px solid var(--accent); }
+section { display:grid; gap:8px; min-width:0; scroll-margin-top:56px; }
+.tablewrap { overflow-x:auto; border:1px solid var(--line); border-radius:4px; background:var(--panel); }
+table { border-collapse:collapse; width:100%; font-size:.9rem; }
+th, td { text-align:left; padding:8px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
+thead th { font-size:.75rem; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
+tbody th { font-weight:400; }
+td.r { font-family:var(--mono); font-size:.82rem; font-variant-numeric:tabular-nums; white-space:nowrap; }
+td.ok { color:var(--ok); } td.bad { color:var(--bad); font-weight:600; }
+.code { background:var(--panel); border:1px solid var(--line); border-radius:4px; margin:0; padding:10px 0; overflow-x:auto; font-family:var(--mono); font-size:.8rem; line-height:1.55; }
+.ln { display:block; padding-right:16px; white-space:pre; }
+.ln i { display:inline-block; width:3.2em; padding-right:1em; text-align:right; color:var(--muted); font-style:normal; user-select:none; font-variant-numeric:tabular-nums; }
+.add { background:var(--add); } .del { background:var(--del); } .hunk { background:var(--hunk); color:var(--muted); }
+.note { font-family:var(--mono); font-size:.8rem; color:var(--muted); }
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;600&family=Source+Sans+3:wght@400;600&display=swap">
+<main>
+<div style="display:grid;gap:6px"><h1>deploy-site: original, minimal and suggested</h1>
+<p>Three versions of the base image's assets/deploy-site, run side by side as 4 simulated instances on the DDEV lab site. Rendered 2026-10-15 17:03.</p></div>
+<nav aria-label="Sections"><a href="#results">Lab results</a><a href="#diff-min">Original → minimal</a><a href="#diff-sug">Original → suggested</a><a href="#min">deploy-site-minimal</a><a href="#sug">deploy-site-suggested</a><a href="#orig">deploy-site-original</a><a href="#tests">Lab test script</a></nav>
+<section id="results"><h2>Lab results</h2>
+<p>Green is the result you want, red is a problem. The deploy commands were a stand-in (updb took 3 seconds); the lock, version file and maintenance mode were real. Each instance had its own /tmp and shared private/.</p>
+<div class="tablewrap"><table><thead><tr><th>Test</th><th>Original</th><th>Minimal</th><th>Suggested</th></tr></thead><tbody><tr><th>S1 4 instances start together</th><td class="r bad">deploys=4</td><td class="r ok">deploys=1</td><td class="r ok">deploys=1</td></tr><tr><th>S2 1 starts, 3 more 1 s later (mid-deploy)</th><td class="r bad">deploys=4</td><td class="r ok">deploys=1</td><td class="r ok">deploys=1</td></tr><tr><th>S3 same 4 restart</th><td class="r ok">deploys=0</td><td class="r ok">deploys=0</td><td class="r ok">deploys=0</td></tr><tr><th>S4 cim fails: version recorded?</th><td class="r bad">recorded=yes lock_rows=0</td><td class="r bad">recorded=yes lock_rows=0</td><td class="r ok">recorded=no lock_rows=0</td></tr><tr><th>S5 next start after the failure</th><td class="r bad">deploys=0</td><td class="r bad">deploys=0</td><td class="r ok">deploys=1</td></tr><tr><th>S6 maintenance during updb/cim/cr</th><td class="r bad">on=0 of 4; after=0</td><td class="r bad">on=0 of 4; after=0</td><td class="r ok">on=4 of 4; after=0</td></tr></tbody></table></div>
+<p class="note">mutant     S1 minimal with the lock removed (proof the test can fail) deploys=4</p></section>
+<section id="diff-min"><h2>Original → minimal (diff)</h2><p>Only the lock changes: the file lock becomes a database lock, the version is re-checked after taking it, and the &#x27;is Drupal installed&#x27; check moves ahead of the lock (the lock needs the database).</p><pre class="code"><span class="ln"><i>1</i>--- deploy-site-original</span>
+<span class="ln"><i>2</i>+++ deploy-site-minimal</span>
+<span class="ln hunk"><i>3</i>@@ -3,9 +3,21 @@</span>
+<span class="ln"><i>4</i> cd &quot;$DRUPAL_DIR&quot; || exit 1</span>
+<span class="ln"><i>5</i> </span>
+<span class="ln"><i>6</i> VERSION_PATH=&quot;$DRUPAL_DIR/private/deployed-version.txt&quot;</span>
+<span class="ln del"><i>7</i>-LOCK_PATH=&quot;$DRUPAL_DIR/private/deploy-site.lock&quot;</span>
+<span class="ln"><i>8</i> LOCK_PATH_LOCAL=&quot;/tmp/deploy-site.lock&quot;</span>
+<span class="ln add"><i>9</i>+# Database lock: one row in Drupal&#x27;s semaphore table. The name is the primary</span>
+<span class="ln add"><i>10</i>+# key, so only one instance&#x27;s INSERT can succeed, however close together they</span>
+<span class="ln add"><i>11</i>+# start. Expires after DEPLOY_LOCK_TTL seconds if a deploy dies.</span>
+<span class="ln add"><i>12</i>+LOCK_TTL=&quot;${DEPLOY_LOCK_TTL:-900}&quot;</span>
+<span class="ln"><i>13</i> </span>
+<span class="ln add"><i>14</i>+lock_acquire() {</span>
+<span class="ln add"><i>15</i>+  drush sqlq &quot;DELETE FROM semaphore WHERE name = &#x27;deploy_site&#x27; AND expire &lt; UNIX_TIMESTAMP()&quot; &gt;/dev/null 2&gt;&amp;1</span>
+<span class="ln add"><i>16</i>+  drush sqlq &quot;INSERT INTO semaphore (name, value, expire) VALUES (&#x27;deploy_site&#x27;, &#x27;deploy-site&#x27;, UNIX_TIMESTAMP() + $LOCK_TTL)&quot; &gt;/dev/null 2&gt;&amp;1</span>
+<span class="ln add"><i>17</i>+}</span>
+<span class="ln add"><i>18</i>+</span>
+<span class="ln add"><i>19</i>+lock_release() {</span>
+<span class="ln add"><i>20</i>+  drush sqlq &quot;DELETE FROM semaphore WHERE name = &#x27;deploy_site&#x27;&quot; &gt;/dev/null 2&gt;&amp;1</span>
+<span class="ln add"><i>21</i>+}</span>
+<span class="ln add"><i>22</i>+</span>
+<span class="ln"><i>23</i> if [ &quot;$DEPLOY_ENABLED&quot; != &quot;1&quot; ]; then</span>
+<span class="ln"><i>24</i>   echo &quot;Deployment is disabled. Skipping deployment.&quot;</span>
+<span class="ln"><i>25</i>   exit 0</span>
+<span class="ln hunk"><i>26</i>@@ -22,23 +34,31 @@</span>
+<span class="ln"><i>27</i>   exit 0</span>
+<span class="ln"><i>28</i> fi</span>
+<span class="ln"><i>29</i> </span>
+<span class="ln del"><i>30</i>-if [ -f &quot;$LOCK_PATH&quot; ]; then</span>
+<span class="ln del"><i>31</i>-  if [ -f &quot;$LOCK_PATH_LOCAL&quot; ]; then</span>
+<span class="ln del"><i>32</i>-    echo &quot;Local deployment file exists. Continuing deployment.&quot;</span>
+<span class="ln del"><i>33</i>-  elif find &quot;$LOCK_PATH&quot; -mmin +360; then</span>
+<span class="ln del"><i>34</i>-    echo &quot;Deployment lock file is stale. Continuing deployment.&quot;</span>
+<span class="ln del"><i>35</i>-  else</span>
+<span class="ln del"><i>36</i>-    echo &quot;Deployment lock file exists. Skipping deployment commands.&quot;</span>
+<span class="ln del"><i>37</i>-    exit 0</span>
+<span class="ln del"><i>38</i>-  fi</span>
+<span class="ln add"><i>39</i>+if ! drush status --field=bootstrap | grep -q Successful; then</span>
+<span class="ln add"><i>40</i>+  echo &quot;Drupal is not installed. Skipping deployment.&quot;</span>
+<span class="ln add"><i>41</i>+  exit 0</span>
+<span class="ln"><i>42</i> fi</span>
+<span class="ln"><i>43</i> </span>
+<span class="ln del"><i>44</i>-touch &quot;$LOCK_PATH&quot;</span>
+<span class="ln add"><i>45</i>+if [ -f &quot;$LOCK_PATH_LOCAL&quot; ]; then</span>
+<span class="ln add"><i>46</i>+  echo &quot;Local deployment file exists. Continuing deployment.&quot;</span>
+<span class="ln add"><i>47</i>+elif ! lock_acquire; then</span>
+<span class="ln add"><i>48</i>+  echo &quot;Deployment lock is held by another instance. Skipping deployment commands.&quot;</span>
+<span class="ln add"><i>49</i>+  exit 0</span>
+<span class="ln add"><i>50</i>+fi</span>
+<span class="ln add"><i>51</i>+</span>
+<span class="ln add"><i>52</i>+# Another instance may have finished between the version check and the lock.</span>
+<span class="ln add"><i>53</i>+if [ -f &quot;$VERSION_PATH&quot; ] &amp;&amp; [ &quot;$(cat &quot;$VERSION_PATH&quot;)&quot; == &quot;$APP_VERSION&quot; ]; then</span>
+<span class="ln add"><i>54</i>+  echo &quot;Current version ($APP_VERSION) was deployed by another instance.&quot;</span>
+<span class="ln add"><i>55</i>+  lock_release</span>
+<span class="ln add"><i>56</i>+  exit 0</span>
+<span class="ln add"><i>57</i>+fi</span>
+<span class="ln add"><i>58</i>+</span>
+<span class="ln"><i>59</i> touch &quot;$LOCK_PATH_LOCAL&quot;</span>
+<span class="ln"><i>60</i> echo &quot;Deploying site version $APP_VERSION...&quot;</span>
+<span class="ln"><i>61</i> </span>
+<span class="ln"><i>62</i> cleanup() {</span>
+<span class="ln del"><i>63</i>-  rm -f &quot;$LOCK_PATH&quot; &quot;$LOCK_PATH_LOCAL&quot;</span>
+<span class="ln add"><i>64</i>+  rm -f &quot;$LOCK_PATH_LOCAL&quot;</span>
+<span class="ln add"><i>65</i>+  lock_release</span>
+<span class="ln"><i>66</i>   exit 0</span>
+<span class="ln"><i>67</i> }</span>
+<span class="ln"><i>68</i> </span>
+<span class="ln hunk"><i>69</i>@@ -55,12 +75,6 @@</span>
+<span class="ln"><i>70</i> </span>
+<span class="ln"><i>71</i> trap &#x27;cleanup&#x27; SIGTERM SIGINT</span>
+<span class="ln"><i>72</i> </span>
+<span class="ln del"><i>73</i>-if ! drush status --field=bootstrap | grep -q Successful; then</span>
+<span class="ln del"><i>74</i>-  echo &quot;Drupal is not installed. Skipping deployment.&quot;</span>
+<span class="ln del"><i>75</i>-  rm -f &quot;$LOCK_PATH&quot; &quot;$LOCK_PATH_LOCAL&quot;</span>
+<span class="ln del"><i>76</i>-  exit 0</span>
+<span class="ln del"><i>77</i>-fi</span>
+<span class="ln del"><i>78</i>-</span>
+<span class="ln"><i>79</i> cacheclear</span>
+<span class="ln"><i>80</i> </span>
+<span class="ln"><i>81</i> REBUILD_CACHE_AGAIN=0</span>
+<span class="ln hunk"><i>82</i>@@ -96,4 +110,5 @@</span>
+<span class="ln"><i>83</i> # Update the deployed version</span>
+<span class="ln"><i>84</i> echo &quot;$APP_VERSION&quot; &gt; &quot;$VERSION_PATH&quot;</span>
+<span class="ln"><i>85</i> echo &quot;Site version $APP_VERSION deployed.&quot;</span>
+<span class="ln del"><i>86</i>-rm -f &quot;$LOCK_PATH&quot; &quot;$LOCK_PATH_LOCAL&quot;</span>
+<span class="ln add"><i>87</i>+rm -f &quot;$LOCK_PATH_LOCAL&quot;</span>
+<span class="ln add"><i>88</i>+lock_release</span></pre></section><section id="diff-sug"><h2>Original → suggested (diff)</h2><p>Minimal, plus: stop at the first failed command and don&#x27;t record the version; maintenance mode for the whole deploy (Drupal 8+); &#x27;lock held&#x27; told apart from a database error; cleanup on every exit; instance ID in each log line; APP_VERSION required.</p><pre class="code"><span class="ln"><i>1</i>--- deploy-site-original</span>
+<span class="ln"><i>2</i>+++ deploy-site-suggested</span>
+<span class="ln hunk"><i>3</i>@@ -1,90 +1,153 @@</span>
+<span class="ln"><i>4</i> #!/bin/bash</span>
+<span class="ln add"><i>5</i>+# Deploy commands for one site version, run on ONE instance however many start</span>
+<span class="ln add"><i>6</i>+# at once. Settings: DEPLOY_ENABLED, DEPLOY_RUN_CR, DEPLOY_RUN_UPDB,</span>
+<span class="ln add"><i>7</i>+# DEPLOY_RUN_ENTITY_UPDATES, DEPLOY_RUN_CIM, DRUPAL_VERSION, APP_VERSION,</span>
+<span class="ln add"><i>8</i>+# DEPLOY_LOCK_TTL (seconds, default 900).</span>
+<span class="ln"><i>9</i> </span>
+<span class="ln"><i>10</i> cd &quot;$DRUPAL_DIR&quot; || exit 1</span>
+<span class="ln"><i>11</i> </span>
+<span class="ln"><i>12</i> VERSION_PATH=&quot;$DRUPAL_DIR/private/deployed-version.txt&quot;</span>
+<span class="ln del"><i>13</i>-LOCK_PATH=&quot;$DRUPAL_DIR/private/deploy-site.lock&quot;</span>
+<span class="ln add"><i>14</i>+MAINT_PATH=&quot;$DRUPAL_DIR/private/deploy-site.maintenance&quot;</span>
+<span class="ln"><i>15</i> LOCK_PATH_LOCAL=&quot;/tmp/deploy-site.lock&quot;</span>
+<span class="ln add"><i>16</i>+# Database lock: one row in Drupal&#x27;s semaphore table. The name is the primary</span>
+<span class="ln add"><i>17</i>+# key, so only one instance&#x27;s INSERT can succeed, however close together they</span>
+<span class="ln add"><i>18</i>+# start. Expires after DEPLOY_LOCK_TTL seconds if a deploy dies; keep it longer</span>
+<span class="ln add"><i>19</i>+# than the slowest deploy.</span>
+<span class="ln add"><i>20</i>+LOCK_TTL=&quot;${DEPLOY_LOCK_TTL:-900}&quot;</span>
+<span class="ln"><i>21</i> </span>
+<span class="ln del"><i>22</i>-if [ &quot;$DEPLOY_ENABLED&quot; != &quot;1&quot; ]; then</span>
+<span class="ln del"><i>23</i>-  echo &quot;Deployment is disabled. Skipping deployment.&quot;</span>
+<span class="ln del"><i>24</i>-  exit 0</span>
+<span class="ln del"><i>25</i>-fi</span>
+<span class="ln add"><i>26</i>+log() {</span>
+<span class="ln add"><i>27</i>+  echo &quot;deploy-site [${WEBSITE_INSTANCE_ID:-local}]: $*&quot;</span>
+<span class="ln add"><i>28</i>+}</span>
+<span class="ln"><i>29</i> </span>
+<span class="ln del"><i>30</i>-if [ -f &quot;$VERSION_PATH&quot; ]; then</span>
+<span class="ln del"><i>31</i>-  DEPLOYED_VERSION=$(cat &quot;$VERSION_PATH&quot;)</span>
+<span class="ln del"><i>32</i>-else</span>
+<span class="ln del"><i>33</i>-  DEPLOYED_VERSION=&quot;&quot;</span>
+<span class="ln del"><i>34</i>-fi</span>
+<span class="ln add"><i>35</i>+lock_acquire() {</span>
+<span class="ln add"><i>36</i>+  drush sqlq &quot;DELETE FROM semaphore WHERE name = &#x27;deploy_site&#x27; AND expire &lt; UNIX_TIMESTAMP()&quot; &gt;/dev/null 2&gt;&amp;1</span>
+<span class="ln add"><i>37</i>+  drush sqlq &quot;INSERT INTO semaphore (name, value, expire) VALUES (&#x27;deploy_site&#x27;, &#x27;deploy-site&#x27;, UNIX_TIMESTAMP() + $LOCK_TTL)&quot; &gt;/dev/null 2&gt;&amp;1</span>
+<span class="ln add"><i>38</i>+}</span>
+<span class="ln"><i>39</i> </span>
+<span class="ln del"><i>40</i>-if [ &quot;$DEPLOYED_VERSION&quot; == &quot;$APP_VERSION&quot; ]; then</span>
+<span class="ln del"><i>41</i>-  echo &quot;Current version ($APP_VERSION) already deployed.&quot;</span>
+<span class="ln del"><i>42</i>-  exit 0</span>
+<span class="ln del"><i>43</i>-fi</span>
+<span class="ln add"><i>44</i>+lock_held() {</span>
+<span class="ln add"><i>45</i>+  [ &quot;$(drush sqlq &quot;SELECT COUNT(*) FROM semaphore WHERE name = &#x27;deploy_site&#x27;&quot; 2&gt;/dev/null | grep -E &#x27;^[0-9]+$&#x27;)&quot; = &quot;1&quot; ]</span>
+<span class="ln add"><i>46</i>+}</span>
+<span class="ln"><i>47</i> </span>
+<span class="ln del"><i>48</i>-if [ -f &quot;$LOCK_PATH&quot; ]; then</span>
+<span class="ln del"><i>49</i>-  if [ -f &quot;$LOCK_PATH_LOCAL&quot; ]; then</span>
+<span class="ln del"><i>50</i>-    echo &quot;Local deployment file exists. Continuing deployment.&quot;</span>
+<span class="ln del"><i>51</i>-  elif find &quot;$LOCK_PATH&quot; -mmin +360; then</span>
+<span class="ln del"><i>52</i>-    echo &quot;Deployment lock file is stale. Continuing deployment.&quot;</span>
+<span class="ln del"><i>53</i>-  else</span>
+<span class="ln del"><i>54</i>-    echo &quot;Deployment lock file exists. Skipping deployment commands.&quot;</span>
+<span class="ln del"><i>55</i>-    exit 0</span>
+<span class="ln del"><i>56</i>-  fi</span>
+<span class="ln del"><i>57</i>-fi</span>
+<span class="ln add"><i>58</i>+lock_release() {</span>
+<span class="ln add"><i>59</i>+  drush sqlq &quot;DELETE FROM semaphore WHERE name = &#x27;deploy_site&#x27;&quot; &gt;/dev/null 2&gt;&amp;1</span>
+<span class="ln add"><i>60</i>+}</span>
+<span class="ln"><i>61</i> </span>
+<span class="ln del"><i>62</i>-touch &quot;$LOCK_PATH&quot;</span>
+<span class="ln del"><i>63</i>-touch &quot;$LOCK_PATH_LOCAL&quot;</span>
+<span class="ln del"><i>64</i>-echo &quot;Deploying site version $APP_VERSION...&quot;</span>
+<span class="ln add"><i>65</i>+deployed_version() {</span>
+<span class="ln add"><i>66</i>+  if [ -f &quot;$VERSION_PATH&quot; ]; then cat &quot;$VERSION_PATH&quot;; fi</span>
+<span class="ln add"><i>67</i>+}</span>
+<span class="ln"><i>68</i> </span>
+<span class="ln del"><i>69</i>-cleanup() {</span>
+<span class="ln del"><i>70</i>-  rm -f &quot;$LOCK_PATH&quot; &quot;$LOCK_PATH_LOCAL&quot;</span>
+<span class="ln del"><i>71</i>-  exit 0</span>
+<span class="ln add"><i>72</i>+maintenance() {</span>
+<span class="ln add"><i>73</i>+  drush state:set system.maintenance_mode &quot;$1&quot; --input-format=integer &gt;/dev/null</span>
+<span class="ln"><i>74</i> }</span>
+<span class="ln"><i>75</i> </span>
+<span class="ln add"><i>76</i>+maintenance_is_on() {</span>
+<span class="ln add"><i>77</i>+  [ &quot;$(drush state:get system.maintenance_mode 2&gt;/dev/null)&quot; = &quot;1&quot; ]</span>
+<span class="ln add"><i>78</i>+}</span>
+<span class="ln add"><i>79</i>+</span>
+<span class="ln add"><i>80</i>+# Runs one drush command; on failure the deploy stops and the version is not recorded.</span>
+<span class="ln add"><i>81</i>+run() {</span>
+<span class="ln add"><i>82</i>+  if ! drush &quot;$@&quot;; then</span>
+<span class="ln add"><i>83</i>+    log &quot;drush $* failed. $APP_VERSION not recorded; restart one instance to retry.&quot;</span>
+<span class="ln add"><i>84</i>+    exit 1</span>
+<span class="ln add"><i>85</i>+  fi</span>
+<span class="ln add"><i>86</i>+}</span>
+<span class="ln add"><i>87</i>+</span>
+<span class="ln"><i>88</i> cacheclear() {</span>
+<span class="ln"><i>89</i>   if [ &quot;$DEPLOY_RUN_CR&quot; = &quot;1&quot; ]; then</span>
+<span class="ln del"><i>90</i>-    echo &quot;Rebuilding cache...&quot;</span>
+<span class="ln add"><i>91</i>+    log &quot;Rebuilding cache...&quot;</span>
+<span class="ln"><i>92</i>     if [ &quot;$DRUPAL_VERSION&quot; = &quot;7&quot; ]; then</span>
+<span class="ln del"><i>93</i>-      drush cc all</span>
+<span class="ln add"><i>94</i>+      run cc all</span>
+<span class="ln"><i>95</i>     else</span>
+<span class="ln del"><i>96</i>-      drush cr</span>
+<span class="ln add"><i>97</i>+      run cr</span>
+<span class="ln"><i>98</i>     fi</span>
+<span class="ln"><i>99</i>   fi</span>
+<span class="ln"><i>100</i> }</span>
+<span class="ln"><i>101</i> </span>
+<span class="ln del"><i>102</i>-trap &#x27;cleanup&#x27; SIGTERM SIGINT</span>
+<span class="ln add"><i>103</i>+if [ &quot;$DEPLOY_ENABLED&quot; != &quot;1&quot; ]; then</span>
+<span class="ln add"><i>104</i>+  log &quot;Deployment is disabled. Skipping deployment.&quot;</span>
+<span class="ln add"><i>105</i>+  exit 0</span>
+<span class="ln add"><i>106</i>+fi</span>
+<span class="ln"><i>107</i> </span>
+<span class="ln add"><i>108</i>+if [ -z &quot;$APP_VERSION&quot; ]; then</span>
+<span class="ln add"><i>109</i>+  log &quot;APP_VERSION is not set. Skipping deployment.&quot;</span>
+<span class="ln add"><i>110</i>+  exit 1</span>
+<span class="ln add"><i>111</i>+fi</span>
+<span class="ln add"><i>112</i>+</span>
+<span class="ln add"><i>113</i>+if [ &quot;$(deployed_version)&quot; == &quot;$APP_VERSION&quot; ]; then</span>
+<span class="ln add"><i>114</i>+  log &quot;Current version ($APP_VERSION) already deployed.&quot;</span>
+<span class="ln add"><i>115</i>+  exit 0</span>
+<span class="ln add"><i>116</i>+fi</span>
+<span class="ln add"><i>117</i>+</span>
+<span class="ln"><i>118</i> if ! drush status --field=bootstrap | grep -q Successful; then</span>
+<span class="ln del"><i>119</i>-  echo &quot;Drupal is not installed. Skipping deployment.&quot;</span>
+<span class="ln del"><i>120</i>-  rm -f &quot;$LOCK_PATH&quot; &quot;$LOCK_PATH_LOCAL&quot;</span>
+<span class="ln add"><i>121</i>+  log &quot;Drupal is not installed. Skipping deployment.&quot;</span>
+<span class="ln"><i>122</i>   exit 0</span>
+<span class="ln"><i>123</i> fi</span>
+<span class="ln"><i>124</i> </span>
+<span class="ln add"><i>125</i>+if [ -f &quot;$LOCK_PATH_LOCAL&quot; ]; then</span>
+<span class="ln add"><i>126</i>+  log &quot;Local deployment file exists. Continuing deployment.&quot;</span>
+<span class="ln add"><i>127</i>+elif ! lock_acquire; then</span>
+<span class="ln add"><i>128</i>+  if lock_held; then</span>
+<span class="ln add"><i>129</i>+    log &quot;Deployment lock is held by another instance. Skipping deployment commands.&quot;</span>
+<span class="ln add"><i>130</i>+    exit 0</span>
+<span class="ln add"><i>131</i>+  fi</span>
+<span class="ln add"><i>132</i>+  log &quot;Could not take the deployment lock (database error). Skipping deployment.&quot;</span>
+<span class="ln add"><i>133</i>+  exit 1</span>
+<span class="ln add"><i>134</i>+fi</span>
+<span class="ln add"><i>135</i>+</span>
+<span class="ln add"><i>136</i>+cleanup() {</span>
+<span class="ln add"><i>137</i>+  status=$?</span>
+<span class="ln add"><i>138</i>+  if [ -f &quot;$MAINT_PATH&quot; ]; then</span>
+<span class="ln add"><i>139</i>+    maintenance 0 &amp;&amp; rm -f &quot;$MAINT_PATH&quot;</span>
+<span class="ln add"><i>140</i>+  fi</span>
+<span class="ln add"><i>141</i>+  rm -f &quot;$LOCK_PATH_LOCAL&quot;</span>
+<span class="ln add"><i>142</i>+  lock_release</span>
+<span class="ln add"><i>143</i>+  exit &quot;$status&quot;</span>
+<span class="ln add"><i>144</i>+}</span>
+<span class="ln add"><i>145</i>+trap cleanup EXIT</span>
+<span class="ln add"><i>146</i>+trap &#x27;exit 143&#x27; SIGTERM</span>
+<span class="ln add"><i>147</i>+trap &#x27;exit 130&#x27; SIGINT</span>
+<span class="ln add"><i>148</i>+</span>
+<span class="ln add"><i>149</i>+# Another instance may have finished between the version check and the lock.</span>
+<span class="ln add"><i>150</i>+if [ &quot;$(deployed_version)&quot; == &quot;$APP_VERSION&quot; ]; then</span>
+<span class="ln add"><i>151</i>+  log &quot;Current version ($APP_VERSION) was deployed by another instance.&quot;</span>
+<span class="ln add"><i>152</i>+  exit 0</span>
+<span class="ln add"><i>153</i>+fi</span>
+<span class="ln add"><i>154</i>+</span>
+<span class="ln add"><i>155</i>+touch &quot;$LOCK_PATH_LOCAL&quot;</span>
+<span class="ln add"><i>156</i>+log &quot;Deploying site version $APP_VERSION...&quot;</span>
+<span class="ln add"><i>157</i>+</span>
+<span class="ln add"><i>158</i>+# Maintenance mode for the whole deploy (updb alone sets it only while it has</span>
+<span class="ln add"><i>159</i>+# updates to run). Left alone if someone else turned it on; MAINT_PATH marks it</span>
+<span class="ln add"><i>160</i>+# as ours, so a retry after a killed deploy turns it off. Drupal 8+ only.</span>
+<span class="ln add"><i>161</i>+if [ &quot;$DRUPAL_VERSION&quot; != &quot;7&quot; ] &amp;&amp; { [ -f &quot;$MAINT_PATH&quot; ] || ! maintenance_is_on; }; then</span>
+<span class="ln add"><i>162</i>+  touch &quot;$MAINT_PATH&quot;</span>
+<span class="ln add"><i>163</i>+  maintenance 1 || { log &quot;Could not turn on maintenance mode.&quot;; exit 1; }</span>
+<span class="ln add"><i>164</i>+fi</span>
+<span class="ln add"><i>165</i>+</span>
+<span class="ln"><i>166</i> cacheclear</span>
+<span class="ln"><i>167</i> </span>
+<span class="ln"><i>168</i> REBUILD_CACHE_AGAIN=0</span>
+<span class="ln"><i>169</i> </span>
+<span class="ln"><i>170</i> if [ &quot;$DEPLOY_RUN_UPDB&quot; = &quot;1&quot; ]; then</span>
+<span class="ln del"><i>171</i>-  echo &quot;Running database updates...&quot;</span>
+<span class="ln del"><i>172</i>-  drush updb -y</span>
+<span class="ln add"><i>173</i>+  log &quot;Running database updates...&quot;</span>
+<span class="ln add"><i>174</i>+  run updb -y</span>
+<span class="ln"><i>175</i>   REBUILD_CACHE_AGAIN=1</span>
+<span class="ln"><i>176</i> fi</span>
+<span class="ln"><i>177</i> </span>
+<span class="ln"><i>178</i> if [ &quot;$DRUPAL_VERSION&quot; = &quot;7&quot; ]; then</span>
+<span class="ln del"><i>179</i>-  echo &quot;Skipping D8+ deployment steps...&quot;</span>
+<span class="ln add"><i>180</i>+  log &quot;Skipping D8+ deployment steps...&quot;</span>
+<span class="ln"><i>181</i> else</span>
+<span class="ln"><i>182</i>   if [ &quot;$DEPLOY_RUN_ENTITY_UPDATES&quot; = &quot;1&quot; ]; then</span>
+<span class="ln del"><i>183</i>-    echo &quot;Running entity updates...&quot;</span>
+<span class="ln del"><i>184</i>-    drush en devel_entity_updates -y</span>
+<span class="ln del"><i>185</i>-    drush entup -y</span>
+<span class="ln add"><i>186</i>+    log &quot;Running entity updates...&quot;</span>
+<span class="ln add"><i>187</i>+    run en devel_entity_updates -y</span>
+<span class="ln add"><i>188</i>+    run entup -y</span>
+<span class="ln"><i>189</i>     cacheclear</span>
+<span class="ln"><i>190</i>     REBUILD_CACHE_AGAIN=1</span>
+<span class="ln"><i>191</i>   fi</span>
+<span class="ln"><i>192</i> </span>
+<span class="ln"><i>193</i>   if [ &quot;$DEPLOY_RUN_CIM&quot; = &quot;1&quot; ]; then</span>
+<span class="ln del"><i>194</i>-    echo &quot;Importing configuration...&quot;</span>
+<span class="ln del"><i>195</i>-    drush cim -y</span>
+<span class="ln add"><i>196</i>+    log &quot;Importing configuration...&quot;</span>
+<span class="ln add"><i>197</i>+    run cim -y</span>
+<span class="ln"><i>198</i>     REBUILD_CACHE_AGAIN=1</span>
+<span class="ln"><i>199</i>   fi</span>
+<span class="ln"><i>200</i> </span>
+<span class="ln hunk"><i>201</i>@@ -93,7 +156,7 @@</span>
+<span class="ln"><i>202</i>   fi</span>
+<span class="ln"><i>203</i> fi</span>
+<span class="ln"><i>204</i> </span>
+<span class="ln del"><i>205</i>-# Update the deployed version</span>
+<span class="ln add"><i>206</i>+# Update the deployed version. The EXIT trap turns maintenance mode off and</span>
+<span class="ln add"><i>207</i>+# releases the lock.</span>
+<span class="ln"><i>208</i> echo &quot;$APP_VERSION&quot; &gt; &quot;$VERSION_PATH&quot;</span>
+<span class="ln del"><i>209</i>-echo &quot;Site version $APP_VERSION deployed.&quot;</span>
+<span class="ln del"><i>210</i>-rm -f &quot;$LOCK_PATH&quot; &quot;$LOCK_PATH_LOCAL&quot;</span>
+<span class="ln add"><i>211</i>+log &quot;Site version $APP_VERSION deployed.&quot;</span></pre></section><section id="min"><h2>deploy-site-minimal</h2><p>Full file.</p><pre class="code"><span class="ln"><i>1</i>#!/bin/bash</span>
+<span class="ln"><i>2</i> </span>
+<span class="ln"><i>3</i>cd &quot;$DRUPAL_DIR&quot; || exit 1</span>
+<span class="ln"><i>4</i> </span>
+<span class="ln"><i>5</i>VERSION_PATH=&quot;$DRUPAL_DIR/private/deployed-version.txt&quot;</span>
+<span class="ln"><i>6</i>LOCK_PATH_LOCAL=&quot;/tmp/deploy-site.lock&quot;</span>
+<span class="ln"><i>7</i># Database lock: one row in Drupal&#x27;s semaphore table. The name is the primary</span>
+<span class="ln"><i>8</i># key, so only one instance&#x27;s INSERT can succeed, however close together they</span>
+<span class="ln"><i>9</i># start. Expires after DEPLOY_LOCK_TTL seconds if a deploy dies.</span>
+<span class="ln"><i>10</i>LOCK_TTL=&quot;${DEPLOY_LOCK_TTL:-900}&quot;</span>
+<span class="ln"><i>11</i> </span>
+<span class="ln"><i>12</i>lock_acquire() {</span>
+<span class="ln"><i>13</i>  drush sqlq &quot;DELETE FROM semaphore WHERE name = &#x27;deploy_site&#x27; AND expire &lt; UNIX_TIMESTAMP()&quot; &gt;/dev/null 2&gt;&amp;1</span>
+<span class="ln"><i>14</i>  drush sqlq &quot;INSERT INTO semaphore (name, value, expire) VALUES (&#x27;deploy_site&#x27;, &#x27;deploy-site&#x27;, UNIX_TIMESTAMP() + $LOCK_TTL)&quot; &gt;/dev/null 2&gt;&amp;1</span>
+<span class="ln"><i>15</i>}</span>
+<span class="ln"><i>16</i> </span>
+<span class="ln"><i>17</i>lock_release() {</span>
+<span class="ln"><i>18</i>  drush sqlq &quot;DELETE FROM semaphore WHERE name = &#x27;deploy_site&#x27;&quot; &gt;/dev/null 2&gt;&amp;1</span>
+<span class="ln"><i>19</i>}</span>
+<span class="ln"><i>20</i> </span>
+<span class="ln"><i>21</i>if [ &quot;$DEPLOY_ENABLED&quot; != &quot;1&quot; ]; then</span>
+<span class="ln"><i>22</i>  echo &quot;Deployment is disabled. Skipping deployment.&quot;</span>
+<span class="ln"><i>23</i>  exit 0</span>
+<span class="ln"><i>24</i>fi</span>
+<span class="ln"><i>25</i> </span>
+<span class="ln"><i>26</i>if [ -f &quot;$VERSION_PATH&quot; ]; then</span>
+<span class="ln"><i>27</i>  DEPLOYED_VERSION=$(cat &quot;$VERSION_PATH&quot;)</span>
+<span class="ln"><i>28</i>else</span>
+<span class="ln"><i>29</i>  DEPLOYED_VERSION=&quot;&quot;</span>
+<span class="ln"><i>30</i>fi</span>
+<span class="ln"><i>31</i> </span>
+<span class="ln"><i>32</i>if [ &quot;$DEPLOYED_VERSION&quot; == &quot;$APP_VERSION&quot; ]; then</span>
+<span class="ln"><i>33</i>  echo &quot;Current version ($APP_VERSION) already deployed.&quot;</span>
+<span class="ln"><i>34</i>  exit 0</span>
+<span class="ln"><i>35</i>fi</span>
+<span class="ln"><i>36</i> </span>
+<span class="ln"><i>37</i>if ! drush status --field=bootstrap | grep -q Successful; then</span>
+<span class="ln"><i>38</i>  echo &quot;Drupal is not installed. Skipping deployment.&quot;</span>
+<span class="ln"><i>39</i>  exit 0</span>
+<span class="ln"><i>40</i>fi</span>
+<span class="ln"><i>41</i> </span>
+<span class="ln"><i>42</i>if [ -f &quot;$LOCK_PATH_LOCAL&quot; ]; then</span>
+<span class="ln"><i>43</i>  echo &quot;Local deployment file exists. Continuing deployment.&quot;</span>
+<span class="ln"><i>44</i>elif ! lock_acquire; then</span>
+<span class="ln"><i>45</i>  echo &quot;Deployment lock is held by another instance. Skipping deployment commands.&quot;</span>
+<span class="ln"><i>46</i>  exit 0</span>
+<span class="ln"><i>47</i>fi</span>
+<span class="ln"><i>48</i> </span>
+<span class="ln"><i>49</i># Another instance may have finished between the version check and the lock.</span>
+<span class="ln"><i>50</i>if [ -f &quot;$VERSION_PATH&quot; ] &amp;&amp; [ &quot;$(cat &quot;$VERSION_PATH&quot;)&quot; == &quot;$APP_VERSION&quot; ]; then</span>
+<span class="ln"><i>51</i>  echo &quot;Current version ($APP_VERSION) was deployed by another instance.&quot;</span>
+<span class="ln"><i>52</i>  lock_release</span>
+<span class="ln"><i>53</i>  exit 0</span>
+<span class="ln"><i>54</i>fi</span>
+<span class="ln"><i>55</i> </span>
+<span class="ln"><i>56</i>touch &quot;$LOCK_PATH_LOCAL&quot;</span>
+<span class="ln"><i>57</i>echo &quot;Deploying site version $APP_VERSION...&quot;</span>
+<span class="ln"><i>58</i> </span>
+<span class="ln"><i>59</i>cleanup() {</span>
+<span class="ln"><i>60</i>  rm -f &quot;$LOCK_PATH_LOCAL&quot;</span>
+<span class="ln"><i>61</i>  lock_release</span>
+<span class="ln"><i>62</i>  exit 0</span>
+<span class="ln"><i>63</i>}</span>
+<span class="ln"><i>64</i> </span>
+<span class="ln"><i>65</i>cacheclear() {</span>
+<span class="ln"><i>66</i>  if [ &quot;$DEPLOY_RUN_CR&quot; = &quot;1&quot; ]; then</span>
+<span class="ln"><i>67</i>    echo &quot;Rebuilding cache...&quot;</span>
+<span class="ln"><i>68</i>    if [ &quot;$DRUPAL_VERSION&quot; = &quot;7&quot; ]; then</span>
+<span class="ln"><i>69</i>      drush cc all</span>
+<span class="ln"><i>70</i>    else</span>
+<span class="ln"><i>71</i>      drush cr</span>
+<span class="ln"><i>72</i>    fi</span>
+<span class="ln"><i>73</i>  fi</span>
+<span class="ln"><i>74</i>}</span>
+<span class="ln"><i>75</i> </span>
+<span class="ln"><i>76</i>trap &#x27;cleanup&#x27; SIGTERM SIGINT</span>
+<span class="ln"><i>77</i> </span>
+<span class="ln"><i>78</i>cacheclear</span>
+<span class="ln"><i>79</i> </span>
+<span class="ln"><i>80</i>REBUILD_CACHE_AGAIN=0</span>
+<span class="ln"><i>81</i> </span>
+<span class="ln"><i>82</i>if [ &quot;$DEPLOY_RUN_UPDB&quot; = &quot;1&quot; ]; then</span>
+<span class="ln"><i>83</i>  echo &quot;Running database updates...&quot;</span>
+<span class="ln"><i>84</i>  drush updb -y</span>
+<span class="ln"><i>85</i>  REBUILD_CACHE_AGAIN=1</span>
+<span class="ln"><i>86</i>fi</span>
+<span class="ln"><i>87</i> </span>
+<span class="ln"><i>88</i>if [ &quot;$DRUPAL_VERSION&quot; = &quot;7&quot; ]; then</span>
+<span class="ln"><i>89</i>  echo &quot;Skipping D8+ deployment steps...&quot;</span>
+<span class="ln"><i>90</i>else</span>
+<span class="ln"><i>91</i>  if [ &quot;$DEPLOY_RUN_ENTITY_UPDATES&quot; = &quot;1&quot; ]; then</span>
+<span class="ln"><i>92</i>    echo &quot;Running entity updates...&quot;</span>
+<span class="ln"><i>93</i>    drush en devel_entity_updates -y</span>
+<span class="ln"><i>94</i>    drush entup -y</span>
+<span class="ln"><i>95</i>    cacheclear</span>
+<span class="ln"><i>96</i>    REBUILD_CACHE_AGAIN=1</span>
+<span class="ln"><i>97</i>  fi</span>
+<span class="ln"><i>98</i> </span>
+<span class="ln"><i>99</i>  if [ &quot;$DEPLOY_RUN_CIM&quot; = &quot;1&quot; ]; then</span>
+<span class="ln"><i>100</i>    echo &quot;Importing configuration...&quot;</span>
+<span class="ln"><i>101</i>    drush cim -y</span>
+<span class="ln"><i>102</i>    REBUILD_CACHE_AGAIN=1</span>
+<span class="ln"><i>103</i>  fi</span>
+<span class="ln"><i>104</i> </span>
+<span class="ln"><i>105</i>  if [ &quot;$REBUILD_CACHE_AGAIN&quot; = &quot;1&quot; ]; then</span>
+<span class="ln"><i>106</i>    cacheclear</span>
+<span class="ln"><i>107</i>  fi</span>
+<span class="ln"><i>108</i>fi</span>
+<span class="ln"><i>109</i> </span>
+<span class="ln"><i>110</i># Update the deployed version</span>
+<span class="ln"><i>111</i>echo &quot;$APP_VERSION&quot; &gt; &quot;$VERSION_PATH&quot;</span>
+<span class="ln"><i>112</i>echo &quot;Site version $APP_VERSION deployed.&quot;</span>
+<span class="ln"><i>113</i>rm -f &quot;$LOCK_PATH_LOCAL&quot;</span>
+<span class="ln"><i>114</i>lock_release</span></pre></section><section id="sug"><h2>deploy-site-suggested</h2><p>Full file.</p><pre class="code"><span class="ln"><i>1</i>#!/bin/bash</span>
+<span class="ln"><i>2</i># Deploy commands for one site version, run on ONE instance however many start</span>
+<span class="ln"><i>3</i># at once. Settings: DEPLOY_ENABLED, DEPLOY_RUN_CR, DEPLOY_RUN_UPDB,</span>
+<span class="ln"><i>4</i># DEPLOY_RUN_ENTITY_UPDATES, DEPLOY_RUN_CIM, DRUPAL_VERSION, APP_VERSION,</span>
+<span class="ln"><i>5</i># DEPLOY_LOCK_TTL (seconds, default 900).</span>
+<span class="ln"><i>6</i> </span>
+<span class="ln"><i>7</i>cd &quot;$DRUPAL_DIR&quot; || exit 1</span>
+<span class="ln"><i>8</i> </span>
+<span class="ln"><i>9</i>VERSION_PATH=&quot;$DRUPAL_DIR/private/deployed-version.txt&quot;</span>
+<span class="ln"><i>10</i>MAINT_PATH=&quot;$DRUPAL_DIR/private/deploy-site.maintenance&quot;</span>
+<span class="ln"><i>11</i>LOCK_PATH_LOCAL=&quot;/tmp/deploy-site.lock&quot;</span>
+<span class="ln"><i>12</i># Database lock: one row in Drupal&#x27;s semaphore table. The name is the primary</span>
+<span class="ln"><i>13</i># key, so only one instance&#x27;s INSERT can succeed, however close together they</span>
+<span class="ln"><i>14</i># start. Expires after DEPLOY_LOCK_TTL seconds if a deploy dies; keep it longer</span>
+<span class="ln"><i>15</i># than the slowest deploy.</span>
+<span class="ln"><i>16</i>LOCK_TTL=&quot;${DEPLOY_LOCK_TTL:-900}&quot;</span>
+<span class="ln"><i>17</i> </span>
+<span class="ln"><i>18</i>log() {</span>
+<span class="ln"><i>19</i>  echo &quot;deploy-site [${WEBSITE_INSTANCE_ID:-local}]: $*&quot;</span>
+<span class="ln"><i>20</i>}</span>
+<span class="ln"><i>21</i> </span>
+<span class="ln"><i>22</i>lock_acquire() {</span>
+<span class="ln"><i>23</i>  drush sqlq &quot;DELETE FROM semaphore WHERE name = &#x27;deploy_site&#x27; AND expire &lt; UNIX_TIMESTAMP()&quot; &gt;/dev/null 2&gt;&amp;1</span>
+<span class="ln"><i>24</i>  drush sqlq &quot;INSERT INTO semaphore (name, value, expire) VALUES (&#x27;deploy_site&#x27;, &#x27;deploy-site&#x27;, UNIX_TIMESTAMP() + $LOCK_TTL)&quot; &gt;/dev/null 2&gt;&amp;1</span>
+<span class="ln"><i>25</i>}</span>
+<span class="ln"><i>26</i> </span>
+<span class="ln"><i>27</i>lock_held() {</span>
+<span class="ln"><i>28</i>  [ &quot;$(drush sqlq &quot;SELECT COUNT(*) FROM semaphore WHERE name = &#x27;deploy_site&#x27;&quot; 2&gt;/dev/null | grep -E &#x27;^[0-9]+$&#x27;)&quot; = &quot;1&quot; ]</span>
+<span class="ln"><i>29</i>}</span>
+<span class="ln"><i>30</i> </span>
+<span class="ln"><i>31</i>lock_release() {</span>
+<span class="ln"><i>32</i>  drush sqlq &quot;DELETE FROM semaphore WHERE name = &#x27;deploy_site&#x27;&quot; &gt;/dev/null 2&gt;&amp;1</span>
+<span class="ln"><i>33</i>}</span>
+<span class="ln"><i>34</i> </span>
+<span class="ln"><i>35</i>deployed_version() {</span>
+<span class="ln"><i>36</i>  if [ -f &quot;$VERSION_PATH&quot; ]; then cat &quot;$VERSION_PATH&quot;; fi</span>
+<span class="ln"><i>37</i>}</span>
+<span class="ln"><i>38</i> </span>
+<span class="ln"><i>39</i>maintenance() {</span>
+<span class="ln"><i>40</i>  drush state:set system.maintenance_mode &quot;$1&quot; --input-format=integer &gt;/dev/null</span>
+<span class="ln"><i>41</i>}</span>
+<span class="ln"><i>42</i> </span>
+<span class="ln"><i>43</i>maintenance_is_on() {</span>
+<span class="ln"><i>44</i>  [ &quot;$(drush state:get system.maintenance_mode 2&gt;/dev/null)&quot; = &quot;1&quot; ]</span>
+<span class="ln"><i>45</i>}</span>
+<span class="ln"><i>46</i> </span>
+<span class="ln"><i>47</i># Runs one drush command; on failure the deploy stops and the version is not recorded.</span>
+<span class="ln"><i>48</i>run() {</span>
+<span class="ln"><i>49</i>  if ! drush &quot;$@&quot;; then</span>
+<span class="ln"><i>50</i>    log &quot;drush $* failed. $APP_VERSION not recorded; restart one instance to retry.&quot;</span>
+<span class="ln"><i>51</i>    exit 1</span>
+<span class="ln"><i>52</i>  fi</span>
+<span class="ln"><i>53</i>}</span>
+<span class="ln"><i>54</i> </span>
+<span class="ln"><i>55</i>cacheclear() {</span>
+<span class="ln"><i>56</i>  if [ &quot;$DEPLOY_RUN_CR&quot; = &quot;1&quot; ]; then</span>
+<span class="ln"><i>57</i>    log &quot;Rebuilding cache...&quot;</span>
+<span class="ln"><i>58</i>    if [ &quot;$DRUPAL_VERSION&quot; = &quot;7&quot; ]; then</span>
+<span class="ln"><i>59</i>      run cc all</span>
+<span class="ln"><i>60</i>    else</span>
+<span class="ln"><i>61</i>      run cr</span>
+<span class="ln"><i>62</i>    fi</span>
+<span class="ln"><i>63</i>  fi</span>
+<span class="ln"><i>64</i>}</span>
+<span class="ln"><i>65</i> </span>
+<span class="ln"><i>66</i>if [ &quot;$DEPLOY_ENABLED&quot; != &quot;1&quot; ]; then</span>
+<span class="ln"><i>67</i>  log &quot;Deployment is disabled. Skipping deployment.&quot;</span>
+<span class="ln"><i>68</i>  exit 0</span>
+<span class="ln"><i>69</i>fi</span>
+<span class="ln"><i>70</i> </span>
+<span class="ln"><i>71</i>if [ -z &quot;$APP_VERSION&quot; ]; then</span>
+<span class="ln"><i>72</i>  log &quot;APP_VERSION is not set. Skipping deployment.&quot;</span>
+<span class="ln"><i>73</i>  exit 1</span>
+<span class="ln"><i>74</i>fi</span>
+<span class="ln"><i>75</i> </span>
+<span class="ln"><i>76</i>if [ &quot;$(deployed_version)&quot; == &quot;$APP_VERSION&quot; ]; then</span>
+<span class="ln"><i>77</i>  log &quot;Current version ($APP_VERSION) already deployed.&quot;</span>
+<span class="ln"><i>78</i>  exit 0</span>
+<span class="ln"><i>79</i>fi</span>
+<span class="ln"><i>80</i> </span>
+<span class="ln"><i>81</i>if ! drush status --field=bootstrap | grep -q Successful; then</span>
+<span class="ln"><i>82</i>  log &quot;Drupal is not installed. Skipping deployment.&quot;</span>
+<span class="ln"><i>83</i>  exit 0</span>
+<span class="ln"><i>84</i>fi</span>
+<span class="ln"><i>85</i> </span>
+<span class="ln"><i>86</i>if [ -f &quot;$LOCK_PATH_LOCAL&quot; ]; then</span>
+<span class="ln"><i>87</i>  log &quot;Local deployment file exists. Continuing deployment.&quot;</span>
+<span class="ln"><i>88</i>elif ! lock_acquire; then</span>
+<span class="ln"><i>89</i>  if lock_held; then</span>
+<span class="ln"><i>90</i>    log &quot;Deployment lock is held by another instance. Skipping deployment commands.&quot;</span>
+<span class="ln"><i>91</i>    exit 0</span>
+<span class="ln"><i>92</i>  fi</span>
+<span class="ln"><i>93</i>  log &quot;Could not take the deployment lock (database error). Skipping deployment.&quot;</span>
+<span class="ln"><i>94</i>  exit 1</span>
+<span class="ln"><i>95</i>fi</span>
+<span class="ln"><i>96</i> </span>
+<span class="ln"><i>97</i>cleanup() {</span>
+<span class="ln"><i>98</i>  status=$?</span>
+<span class="ln"><i>99</i>  if [ -f &quot;$MAINT_PATH&quot; ]; then</span>
+<span class="ln"><i>100</i>    maintenance 0 &amp;&amp; rm -f &quot;$MAINT_PATH&quot;</span>
+<span class="ln"><i>101</i>  fi</span>
+<span class="ln"><i>102</i>  rm -f &quot;$LOCK_PATH_LOCAL&quot;</span>
+<span class="ln"><i>103</i>  lock_release</span>
+<span class="ln"><i>104</i>  exit &quot;$status&quot;</span>
+<span class="ln"><i>105</i>}</span>
+<span class="ln"><i>106</i>trap cleanup EXIT</span>
+<span class="ln"><i>107</i>trap &#x27;exit 143&#x27; SIGTERM</span>
+<span class="ln"><i>108</i>trap &#x27;exit 130&#x27; SIGINT</span>
+<span class="ln"><i>109</i> </span>
+<span class="ln"><i>110</i># Another instance may have finished between the version check and the lock.</span>
+<span class="ln"><i>111</i>if [ &quot;$(deployed_version)&quot; == &quot;$APP_VERSION&quot; ]; then</span>
+<span class="ln"><i>112</i>  log &quot;Current version ($APP_VERSION) was deployed by another instance.&quot;</span>
+<span class="ln"><i>113</i>  exit 0</span>
+<span class="ln"><i>114</i>fi</span>
+<span class="ln"><i>115</i> </span>
+<span class="ln"><i>116</i>touch &quot;$LOCK_PATH_LOCAL&quot;</span>
+<span class="ln"><i>117</i>log &quot;Deploying site version $APP_VERSION...&quot;</span>
+<span class="ln"><i>118</i> </span>
+<span class="ln"><i>119</i># Maintenance mode for the whole deploy (updb alone sets it only while it has</span>
+<span class="ln"><i>120</i># updates to run). Left alone if someone else turned it on; MAINT_PATH marks it</span>
+<span class="ln"><i>121</i># as ours, so a retry after a killed deploy turns it off. Drupal 8+ only.</span>
+<span class="ln"><i>122</i>if [ &quot;$DRUPAL_VERSION&quot; != &quot;7&quot; ] &amp;&amp; { [ -f &quot;$MAINT_PATH&quot; ] || ! maintenance_is_on; }; then</span>
+<span class="ln"><i>123</i>  touch &quot;$MAINT_PATH&quot;</span>
+<span class="ln"><i>124</i>  maintenance 1 || { log &quot;Could not turn on maintenance mode.&quot;; exit 1; }</span>
+<span class="ln"><i>125</i>fi</span>
+<span class="ln"><i>126</i> </span>
+<span class="ln"><i>127</i>cacheclear</span>
+<span class="ln"><i>128</i> </span>
+<span class="ln"><i>129</i>REBUILD_CACHE_AGAIN=0</span>
+<span class="ln"><i>130</i> </span>
+<span class="ln"><i>131</i>if [ &quot;$DEPLOY_RUN_UPDB&quot; = &quot;1&quot; ]; then</span>
+<span class="ln"><i>132</i>  log &quot;Running database updates...&quot;</span>
+<span class="ln"><i>133</i>  run updb -y</span>
+<span class="ln"><i>134</i>  REBUILD_CACHE_AGAIN=1</span>
+<span class="ln"><i>135</i>fi</span>
+<span class="ln"><i>136</i> </span>
+<span class="ln"><i>137</i>if [ &quot;$DRUPAL_VERSION&quot; = &quot;7&quot; ]; then</span>
+<span class="ln"><i>138</i>  log &quot;Skipping D8+ deployment steps...&quot;</span>
+<span class="ln"><i>139</i>else</span>
+<span class="ln"><i>140</i>  if [ &quot;$DEPLOY_RUN_ENTITY_UPDATES&quot; = &quot;1&quot; ]; then</span>
+<span class="ln"><i>141</i>    log &quot;Running entity updates...&quot;</span>
+<span class="ln"><i>142</i>    run en devel_entity_updates -y</span>
+<span class="ln"><i>143</i>    run entup -y</span>
+<span class="ln"><i>144</i>    cacheclear</span>
+<span class="ln"><i>145</i>    REBUILD_CACHE_AGAIN=1</span>
+<span class="ln"><i>146</i>  fi</span>
+<span class="ln"><i>147</i> </span>
+<span class="ln"><i>148</i>  if [ &quot;$DEPLOY_RUN_CIM&quot; = &quot;1&quot; ]; then</span>
+<span class="ln"><i>149</i>    log &quot;Importing configuration...&quot;</span>
+<span class="ln"><i>150</i>    run cim -y</span>
+<span class="ln"><i>151</i>    REBUILD_CACHE_AGAIN=1</span>
+<span class="ln"><i>152</i>  fi</span>
+<span class="ln"><i>153</i> </span>
+<span class="ln"><i>154</i>  if [ &quot;$REBUILD_CACHE_AGAIN&quot; = &quot;1&quot; ]; then</span>
+<span class="ln"><i>155</i>    cacheclear</span>
+<span class="ln"><i>156</i>  fi</span>
+<span class="ln"><i>157</i>fi</span>
+<span class="ln"><i>158</i> </span>
+<span class="ln"><i>159</i># Update the deployed version. The EXIT trap turns maintenance mode off and</span>
+<span class="ln"><i>160</i># releases the lock.</span>
+<span class="ln"><i>161</i>echo &quot;$APP_VERSION&quot; &gt; &quot;$VERSION_PATH&quot;</span>
+<span class="ln"><i>162</i>log &quot;Site version $APP_VERSION deployed.&quot;</span></pre></section><section id="orig"><h2>deploy-site-original (transcribed from your photo)</h2><p>Typed from the photo of assets/deploy-site; check it against the real file before applying a diff.</p><pre class="code"><span class="ln"><i>1</i>#!/bin/bash</span>
+<span class="ln"><i>2</i> </span>
+<span class="ln"><i>3</i>cd &quot;$DRUPAL_DIR&quot; || exit 1</span>
+<span class="ln"><i>4</i> </span>
+<span class="ln"><i>5</i>VERSION_PATH=&quot;$DRUPAL_DIR/private/deployed-version.txt&quot;</span>
+<span class="ln"><i>6</i>LOCK_PATH=&quot;$DRUPAL_DIR/private/deploy-site.lock&quot;</span>
+<span class="ln"><i>7</i>LOCK_PATH_LOCAL=&quot;/tmp/deploy-site.lock&quot;</span>
+<span class="ln"><i>8</i> </span>
+<span class="ln"><i>9</i>if [ &quot;$DEPLOY_ENABLED&quot; != &quot;1&quot; ]; then</span>
+<span class="ln"><i>10</i>  echo &quot;Deployment is disabled. Skipping deployment.&quot;</span>
+<span class="ln"><i>11</i>  exit 0</span>
+<span class="ln"><i>12</i>fi</span>
+<span class="ln"><i>13</i> </span>
+<span class="ln"><i>14</i>if [ -f &quot;$VERSION_PATH&quot; ]; then</span>
+<span class="ln"><i>15</i>  DEPLOYED_VERSION=$(cat &quot;$VERSION_PATH&quot;)</span>
+<span class="ln"><i>16</i>else</span>
+<span class="ln"><i>17</i>  DEPLOYED_VERSION=&quot;&quot;</span>
+<span class="ln"><i>18</i>fi</span>
+<span class="ln"><i>19</i> </span>
+<span class="ln"><i>20</i>if [ &quot;$DEPLOYED_VERSION&quot; == &quot;$APP_VERSION&quot; ]; then</span>
+<span class="ln"><i>21</i>  echo &quot;Current version ($APP_VERSION) already deployed.&quot;</span>
+<span class="ln"><i>22</i>  exit 0</span>
+<span class="ln"><i>23</i>fi</span>
+<span class="ln"><i>24</i> </span>
+<span class="ln"><i>25</i>if [ -f &quot;$LOCK_PATH&quot; ]; then</span>
+<span class="ln"><i>26</i>  if [ -f &quot;$LOCK_PATH_LOCAL&quot; ]; then</span>
+<span class="ln"><i>27</i>    echo &quot;Local deployment file exists. Continuing deployment.&quot;</span>
+<span class="ln"><i>28</i>  elif find &quot;$LOCK_PATH&quot; -mmin +360; then</span>
+<span class="ln"><i>29</i>    echo &quot;Deployment lock file is stale. Continuing deployment.&quot;</span>
+<span class="ln"><i>30</i>  else</span>
+<span class="ln"><i>31</i>    echo &quot;Deployment lock file exists. Skipping deployment commands.&quot;</span>
+<span class="ln"><i>32</i>    exit 0</span>
+<span class="ln"><i>33</i>  fi</span>
+<span class="ln"><i>34</i>fi</span>
+<span class="ln"><i>35</i> </span>
+<span class="ln"><i>36</i>touch &quot;$LOCK_PATH&quot;</span>
+<span class="ln"><i>37</i>touch &quot;$LOCK_PATH_LOCAL&quot;</span>
+<span class="ln"><i>38</i>echo &quot;Deploying site version $APP_VERSION...&quot;</span>
+<span class="ln"><i>39</i> </span>
+<span class="ln"><i>40</i>cleanup() {</span>
+<span class="ln"><i>41</i>  rm -f &quot;$LOCK_PATH&quot; &quot;$LOCK_PATH_LOCAL&quot;</span>
+<span class="ln"><i>42</i>  exit 0</span>
+<span class="ln"><i>43</i>}</span>
+<span class="ln"><i>44</i> </span>
+<span class="ln"><i>45</i>cacheclear() {</span>
+<span class="ln"><i>46</i>  if [ &quot;$DEPLOY_RUN_CR&quot; = &quot;1&quot; ]; then</span>
+<span class="ln"><i>47</i>    echo &quot;Rebuilding cache...&quot;</span>
+<span class="ln"><i>48</i>    if [ &quot;$DRUPAL_VERSION&quot; = &quot;7&quot; ]; then</span>
+<span class="ln"><i>49</i>      drush cc all</span>
+<span class="ln"><i>50</i>    else</span>
+<span class="ln"><i>51</i>      drush cr</span>
+<span class="ln"><i>52</i>    fi</span>
+<span class="ln"><i>53</i>  fi</span>
+<span class="ln"><i>54</i>}</span>
+<span class="ln"><i>55</i> </span>
+<span class="ln"><i>56</i>trap &#x27;cleanup&#x27; SIGTERM SIGINT</span>
+<span class="ln"><i>57</i> </span>
+<span class="ln"><i>58</i>if ! drush status --field=bootstrap | grep -q Successful; then</span>
+<span class="ln"><i>59</i>  echo &quot;Drupal is not installed. Skipping deployment.&quot;</span>
+<span class="ln"><i>60</i>  rm -f &quot;$LOCK_PATH&quot; &quot;$LOCK_PATH_LOCAL&quot;</span>
+<span class="ln"><i>61</i>  exit 0</span>
+<span class="ln"><i>62</i>fi</span>
+<span class="ln"><i>63</i> </span>
+<span class="ln"><i>64</i>cacheclear</span>
+<span class="ln"><i>65</i> </span>
+<span class="ln"><i>66</i>REBUILD_CACHE_AGAIN=0</span>
+<span class="ln"><i>67</i> </span>
+<span class="ln"><i>68</i>if [ &quot;$DEPLOY_RUN_UPDB&quot; = &quot;1&quot; ]; then</span>
+<span class="ln"><i>69</i>  echo &quot;Running database updates...&quot;</span>
+<span class="ln"><i>70</i>  drush updb -y</span>
+<span class="ln"><i>71</i>  REBUILD_CACHE_AGAIN=1</span>
+<span class="ln"><i>72</i>fi</span>
+<span class="ln"><i>73</i> </span>
+<span class="ln"><i>74</i>if [ &quot;$DRUPAL_VERSION&quot; = &quot;7&quot; ]; then</span>
+<span class="ln"><i>75</i>  echo &quot;Skipping D8+ deployment steps...&quot;</span>
+<span class="ln"><i>76</i>else</span>
+<span class="ln"><i>77</i>  if [ &quot;$DEPLOY_RUN_ENTITY_UPDATES&quot; = &quot;1&quot; ]; then</span>
+<span class="ln"><i>78</i>    echo &quot;Running entity updates...&quot;</span>
+<span class="ln"><i>79</i>    drush en devel_entity_updates -y</span>
+<span class="ln"><i>80</i>    drush entup -y</span>
+<span class="ln"><i>81</i>    cacheclear</span>
+<span class="ln"><i>82</i>    REBUILD_CACHE_AGAIN=1</span>
+<span class="ln"><i>83</i>  fi</span>
+<span class="ln"><i>84</i> </span>
+<span class="ln"><i>85</i>  if [ &quot;$DEPLOY_RUN_CIM&quot; = &quot;1&quot; ]; then</span>
+<span class="ln"><i>86</i>    echo &quot;Importing configuration...&quot;</span>
+<span class="ln"><i>87</i>    drush cim -y</span>
+<span class="ln"><i>88</i>    REBUILD_CACHE_AGAIN=1</span>
+<span class="ln"><i>89</i>  fi</span>
+<span class="ln"><i>90</i> </span>
+<span class="ln"><i>91</i>  if [ &quot;$REBUILD_CACHE_AGAIN&quot; = &quot;1&quot; ]; then</span>
+<span class="ln"><i>92</i>    cacheclear</span>
+<span class="ln"><i>93</i>  fi</span>
+<span class="ln"><i>94</i>fi</span>
+<span class="ln"><i>95</i> </span>
+<span class="ln"><i>96</i># Update the deployed version</span>
+<span class="ln"><i>97</i>echo &quot;$APP_VERSION&quot; &gt; &quot;$VERSION_PATH&quot;</span>
+<span class="ln"><i>98</i>echo &quot;Site version $APP_VERSION deployed.&quot;</span>
+<span class="ln"><i>99</i>rm -f &quot;$LOCK_PATH&quot; &quot;$LOCK_PATH_LOCAL&quot;</span></pre></section><section id="tests"><h2>Lab test script</h2><p>compare-tests.sh plus the drush stand-in in bin/drush.</p><pre class="code"><span class="ln"><i>1</i>#!/usr/bin/env bash</span>
+<span class="ln"><i>2</i># Runs the original, minimal and suggested deploy-site side by side in the DDEV</span>
+<span class="ln"><i>3</i># lab web container. Copy scripts/deploy-site/ (the three versions plus</span>
+<span class="ln"><i>4</i># tests/compare-tests.sh and tests/bin/) into the lab root as deploy-site-test/,</span>
+<span class="ln"><i>5</i># then: ddev exec bash deploy-site-test/compare-tests.sh</span>
+<span class="ln"><i>6</i># Each &quot;instance&quot; is a copy of the script with its own /tmp lock path (separate</span>
+<span class="ln"><i>7</i># containers have separate /tmp). private/ is shared, as on App Service.</span>
+<span class="ln"><i>8</i># drush on PATH is a stand-in: cr/cc/updb/en/entup/cim are logged (updb takes</span>
+<span class="ln"><i>9</i># 3 s); status, sqlq and state go to the real drush. Lab only.</span>
+<span class="ln"><i>10</i>set -u</span>
+<span class="ln"><i>11</i>cd /var/www/html</span>
+<span class="ln"><i>12</i>T=/var/www/html/deploy-site-test</span>
+<span class="ln"><i>13</i>REAL=/var/www/html/vendor/bin/drush</span>
+<span class="ln"><i>14</i>export PATH=&quot;$T/bin:$PATH&quot; DRUPAL_DIR=/var/www/html DEPLOY_ENABLED=1 DEPLOY_RUN_CR=1 DEPLOY_RUN_UPDB=1 DEPLOY_RUN_CIM=1 DRUPAL_VERSION=11</span>
+<span class="ln"><i>15</i>mkdir -p /var/www/html/private</span>
+<span class="ln"><i>16</i>VP=/var/www/html/private/deployed-version.txt</span>
+<span class="ln"><i>17</i> </span>
+<span class="ln"><i>18</i>reset() { : &gt; &quot;$VP&quot;; $REAL sqlq &quot;DELETE FROM semaphore WHERE name=&#x27;deploy_site&#x27;&quot; &gt;/dev/null 2&gt;&amp;1; mv -f /var/www/html/private/deploy-site.lock /var/www/html/private/deploy-site.lock.gone 2&gt;/dev/null; $REAL state:set system.maintenance_mode 0 --input-format=integer; }</span>
+<span class="ln"><i>19</i>lockrows() { $REAL sqlq &quot;SELECT COUNT(*) FROM semaphore WHERE name=&#x27;deploy_site&#x27;&quot; 2&gt;/dev/null | grep -E &#x27;^[0-9]+$&#x27; | tail -n 1; }</span>
+<span class="ln"><i>20</i># start &lt;variant&gt; &lt;n&gt; &lt;version&gt; [stagger-seconds]</span>
+<span class="ln"><i>21</i>start() {</span>
+<span class="ln"><i>22</i>  local v=$1 n=$2 ver=$3 gap=${4:-0} run; run=$(mktemp -d)</span>
+<span class="ln"><i>23</i>  export CALLS=$run/calls; : &gt; &quot;$CALLS&quot;</span>
+<span class="ln"><i>24</i>  for i in $(seq 1 &quot;$n&quot;); do</span>
+<span class="ln"><i>25</i>    mkdir -p &quot;$run/tmp$i&quot;</span>
+<span class="ln"><i>26</i>    sed &quot;s|/tmp/deploy-site.lock|$run/tmp$i/deploy-site.lock|&quot; &quot;$T/deploy-site-$v&quot; &gt; &quot;$run/script$i&quot;</span>
+<span class="ln"><i>27</i>    ( APP_VERSION=$ver WEBSITE_INSTANCE_ID=inst$i bash &quot;$run/script$i&quot;; echo &quot;exit=$?&quot; ) &gt; &quot;$run/out$i&quot; 2&gt;&amp;1 &amp;</span>
+<span class="ln"><i>28</i>    [[ &quot;$i&quot; == 1 &amp;&amp; &quot;$gap&quot; != 0 ]] &amp;&amp; sleep &quot;$gap&quot;</span>
+<span class="ln"><i>29</i>  done</span>
+<span class="ln"><i>30</i>  wait</span>
+<span class="ln"><i>31</i>  DEPLOYS=$(grep -c &#x27;FAKE updb&#x27; &quot;$CALLS&quot;)</span>
+<span class="ln"><i>32</i>}</span>
+<span class="ln"><i>33</i>row() { printf &#x27;%-10s %-55s %s\n&#x27; &quot;$1&quot; &quot;$2&quot; &quot;$3&quot;; }</span>
+<span class="ln"><i>34</i> </span>
+<span class="ln"><i>35</i>echo &quot;# deploy-site comparison $(date -u +%FT%TZ)&quot;</span>
+<span class="ln"><i>36</i>for v in original minimal suggested; do</span>
+<span class="ln"><i>37</i>  reset; start &quot;$v&quot; 4 r1;      row &quot;$v&quot; &quot;S1 4 instances start together&quot; &quot;deploys=$DEPLOYS&quot;</span>
+<span class="ln"><i>38</i>  reset; start &quot;$v&quot; 4 r2 1;    row &quot;$v&quot; &quot;S2 1 starts, 3 more 1 s later (mid-deploy)&quot; &quot;deploys=$DEPLOYS&quot;</span>
+<span class="ln"><i>39</i>  start &quot;$v&quot; 4 r2;             row &quot;$v&quot; &quot;S3 same 4 restart&quot; &quot;deploys=$DEPLOYS&quot;</span>
+<span class="ln"><i>40</i>  reset; FAIL_ON=cim start &quot;$v&quot; 1 r3</span>
+<span class="ln"><i>41</i>  row &quot;$v&quot; &quot;S4 cim fails: version recorded?&quot; &quot;recorded=$([[ &quot;$(cat &quot;$VP&quot;)&quot; == r3 ]] &amp;&amp; echo yes || echo no) lock_rows=$(lockrows)&quot;</span>
+<span class="ln"><i>42</i>  start &quot;$v&quot; 1 r3;             row &quot;$v&quot; &quot;S5 next start after the failure&quot; &quot;deploys=$DEPLOYS&quot;</span>
+<span class="ln"><i>43</i>  reset; start &quot;$v&quot; 1 r4</span>
+<span class="ln"><i>44</i>  row &quot;$v&quot; &quot;S6 maintenance during updb/cim/cr&quot; &quot;on=$(grep -cE &#x27;FAKE (updb|cim|cr) .*maint=1&#x27; &quot;$CALLS&quot;) of $(grep -cE &#x27;FAKE (updb|cim|cr)&#x27; &quot;$CALLS&quot;); after=$($REAL state:get system.maintenance_mode)&quot;</span>
+<span class="ln"><i>45</i>done</span>
+<span class="ln"><i>46</i>sed &#x27;s/^elif ! lock_acquire; then/elif false; then/&#x27; &quot;$T/deploy-site-minimal&quot; &gt; &quot;$T/deploy-site-mutant&quot;</span>
+<span class="ln"><i>47</i>grep -q &#x27;^elif false; then&#x27; &quot;$T/deploy-site-mutant&quot; || echo &quot;mutant not created&quot;</span>
+<span class="ln"><i>48</i>reset; start mutant 4 r5;      row &quot;mutant&quot; &quot;S1 minimal with the lock removed (proof the test can fail)&quot; &quot;deploys=$DEPLOYS&quot;</span>
+<span class="ln"><i>49</i>reset</span></pre></section>
+</main>
