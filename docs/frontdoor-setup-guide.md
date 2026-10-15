@@ -427,7 +427,7 @@ curl -s -o /dev/null -D - -H 'Accept-Encoding: br, gzip' "$SITE$CSS" | grep -iE 
 
 ## 11. Redis cache (Premium environment)
 
-- **Default today: no Redis.** Run the sites without Redis until one of the conditions in [hosting-and-cost.md](../redis/docs/hosting-and-cost.md#summary) is met (set 2026-10-14). This section is for when Redis is wanted.
+- **Per site:** a site uses Redis only when its App Service sets `REDIS_HOST`; without it the site keeps Drupal's database cache ([hosting-and-cost.md, Summary](../redis/docs/hosting-and-cost.md#summary)). Bo, 2026-10-15: Azure Managed Redis, B0 for qa and B1 for production, for the sites that use Redis; the other sites on the shared base image "will NOT be using Redis at the moment". This section is for the sites that use Redis.
 - **What each one does** [Learn]:
   - Front Door: "Azure Front Door is an advanced content delivery network (CDN) for the cloud." Its origin "refers to the application deployment that Azure Front Door retrieves contents from", and "An origin shouldn't be confused with your database tier or storage tier. The origin should be viewed as the endpoint for your application backend." Here the origin is the App Service (section 5).
   - Redis: the App Service reaches it through the virtual network. "Virtual network integration is used only to make outbound calls from your app into your virtual network."

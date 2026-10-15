@@ -9,7 +9,7 @@ Run commands through your environment wrapper (`ddev composer`, `lando drush`, a
 - Drush: `composer require drush/drush` (the 10.6 project template does not include it) [V].
 - PHP extensions `redis` (phpredis) and `apcu` in the web container.
   - DDEV's PHP 8.3 image has both (phpredis 6.3.0) [V: `php -m`].
-  - Azure image: confirm on qa over the SSH link: `php -m | grep -E '^(redis|apcu)$'` (two lines). If missing, add `redis apcu` to the OIG base image's `install-php-extensions` list (DevOps), or a `RUN install-php-extensions redis apcu` in the site Dockerfile's **final** stage; the build stage's extensions don't reach the running image [V: OIG site copy `Dockerfile`; installer supports both for PHP 8.3, mlocati/docker-php-extension-installer].
+  - Azure image: confirm on qa over the SSH link: `php -m | grep -E '^(redis|apcu)$'` (two lines). If missing, add `apcu redis-^6.3@stable` to the OIG base image's `install-php-extensions` list (DevOps), or a `RUN install-php-extensions apcu redis-^6.3@stable` in the site Dockerfile's **final** stage (version and why: [paid-redis-setup.md, section 0](../redis/docs/paid-redis-setup.md#0-image-prerequisite-phpredis-in-the-base-image)); the build stage's extensions don't reach the running image [V: OIG site copy `Dockerfile`; installer supports both for PHP 8.3, mlocati/docker-php-extension-installer].
 
 ## 2. Let Composer place recipes
 

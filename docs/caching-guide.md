@@ -182,7 +182,7 @@ Redis options, limits and cost in Azure Government: [hosting-and-cost.md](../red
 - **Separate App Service:** Learn: "App Service currently allows your container to expose only one port for HTTP requests" \[Learn: [Configure a custom container](https://learn.microsoft.com/en-us/azure/app-service/configure-custom-container#configure-port-number)\].
 - **App Service sidecar:** Learn marks "National Clouds" as "Not yet supported" for sidecars \[Learn: [Migrate to sidecars](https://learn.microsoft.com/en-us/azure/app-service/migrate-sidecar-multi-container-apps#migration-limitations-and-considerations)\].
 - **Container Apps:** "you can use TCP ingress to expose a container app that uses the Redis protocol" \[Learn: [Ingress overview](https://learn.microsoft.com/en-us/azure/container-apps/ingress-overview#tcp)\]. Ruled choice (Bo, 2026-09-25), with Valkey 9.1.2 (2026-10-05). DevOps has no Container Apps (DevOps to Bo, 2026-10-13).
-- **Default until DevOps has a place for Redis: no Redis** (set 2026-10-14). Leave `REDIS_HOST` unset; the bins then use Drupal core's database cache (`settings.performance.php:141-144`; lab check: [no-redis-check](../redis/docs/evidence/no-redis-check/README.md)).
+- **Per site: no Redis unless the site's App Service sets `REDIS_HOST`** (set 2026-10-14). Bo, 2026-10-15: Azure Managed Redis, B0 for qa and B1 for production, for the sites that use Redis; the other sites on the shared base image "will NOT be using Redis at the moment" ([hosting-and-cost.md](../redis/docs/hosting-and-cost.md#summary)). Without `REDIS_HOST`, the bins use Drupal core's database cache (`settings.performance.php:141-144`; lab check: [no-redis-check](../redis/docs/evidence/no-redis-check/README.md)).
 
 ## Purge and purge queue
 

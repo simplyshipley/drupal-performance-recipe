@@ -10,10 +10,10 @@ For the DevOps team and managers deciding where, or whether, the sites' Redis (V
 
 DevOps has App Service only, with no Container Apps, Container Instances or Kubernetes (DevOps to Bo, 2026-10-13). Our recommendation for that setup (set 2026-10-14), with each reason sourced:
 
-1. **Now: run the sites without Redis.** No new Azure service, $0.
+1. **Sites not using Redis: leave `REDIS_HOST` unset.** No new Azure service, $0. Bo, 2026-10-15: the sites sharing the base image "will NOT be using Redis at the moment".
    - Leave `REDIS_HOST` unset. The six cache bins the recipe would put on Redis then use Drupal core's database cache, as tested in the local lab ([evidence/no-redis-check](evidence/no-redis-check/README.md)). Details are in the summary below.
    - Redis in App Service: Learn says "App Service currently allows your container to expose only one port for HTTP requests" (section 1), and marks sidecars "Not yet supported" for "National Clouds" (section 2).
-2. **When Redis is wanted: Azure Managed Redis, Microsoft's managed service (section 4).**
+2. **Sites using Redis: Azure Managed Redis, Microsoft's managed service (section 4).** B0 for qa, B1 for production (Bo, 2026-10-15).
    - Of the options on this page that run Redis, Azure Cache for Redis and Azure Managed Redis are the two that aren't App Service, Container Apps or Container Instances (table below).
    - Microsoft: "Microsoft recommends upgrading to Azure Managed Redis as soon as possible, rather than waiting for the retirement deadline." ([retirement post](https://techcommunity.microsoft.com/blog/azure-managed-redis/azure-cache-for-redis-retirement-what-to-know-and-how-to-prepare/4458721))
    - The same post lists "US Gov Cloud: July 2026" for Azure Managed Redis, and says "all dates are tentative".
@@ -37,13 +37,13 @@ DevOps has App Service only, with no Container Apps, Container Instances or Kube
 - **What DevOps has:** App Service only, with no Container Apps, Container Instances or Kubernetes (DevOps to Bo, 2026-10-13).
 - **Redis as its own App Service:** Learn says "App Service currently allows your container to expose only one port for HTTP requests", answers "Can I expose more than one port on my custom container image?" with "This isn't supported.", and names the Redis protocol among "TCP-based protocols other than HTTP or HTTPS" (section 1).
 - **Redis sidecar inside the site's App Service:** Learn marks sidecars "Not yet supported" for "National Clouds", and lists Azure Government as a national cloud (section 2).
-- **Default: run the sites without Redis for now** (set 2026-10-14; change it when one of the conditions below is met).
+- **Default for each site: no Redis** (set 2026-10-14). A site uses Redis only when its App Service sets `REDIS_HOST`. Bo, 2026-10-15: Azure Managed Redis, B0 for qa and B1 for production, for the sites that use Redis; the other sites on the shared base image "will NOT be using Redis at the moment".
   - Leave `REDIS_HOST` unset. Drupal's settings then configure no Redis (`drupal-performance-modules/settings/settings.performance.php:141-144`).
   - For the bins the recipe would put on Redis, Drupal core then falls back to its database cache: "the global default of 'cache.backend.database'" (core `lib/Drupal/Core/Cache/CacheFactory.php:27`; code at `:107-108`).
   - Tested in the local lab on 2026-10-14: with `REDIS_HOST` unset, the six cache bins the recipe would put on Redis are `Drupal\Core\Cache\DatabaseBackend` ([evidence/no-redis-check](evidence/no-redis-check/README.md)).
   - Why: DevOps has no Container Apps or Container Instances (DevOps to Bo, 2026-10-13). Section 1 gives Learn's App Service port limits. Sidecars are "Not yet supported" in national clouds (section 2). Whether DevOps can still create an Azure Cache for Redis hasn't been tried (section 3). Azure Managed Redis isn't in the Azure Government FedRAMP table (section 4).
   - This page doesn't measure what Redis would add.
-- **When to change the default:**
+- **Before a site sets `REDIS_HOST`, one of these must hold:**
   - DevOps can create an **Azure Cache for Redis** in the subscription (section 3).
   - DevOps gets **Azure Container Apps** ([azure/README.md](../azure/README.md)).
   - DevOps can create an **Azure Managed Redis** in US Gov Virginia, and it appears in Microsoft's Azure Government FedRAMP table or your security team accepts it without that (section 4).
@@ -52,7 +52,7 @@ DevOps has App Service only, with no Container Apps, Container Instances or Kube
 
 | Option | What Microsoft documents | On the Azure Government FedRAMP list | US Gov Virginia, per month | For DevOps today |
 |---|---|---|---|---|
-| No Redis (default) | (Drupal: `CacheFactory.php:27`) | (no extra service) | $0 | No new service; lab check only ([no-redis-check](evidence/no-redis-check/README.md)) |
+| No Redis (default for each site) | (Drupal: `CacheFactory.php:27`) | (no extra service) | $0 | No new service; lab check only ([no-redis-check](evidence/no-redis-check/README.md)) |
 | Redis as its own App Service | "only one port for HTTP requests" (section 1) | App Service: yes | n/a | Learn: "only one port for HTTP requests" (section 1) |
 | Redis sidecar in the site's App Service | "National Clouds": "Not yet supported" (section 2) | Not listed separately (App Service: yes) | n/a | "Not yet supported" in national clouds |
 | Azure Cache for Redis, Standard C1 | Gov endpoint `redis.cache.usgovcloudapi.net` (section 3) | Yes | $100.74 | "Creation blocked for new customers" since April 1, 2026; retires September 30, 2028 |

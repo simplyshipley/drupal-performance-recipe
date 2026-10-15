@@ -18,10 +18,14 @@ Rules for this page:
 The recipe turns Redis on only when the phpredis extension is loaded: `extension_loaded('redis')` (`drupal-performance-modules/settings/settings.performance.php:142`). Without it, `REDIS_HOST` is ignored and the site keeps the database cache.
 
 - Check on qa, from the App Service SSH console: `php -m | grep -E '^(redis|apcu)$'`. Two lines means nothing to change (`docs/install.md`, section 1, in the drupal-performance-recipe repository).
-- If `redis` is missing, add it to the base image's `install-php-extensions` list (DevOps: `docs/install.md`, section 1, in the drupal-performance-recipe repository, "add `redis apcu` to the OIG base image's `install-php-extensions` list (DevOps)"). The OIG site copy's Dockerfile builds `FROM acrcigie.azurecr.us/drupal/docker-oig-drupal:8.3` (`Dockerfile:1` and `:33`).
+- If `redis` is missing, add it to the base image's `install-php-extensions` list (DevOps: `docs/install.md`, section 1, in the drupal-performance-recipe repository, "add `apcu redis-^6.3@stable` to the OIG base image's `install-php-extensions` list (DevOps)"). The OIG site copy's Dockerfile builds `FROM acrcigie.azurecr.us/drupal/docker-oig-drupal:8.3` (`Dockerfile:1` and `:33`).
   - The Docker Hub image `bmcclureusps/oig-drupal:8.3`, named only in the OIG site copy Dockerfile's commented-out lines (`Dockerfile:2` and `:34`), (PHP 8.3.25) installs `apcu gd imagick opcache pdo_mysql uploadprogress zip`: `apcu`, but no `redis` (image metadata from `docker buildx imagetools inspect`, read 2026-10-14; the saved copy is not in this repository). Whether `acrcigie.azurecr.us/drupal/docker-oig-drupal:8.3` is the same image is not verified.
   - The installer lists `redis` for PHP 8.3: `redis 5.5 5.6 7.0 7.1 7.2 7.3 7.4 8.0 8.1 8.2 8.3 8.4 8.5` ([mlocati supported-extensions](https://github.com/mlocati/docker-php-extension-installer/blob/master/data/supported-extensions)).
-  - Pin `redis-6.3.0`: "DDEV's PHP 8.3 image has both (phpredis 6.3.0)" (`docs/install.md`, section 1, in the drupal-performance-recipe repository). The installer's version syntax is `install-php-extensions xdebug-2.9.7` ([installer README](https://github.com/mlocati/docker-php-extension-installer#installing-specific-versions-of-an-extension)), so the line is `redis-6.3.0`. When to change: after re-running the recipe's tests on a newer phpredis.
+  - Version: `redis-^6.3@stable`, the newest stable 6.3.x (Bo, 2026-10-15). Today that is 6.3.0, the version the recipe was tested with: "DDEV's PHP 8.3 image has both (phpredis 6.3.0)" (`docs/install.md`, section 1, in the drupal-performance-recipe repository).
+    - The installer's README: "Simply append `-<version>` to the module name"; `xdebug-^2.8` installs "the most recent xdebug 2.8.x version"; "with the syntax above you'll get the very latest compatible version, which may be unstable. In order to install the most recent *stable* version, you can append `@stable`" ([installer README](https://github.com/mlocati/docker-php-extension-installer#installing-specific-versions-of-an-extension)).
+    - Why a range: patch fixes arrive on the next rebuild. phpredis 6.x releases so far: 6.0.0, 6.0.1, 6.0.2, 6.1.0, 6.2.0, 6.3.0 (PECL release list, read 2026-10-15), so patch releases are rare.
+    - After each base-image rebuild, on qa: `php -r 'echo phpversion("redis"), PHP_EOL;'`. If the version changed, run section 5 on qa before production gets the image.
+    - When to change: before 6.4 or 7.x, re-run the recipe's tests on it, then change the range.
   - `apcu` is also a prerequisite (`docs/install.md`, section 1, in the drupal-performance-recipe repository). The fail-open module: "After a Redis error, Redis is skipped for RETRY seconds (shared via APCu)." (`drupal-performance-modules/modules/perf_redis_failopen/src/Cache/RedisHealth.php:14`)
 - Don't install a Redis or Valkey server in the image. Learn: "If you scale out the plan, all its apps are replicated to each new worker" ([App Service networking](https://learn.microsoft.com/en-us/azure/app-service/networking-features)). The recipe's rule for its own Redis container: "One replica only: a second replica would be a separate cache." (`docs/azure.md`, "Redis: self-hosted container (ruled)", in the drupal-performance-recipe repository)
 - After the base image is rebuilt and pushed (DevOps), rebuild each site image and repeat the `php -m` check on qa.
@@ -214,7 +218,7 @@ drush php:script /tmp/bins.php
 
 | You see | Meaning | Do this |
 |---|---|---|
-| `bool(false)` from `extension_loaded` | No phpredis in the image | Section 0: add `redis` to the base image's `install-php-extensions` list, or `RUN install-php-extensions redis apcu` in the site Dockerfile's **final** stage (`docs/install.md`, section 1, in the drupal-performance-recipe repository). Then redeploy. |
+| `bool(false)` from `extension_loaded` | No phpredis in the image | Section 0: add `redis-^6.3@stable` to the base image's `install-php-extensions` list, or `RUN install-php-extensions apcu redis-^6.3@stable` in the site Dockerfile's **final** stage (`docs/install.md`, section 1, in the drupal-performance-recipe repository). Then redeploy. |
 | `getent` prints nothing, or a public address | With `REDIS_HOST` set in this shell: the private DNS zone isn't linked to the app's virtual network, or the app isn't integrated | First, `echo "$REDIS_HOST"` must print the host name; if it's empty, load the settings (5a, first paragraph). Then section 2a, steps 3 and 5 |
 | No `port open` | Wrong port, no integration, or an outbound NSG rule blocks it: "Control the traffic by using NSG rules for outbound traffic on source clients." ([private link FAQ](https://learn.microsoft.com/en-us/azure/azure-cache-for-redis/cache-private-link#are-network-security-groups-nsg-enabled-for-private-endpoints)) | Port: 10000 (Managed Redis) or 6380 (Premium), section 3. Then section 2 |
 | An error from `auth`, or no `1`/`+PONG` after it | Access keys are off, or the Key Vault reference didn't resolve | Section 1 (access keys on); `docs/azure.md`, Key Vault references, in the drupal-performance-recipe repository: "If the reference doesn't resolve, the literal `@Microsoft.KeyVault(...)` text is passed to the site as the value" |
@@ -223,6 +227,15 @@ drush php:script /tmp/bins.php
 | Bins are `Drupal\redis\Cache\PhpRedis` | Redis in use, fail-open module not installed: the bins then "run on the plain backend" (`settings.performance.php:180-184`), the module's `Drupal\redis\Cache\PhpRedis` class for the PhpRedis interface (`src/Cache/CacheBackendFactory.php:64-65`; class name from `src/ClientFactory.php:34,209`) | Install `perf_redis_failopen` ("installed by the recipe", `settings.performance.php:181`) |
 
 Long outage: set `REDIS_ENABLED=0` (the bins go back to the database, no deploy); back on: `1`, then `drush cr` (`docs/azure.md` table, in the drupal-performance-recipe repository). Rotating the access key: [SETUP-GUIDE.md, 5, Password rotation](SETUP-GUIDE.md#5-routine-changes).
+
+## 6. Production
+
+qa first. Production starts only after every section 5 check passes on qa. Same order as the Front Door guide: "Promote to prod only when every qa test passes" and "Never point prod settings at qa or the reverse" (`docs/frontdoor-setup-guide.md`, "Order of work", in the drupal-performance-recipe repository).
+
+1. Section 1A: production's own cache: Balanced B1, high availability on, Non-clustered (Preview), access keys enabled.
+2. Section 2: production's private endpoint, its private DNS zone link, and the production App Service's virtual network integration.
+3. Section 3: the production App Service's settings, with production's host and its own Key Vault secret. `REDIS_PREFIX` per site, as on qa.
+4. Sections 4 and 5 on production. Send back the output of every check.
 
 ## Where this fits
 
