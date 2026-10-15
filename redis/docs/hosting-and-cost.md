@@ -18,9 +18,12 @@ DevOps has App Service only, with no Container Apps, Container Instances or Kube
    - Microsoft: "Microsoft recommends upgrading to Azure Managed Redis as soon as possible, rather than waiting for the retirement deadline." ([retirement post](https://techcommunity.microsoft.com/blog/azure-managed-redis/azure-cache-for-redis-retirement-what-to-know-and-how-to-prepare/4458721))
    - The same post lists "US Gov Cloud: July 2026" for Azure Managed Redis, and says "all dates are tentative".
    - Before relying on it:
-     - DevOps creates one in US Gov Virginia with the settings in section 4: Balanced B1, high availability, cluster policy Non-clustered (Preview), access keys enabled, and a private endpoint.
+     - Sizes (Bo, 2026-10-15): **Balanced B0 for qa** (one node, no high availability) and **Balanced B1 for production** (high availability).
+     - DevOps creates them in US Gov Virginia with the settings in section 4: cluster policy Non-clustered (Preview), access keys enabled, and a private endpoint.
      - Confirm with Microsoft whether it's covered by the Azure Government FedRAMP authorization, and your security team decides, because Azure Managed Redis isn't in Microsoft's [Azure Government FedRAMP table](https://learn.microsoft.com/en-us/azure/azure-government/compliance/azure-services-in-fedramp-auditscope#azure-government-services-by-audit-scope) ("Last updated: February 2026").
-   - Cost, US Gov Virginia: $67.53 a month (B1 with high availability plus a private endpoint, before data processed; section 4).
+   - Cost, US Gov Virginia, before data processed (section 4):
+     - qa, B0 one node plus a private endpoint: $23.73 a month.
+     - Production, B1 with high availability plus a private endpoint: $67.53 a month.
 3. **Fallback: Azure Cache for Redis**, if Managed Redis can't be created in US Gov Virginia or the security team requires a service that's already in the FedRAMP table.
    - It's in the Azure Government FedRAMP table (table below).
    - Microsoft's post says "Creation blocked for new customers: April 1, 2026" ([retirement post](https://techcommunity.microsoft.com/blog/azure-managed-redis/azure-cache-for-redis-retirement-what-to-know-and-how-to-prepare/4458721)). The post doesn't define "new customers", so DevOps tries creating one in the subscription (section 3).
@@ -54,7 +57,8 @@ DevOps has App Service only, with no Container Apps, Container Instances or Kube
 | Redis sidecar in the site's App Service | "National Clouds": "Not yet supported" (section 2) | Not listed separately (App Service: yes) | n/a | "Not yet supported" in national clouds |
 | Azure Cache for Redis, Standard C1 | Gov endpoint `redis.cache.usgovcloudapi.net` (section 3) | Yes | $100.74 | "Creation blocked for new customers" since April 1, 2026; retires September 30, 2028 |
 | Azure Cache for Redis, Premium P1 | Same endpoint; "Pay As You Go (Per Shard, Two Node)" price (section 3) | Yes (the table lists the service, not its tiers) | $404.42 + private endpoint $9.13 | Same as Standard C1. Setup: [paid-redis-setup.md](paid-redis-setup.md) |
-| Azure Managed Redis, Balanced B1, high availability | Microsoft's post: "US Gov Cloud: July 2026" ("all dates are tentative") (section 4) | Not listed | $58.40 + private endpoint $9.13 | Not until it can be created in US Gov Virginia and the FedRAMP question is settled |
+| Azure Managed Redis, Balanced B0, one node (qa) | Same as B1 below (section 4) | Not listed | $14.60 + private endpoint $9.13 | Same as B1 below |
+| Azure Managed Redis, Balanced B1, high availability (production) | Microsoft's post: "US Gov Cloud: July 2026" ("all dates are tentative") (section 4) | Not listed | $58.40 + private endpoint $9.13 | Not until it can be created in US Gov Virginia and the FedRAMP question is settled |
 | Azure Container Apps | TCP ingress for the Redis protocol (section 5) | Yes: FedRAMP High and DoD IL2 | $49.93 at the active rate, before the free grant | Not available to DevOps |
 | Azure Container Instances | TCP ports; VNet limits in Azure Government (section 5) | Yes | $39.35 (Linux) | Not available to DevOps |
 
@@ -157,6 +161,8 @@ Microsoft's current managed service: "an in-memory data store based on the Redis
 - **Database 0:** "Azure Managed Redis supports only a single database (database 0)." ([migration guide](https://learn.microsoft.com/en-us/azure/redis/migrate/migrate-basic-standard-premium-understand)) Leave `REDIS_DB` unset.
 - **Network:** "Using private endpoint to connect to a virtual network is the recommended solution for securing your Azure Managed Redis resource at the networking layer." ([private link](https://learn.microsoft.com/en-us/azure/redis/private-link)) "Azure Managed Redis doesn't support virtual network injection" ([migration guide](https://learn.microsoft.com/en-us/azure/redis/migrate/migrate-basic-standard-premium-understand)).
 - **High availability:** `highAvailability`: "Enabled by default." ([Bicep reference](https://learn.microsoft.com/en-us/azure/templates/microsoft.cache/redisenterprise)) "Only disable high availability for dev/test scenarios." ([overview](https://learn.microsoft.com/en-us/azure/redis/overview#high-availability))
+  - Production (B1): on.
+  - qa (B0): off, because qa is a test environment. Learn: "Don't run in non-HA mode outside of development and test scenarios. You can't disable high availability in an instance that you already created. You can enable high availability in an instance that doesn't have it." ([architecture](https://learn.microsoft.com/en-us/azure/redis/architecture#running-without-high-availability-mode-enabled)) Turn it on later if qa's downtime becomes a problem; without it Learn says the price is lower "but results in data loss and downtime" ([overview](https://learn.microsoft.com/en-us/azure/redis/overview#high-availability)).
 - **SLA:** "The SLA for Azure Managed Redis covers connectivity to the cache endpoints. It doesn't cover protection from data loss." ([reliability](https://learn.microsoft.com/en-us/azure/reliability/reliability-managed-redis#service-level-agreement))
 - **qa check (TLS, port and access key only):** from the site's SSH console:
 
@@ -168,10 +174,15 @@ Microsoft's current managed service: "an in-memory data store based on the Redis
 
 | Size | One node, per month | Two nodes, high availability, per month |
 |---|---|---|
+| Balanced B0 (0.5 GB) | $14.60 | $29.20 |
 | Balanced B1 (1 GB) | $29.20 | $58.40 |
 
+- B0 and B1 both have 2 vCPUs and 15,000 client connections ([overview](https://learn.microsoft.com/en-us/azure/redis/overview)). "Azure Managed Redis reserves approximately 20% of memory for system operations and overhead." ([migration guide](https://learn.microsoft.com/en-us/azure/redis/migrate/migrate-basic-standard-premium-understand))
+- The pricing page's footnote: "B0, B1 SKU options, and Flash Optimized tier, may not have access to all features an capabilities." Learn names one: "The Balanced B0 and B1 SKU options don't support active geo-replication." ([overview](https://learn.microsoft.com/en-us/azure/redis/overview)) This setup doesn't use geo-replication.
+
 - Private endpoint: $0.0125 an hour ($9.13 a month), plus $0.0125 per GB of data processed ([Private Link pricing](https://azure.microsoft.com/pricing/details/private-link/)).
-- B1 with high availability plus a private endpoint: $67.53 a month, before data processed.
+- qa, B0 one node plus a private endpoint: $23.73 a month, before data processed.
+- Production, B1 with high availability plus a private endpoint: $67.53 a month, before data processed.
 
 ## 5. Container Apps and Container Instances: not available to DevOps today
 
