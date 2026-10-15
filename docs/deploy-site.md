@@ -8,6 +8,68 @@ The shared base image runs `assets/deploy-site` at container start. With several
 - The same comparison as one page, with full files and highlighted diffs: [deploy-site-compare.html](deploy-site-compare.html). Download it and open it in a browser; GitHub shows the source.
 - For a site that doesn't use this base image script: [deploy-once.md](deploy-once.md) (`scripts/deploy-once.sh`, Drupal 8+ only).
 
+## Apply it
+
+Both versions are drop-in replacements: same file name, same settings, and the entrypoint calls them the same way.
+
+1. **Check the starting point.** Diff the real `assets/deploy-site` against `deploy-site-original`.
+   - It should match. If it doesn't, apply the changes from the diffs at the end of this page to the real file instead of copying.
+   - Whatever the difference, the real file wins.
+2. **Pick a version and copy it** over `assets/deploy-site` in the base image repo. Keep it executable: `chmod +x assets/deploy-site`.
+3. **Optional setting:** `DEPLOY_LOCK_TTL` sets how long the lock lasts if a deploy dies. It's in seconds, default `900` (15 minutes).
+   - Keep it longer than the slowest deploy: about 3 to 5 minutes today.
+   - Set it in the image or as an App Service app setting.
+4. **Build the base image, then the site image with a new release number.**
+   - Don't use `latest` as the version: every `latest` build has the same `APP_VERSION`, so only the first one deploys.
+5. **Release to qa first,** with qa scaled to 2 or more instances so the lock is exercised. Check the log stream (below).
+6. **Then production,** and run the same checks.
+7. **Rollback:** point the site at the previous base image, rebuild the site image with a new release number, and redeploy.
+
+### Check it after a release (App Service log stream)
+
+Exactly one instance logs:
+
+- `Deploying site version <version>...`
+- `Site version <version> deployed.`
+
+Every other instance logs one of these:
+
+- `Deployment lock is held by another instance. Skipping deployment commands.`
+- `Current version (<version>) was deployed by another instance.`
+- `Current version (<version>) already deployed.`
+
+`deploy-site-suggested` starts each line with `deploy-site [<instance id>]:`.
+
+- Drush output (`updb`, `cim`, `cr`) should appear once, not once per instance.
+- `cat "$DRUPAL_DIR/private/deployed-version.txt"` prints the new version.
+- With `deploy-site-suggested`, `drush state:get system.maintenance_mode` prints `0` after the deploy.
+
+### If something goes wrong
+
+**A deploy failed:**
+- **`deploy-site-minimal`** still records the version, as the original did. Fix the cause, then run the failed drush command by hand.
+- **`deploy-site-suggested`** doesn't record it. Fix the cause, then restart one instance; it deploys again.
+
+**Every instance skips and nothing deploys:** a deploy died while holding the lock.
+1. Check whether the lock is held:
+
+   ```bash
+   drush sqlq "SELECT name, expire, expire > UNIX_TIMESTAMP() AS held FROM semaphore WHERE name='deploy_site'"
+   ```
+
+   `held` = 1 means it is held until `expire`, a Unix time.
+2. Make sure no instance is still deploying, then release it:
+
+   ```bash
+   drush sqlq "DELETE FROM semaphore WHERE name='deploy_site'"
+   ```
+
+3. Restart one instance.
+
+Breaking the lock while a deploy is still running lets a second one start.
+
+**The site stays in maintenance mode after a killed deploy** (`deploy-site-suggested`): the retry turns it off. To turn it off sooner, run `drush state:set system.maintenance_mode 0 --input-format=integer`.
+
 ## Why the original runs on every instance
 
 1. **The stale check always says "stale".** `elif find "$LOCK_PATH" -mmin +360` uses `find`'s exit code, which is 0 whether or not the file is older than 360 minutes.
