@@ -149,6 +149,36 @@ uptime_in_seconds:2
 - The first `PONG` is the health login (PING only). The second is the app login, using the password.
 - Don't paste the password on the command line. `$REDIS_PASSWORD` is already set inside the container (empty if the password comes from `REDIS_PASSWORD_FILE`; use the second form then). `REDISCLI_AUTH` keeps it out of the process list.
 
+### 3b-net. The VNet wiring, from Azure [Learn]
+
+```bash
+# 1. The site's App Service: which VNet and subnet it integrates with (empty = not integrated)
+az webapp vnet-integration list -g <rg> -n <webapp> -o table
+
+# 2. The Redis container app's environment: its subnet, and whether it's internal-only
+ENV_ID=$(az containerapp show -g <rg> -n <app> --query properties.managedEnvironmentId -o tsv)
+az containerapp env show --ids "$ENV_ID" \
+  --query "{subnet:properties.vnetConfiguration.infrastructureSubnetId, internal:properties.vnetConfiguration.internal}" -o json
+
+# 3. The Redis app's ingress: transport, external, ports
+az containerapp show -g <rg> -n <app> \
+  --query "properties.configuration.ingress.{transport:transport, external:external, targetPort:targetPort, exposedPort:exposedPort}" -o json
+
+# 4. Only if 1 and 2 name different VNets: the peering between them
+az network vnet peering list -g <vnet rg> --vnet-name <vnet> -o table
+
+# 5. The private DNS zone is linked to the App Service's VNet
+az network private-dns link vnet list -g <dns rg> -z <zone> -o table
+```
+
+- **Good:**
+  - Steps 1 and 2 show subnets in the same VNet (the part after `/virtualNetworks/` in each ID), or two VNets with a peering in step 4.
+  - Step 2: `internal` is `true`, as in section 2.
+  - Step 3: `tcp`, `external` `true`, ports `6379`.
+  - Step 5: the App Service's VNet is listed.
+- **The real proof is 3c:** a private IP and `port open` from inside the App Service.
+- Commands and fields are from the Learn references for [az webapp vnet-integration](https://learn.microsoft.com/en-us/cli/azure/webapp/vnet-integration?view=azure-cli-latest), [az containerapp env](https://learn.microsoft.com/en-us/cli/azure/containerapp/env?view=azure-cli-latest), [managedEnvironments](https://learn.microsoft.com/en-us/azure/templates/microsoft.app/managedenvironments), [containerApps](https://learn.microsoft.com/en-us/azure/templates/microsoft.app/containerapps), [private-dns link vnet](https://learn.microsoft.com/en-us/cli/azure/network/private-dns/link/vnet?view=azure-cli-latest) and [vnet peering](https://learn.microsoft.com/en-us/cli/azure/network/vnet/peering?view=azure-cli-latest). They haven't been run against a subscription.
+
 ### 3c. The site can reach it (App Service SSH console)
 
 ```bash
