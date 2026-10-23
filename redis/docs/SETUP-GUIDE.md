@@ -209,6 +209,33 @@ drush watchdog:show --type=perf_redis_failopen --count=10
   - No recent "Redis unavailable" rows.
 - `DatabaseBackend` instead: Drupal isn't using Redis (see 4, "Render bin is DatabaseBackend").
 
+**Prove it with traffic.** The class name alone isn't proof: `FailOpenCacheBackend` also shows while Redis is unreachable, and then the site serves cache misses. Run this, load 3 or 4 pages as an anonymous visitor (a private window), then run it again:
+
+```bash
+redis_stats() { php -r '
+$s = getenv("REDIS_SCHEME") === "tls" ? "tls://" : "";
+$r = new Redis(); $r->connect($s . getenv("REDIS_HOST"), (int) (getenv("REDIS_PORT") ?: 6379), 3);
+if ((string) getenv("REDIS_PASSWORD") !== "") { $r->auth(getenv("REDIS_PASSWORD")); }
+$pre = getenv("REDIS_PREFIX"); $n = 0; $it = NULL; $r->setOption(Redis::OPT_SCAN, Redis::SCAN_RETRY);
+while (($k = $r->scan($it, $pre . ":*", 1000)) !== FALSE) { $n += count($k); }
+$i = $r->info("stats");
+printf("keys %s:* = %d   keyspace_hits = %d   keyspace_misses = %d\n", $pre, $n, $i["keyspace_hits"], $i["keyspace_misses"]);'; }
+redis_stats
+drush sqlq "SELECT COUNT(*) FROM cache_render"
+```
+
+- **Good:**
+  - The key count under the site's `REDIS_PREFIX` grows.
+  - `keyspace_hits` goes up when pages repeat.
+  - `cache_render` in the database stays at `0`: while Redis serves the bin, its table stays empty (`settings.performance.php:176-178`).
+- Lab, 6 page loads: keys 123 → 201, hits 5 → 78, `cache_render` 0 → 0 [V: `tmp/az-vnet-20261023/redis-usage-lab.log`, 2026-10-23].
+- The key counts are only for this site's `REDIS_PREFIX`. `keyspace_hits` counts the whole Redis server, so other sites sharing it add to it.
+- **Not run on Azure Managed Redis.** If it refuses `INFO`, the key count and the empty `cache_render` are still the proof.
+
+**In the browser:** the redis module's report, `/admin/reports/redis`, needs the "access redis report" permission.
+- It shows the client, Keys, "Keys per cache bin" and Memory (`redis/src/Controller/ReportController.php:197-236`).
+- It warns "No cache tags found, make sure that the redis cache tag checksum service is used". That's expected here: the recipe keeps cache tag checksums in the database (Bo ruling 2026-09-25, `settings.performance.php:206`).
+
 ### 3e. Ongoing health (inside the container)
 
 ```bash

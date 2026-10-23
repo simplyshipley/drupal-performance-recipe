@@ -213,6 +213,7 @@ drush php:script /tmp/bins.php
 - Good: all six bins `Drupal\perf_redis_failopen\Cache\FailOpenCacheBackend`, as in the lab run with `REDIS_HOST` set ([result-site.txt](evidence/no-redis-check/result-site.txt)).
 - `drush php:script` runs a script given by its path: drush 13.7.6 `src/Commands/core/PhpCommands.php:61` (`file_exists($script)`).
 - Then the fail-open log: `drush watchdog:show --type=perf_redis_failopen --count=10` shows no recent "Redis unavailable" rows ([SETUP-GUIDE.md, 3d](SETUP-GUIDE.md#3d-drupal-uses-it)).
+- Then prove it with traffic. The class name also shows while Redis is unreachable. Run the `redis_stats` check in [SETUP-GUIDE.md, 3d](SETUP-GUIDE.md#3d-drupal-uses-it) before and after loading a few pages; it reads `REDIS_SCHEME=tls`, `REDIS_PORT=10000` and the access key from the app settings.
 
 ### 5c. If a check fails
 
