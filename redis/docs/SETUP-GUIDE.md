@@ -17,8 +17,6 @@ Replace these placeholders with your own names:
 | `<webapp>` | The site's App Service | `-n` on `az webapp` commands | `az webapp list -g <rg> -o table` |
 | `<registry>` | The container registry | | the registry name in the portal |
 
-The names also appear in the portal: open the container app, and its Overview page shows "Resource group" and the app's name at the top.
-
 Example, with made-up names (SYNTHETIC: `rg-drupal-qa` and `redis-qa` aren't real resources):
 
 ```bash
