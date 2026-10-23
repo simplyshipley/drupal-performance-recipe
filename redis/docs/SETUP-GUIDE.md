@@ -182,13 +182,17 @@ az network private-dns link vnet list -g <dns rg> -z <zone> -o table
 ### 3c. The site can reach it (App Service SSH console)
 
 ```bash
+set | egrep --color 'WEBSITE_PRIVATE_IP'                                         # VNet integration: the app has a private IP
 cat /proc/1/environ | tr '\0' '\n' | grep -E '^REDIS_(HOST|PORT|PREFIX)='      # settings the site process sees
 getent hosts "$REDIS_HOST"                                                       # DNS: prints a private IP
 timeout 3 bash -c "</dev/tcp/$REDIS_HOST/6379" && echo "port open"               # network
 php -r '$r=new Redis(); $r->connect(getenv("REDIS_HOST"),6379,2); $r->auth(getenv("REDIS_PASSWORD")); echo $r->ping(),PHP_EOL;'
 ```
 
-- Good: the three settings, a private IP, `port open`, then `1` or `+PONG`.
+- Good: `WEBSITE_PRIVATE_IP=<IP address>`, the three settings, a private IP, `port open`, then `1` or `+PONG`.
+- `WEBSITE_PRIVATE_IP` and the `curl` test are Learn's checks for Linux apps ([troubleshoot virtual network integration](https://learn.microsoft.com/en-us/troubleshoot/azure/app-service/troubleshoot-vnet-integration-apps)):
+  - Integration: "If the private IP is assigned successfully, you get the following output: WEBSITE_PRIVATE_IP=<IP address>". It's also on the app's Kudu `/Env` page.
+  - Connection: "To test connectivity, use Curl directly with the following syntax: ... curl hostname:[port]". Against Redis, `curl -v "$REDIS_HOST:6379"` shows `Connected to` when the network path works, then an error, because Redis doesn't speak HTTP. The `/dev/tcp` line above tests the same thing.
 - If `REDIS_HOST` is empty in the SSH session but present in `/proc/1/environ`, run `while IFS= read -r v; do export "$v"; done < <(tr '\0' '\n' < /proc/1/environ | grep '^REDIS_')` first. Learn: app settings are "injected into the process as environment variables", and in SSH "you might see only a few environment variables" ([custom container, Configure environment variables](https://learn.microsoft.com/en-us/azure/app-service/configure-custom-container#configure-environment-variables)).
 
 ### 3d. Drupal uses it
