@@ -6,7 +6,27 @@ Labels:
 - **[V]**: run against this image on 2026-10-08, exact output shown.
 - **[Learn]**: an Azure command checked against the Microsoft Learn CLI reference, not yet run against a subscription. The "Good:" line under it is what to confirm on qa.
 
-Replace `<rg>`, `<app>` (the Redis container app), `<webapp>` (the site's App Service) and `<registry>`.
+> **This guide is for the self-hosted Redis container (Azure Container Apps).** Sites using Azure Managed Redis (Balanced B0 for qa, B1 for production; Bo, 2026-10-15) have no container app. They follow [paid-redis-setup.md](paid-redis-setup.md) instead.
+
+Replace these placeholders with your own names:
+
+| Placeholder | What it is | `az` flag | Find it |
+|---|---|---|---|
+| `<rg>` | Resource group that holds the Redis container app | `-g` (`--resource-group`): "Name of resource group" | `az group list -o table` |
+| `<app>` | The Redis container app | `-n` (`--name`): "The name of the Containerapp" | `az containerapp list -g <rg> -o table` |
+| `<webapp>` | The site's App Service | `-n` on `az webapp` commands | `az webapp list -g <rg> -o table` |
+| `<registry>` | The container registry | | the registry name in the portal |
+
+The names also appear in the portal: open the container app, and its Overview page shows "Resource group" and the app's name at the top.
+
+Example, with made-up names (SYNTHETIC: `rg-drupal-qa` and `redis-qa` aren't real resources):
+
+```bash
+az containerapp show -g rg-drupal-qa -n redis-qa \
+  --query "{provisioning:properties.provisioningState,running:properties.runningStatus,image:properties.template.containers[0].image}" -o table
+```
+
+Flag meanings are from the [az containerapp reference](https://learn.microsoft.com/en-us/cli/azure/containerapp?view=azure-cli-latest); `az group list`, `az containerapp list` and `az webapp list` are listed there and in the [az group](https://learn.microsoft.com/en-us/cli/azure/group?view=azure-cli-latest) and [az webapp](https://learn.microsoft.com/en-us/cli/azure/webapp?view=azure-cli-latest) references.
 
 All commands are bash: run them in WSL2, or the `az` ones in Azure Cloud Shell (Bash). The `bin/docker-*` commands need Docker, so they stay in WSL2.
 
