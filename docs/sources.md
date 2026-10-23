@@ -41,7 +41,7 @@ Our choice (Bo ruling 2026-10-07): no Fast 404 contrib modules. Sites use Drupal
 | `drupal/themed_fast_404` | **Removed** (was `^1.0`) | Our measurements, tmp/ddev/themed404-self-requests.txt; Bo saw a 404 page printed on top of a normal page | Overrides core's `fast_404.paths` with a match-everything regex and makes an HTTP self-request on every uncached request |
 | Where `settings.performance.php` is required | Last line of `settings.php` | Our choice (Bo ruling 2026-10-07) | Its first source, the fast_404 README line "Keep this code block at the end of this file to take full effect", went with the module. On OIG sites the end is still after `settings.base.php` |
 | Env vars `PERF_FAST404`, `FAST404_RESPECT_REDIRECT`, `THEMED_FAST404_BASE_URL` | **Removed** | Commit 6449272 | Nothing reads them any more. Upgrade steps: [troubleshooting.md](troubleshooting.md#upgrading-a-site-that-already-applied-the-recipe) |
-| Alias insert purge (`hook_path_alias_insert`) | Added | Our choice (Bo ruling 2026-10-07, option A); commit 223d6ba | Core's 404 is public, so Front Door can cache it; a new alias purges it. Open gap: [cache-sync.md](cache-sync.md) |
+| Alias insert purge (`hook_path_alias_insert`) | Added | Our choice (Bo ruling 2026-10-07, option A); commit 223d6ba | Core's 404 is public, so an edge that stores 404s (the lab stand-in did) keeps it until a new alias purges it. Real Front Door: 4xx not cached per a Microsoft Q&A answer, not docs; confirm on qa. Open gap: [cache-sync.md](cache-sync.md) |
 
 ## Purge and Azure
 

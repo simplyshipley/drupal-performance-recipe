@@ -81,7 +81,7 @@ Core's Fast 404 is set in `docroot/sites/default/settings.config.php` (`system.p
 - **Page URLs:** Drupal's normal themed 404. Customise it under Configuration → Basic site settings → Error pages.
 - **Missing files** (such as a `.png`): core's plain page.
 - **Both are cacheable:** `Cache-Control: max-age=900, public` [V: tmp/drop-fast404-20261007/04-measure-core-fast404.log: missing `.png` MISS 38 ms then HIT 6.6 ms; unknown page MISS 430 ms then HIT 7 ms].
-- **Page not found shows after a page is published:** Front Door cached the 404 before the page existed. `perf_purge_paths` purges it when the alias is created. Open gap (needs Bo's ruling): an alias added on its own leaves Drupal's cached 404 for up to `cache_ttl_4xx` (3600 s) ([cache-sync.md](cache-sync.md)).
+- **Page not found shows after a page is published:** a cached 404 from before the page existed. Drupal's page cache keeps 404s for up to `cache_ttl_4xx` or until any entity save. Front Door, per a Microsoft Q&A answer (not docs), doesn't cache 4xx; if qa shows `x-cache: TCP_HIT` on a 404, it does, and `perf_purge_paths` purges that copy when the alias is created. Open gap (needs Bo's ruling): an alias added on its own leaves Drupal's cached 404 for up to `cache_ttl_4xx` (3600 s) ([cache-sync.md](cache-sync.md)).
 
 ## `PHP Fatal error: Cannot redeclare config_is_exported()` during `lando drush recipe`
 
