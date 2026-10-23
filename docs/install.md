@@ -192,8 +192,8 @@ $config['perf_purge_paths.settings']['enabled'] = FALSE;
   Redis, which missed the deletes made while it was off, and the database tables of the Redis bins.
 - The status report shows the state the environment set.
 - **Check it** (App Service SSH console, Drupal folder, after the app restarts):
-  1. The site process has the new value. Run `tr '\0' '\n' < /proc/1/environ | grep '^REDIS_'`. No `REDIS_ENABLED` line means `1`.
-  2. Load those values into the SSH shell, since SSH may not see app settings: `while IFS= read -r v; do export "$v"; done < <(tr '\0' '\n' < /proc/1/environ | grep '^REDIS_')`.
+  1. The site process has the new value. Run `tr '\0' '\n' < /proc/1/environ | grep -a '^REDIS_'`. No `REDIS_ENABLED` line means `1`. The `-a` (GNU grep: "equivalent to --binary-files=text") stops `grep` answering only "binary file matches" when another variable holds bytes that aren't text.
+  2. Load those values into the SSH shell, since SSH may not see app settings: `while IFS= read -r v; do export "$v"; done < <(tr '\0' '\n' < /proc/1/environ | grep -a '^REDIS_')`.
   3. Run `drush php:eval "print get_class(\Drupal::cache('render')) . PHP_EOL;"`.
      - `1` prints `Drupal\perf_redis_failopen\Cache\FailOpenCacheBackend`.
      - `0` prints `Drupal\Core\Cache\DatabaseBackend`.

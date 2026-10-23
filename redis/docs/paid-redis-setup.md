@@ -182,7 +182,7 @@ Stop at the first check that fails and use the table in 5c.
 If `REDIS_HOST` is empty in SSH, load the app settings first: Learn says that in SSH "you might see only a few environment variables" ([SETUP-GUIDE.md, 3c](SETUP-GUIDE.md#3c-the-site-can-reach-it-app-service-ssh-console) has the command).
 
 ```bash
-cat /proc/1/environ | tr '\0' '\n' | grep -E '^REDIS_(HOST|PORT|SCHEME|PREFIX|ENABLED)='   # settings the site sees (not the password)
+cat /proc/1/environ | tr '\0' '\n' | grep -aE '^REDIS_(HOST|PORT|SCHEME|PREFIX|ENABLED)='   # settings the site sees (not the password)
 php -r 'var_dump(extension_loaded("redis"));'                                     # phpredis loaded
 getent hosts "$REDIS_HOST"                                                        # DNS
 timeout 3 bash -c "</dev/tcp/$REDIS_HOST/$REDIS_PORT" && echo "port open"         # network
