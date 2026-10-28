@@ -2,7 +2,8 @@
 # Plain-text report to save and show the team: what runs locally, what deploys
 # to production, and whether the caching chain works. Runs INSIDE the app
 # container from the project root, like test-local.sh. Lando:
-#   lando perf-report > perf-report.txt   config redis edge purges (read-only; or name sections)
+#   lando perf-report > perf-report.txt   config redis edge purges (or name sections)
+# Redis diagnostics write short-lived synthetic keys and one log entry; no bin flush.
 #   lando perf-report prove               short test-local.sh run (SYNTHETIC node, resets the mock log)
 # Lines start with PASS, FAIL or INFO; exit code = number of FAIL lines.
 # Never prints a secret: *SECRET* and *PASSWORD* values show as "set (hidden)".

@@ -7,7 +7,7 @@ For an Azure site where Drush works but web requests do not use Redis, see the [
 - **On a protected system?** You don't need to share output. Match what you see to a case and report the case letter (for example "3-A").
 - **Secrets:** none of these commands print passwords or client secrets. Don't add `--include-overridden` to `drush cget azure_cdn_purge.settings`: it prints the client secret.
 
-**One command:** a report to save and show the team. Read-only, except `prove`.
+**One command:** a report to save and show the team. The Redis section runs the shared diagnostic: it writes short-lived synthetic keys and a diagnostic log entry, without flushing application bins. `prove` also runs the live test described below.
 
 ```bash
 lando perf-report > perf-report.txt          # config, redis, edge, purges
@@ -175,37 +175,15 @@ lando redis-cli info stats | grep -E 'evicted_keys|keyspace_hits|keyspace_misses
 - **4-B: policy `allkeys-lru`.** The site still has the old `redis.conf`: copy `lando/redis.conf` from the recipe clone to `.lando/redis.conf`, then `lando rebuild -y`.
 - **4-C: `# Keyspace` with nothing under it.**
   1. `drush cr` empties Redis. Load a page (`curl -s -o /dev/null https://<project>.lndo.site/`), then check `info keyspace` again.
-  2. Still empty: Drupal isn't using Redis. Find the missing link:
+  2. Still empty: inspect the shared post-bootstrap diagnostic:
 
      ```bash
-     lando drush php:script /app/tests/performance/scripts/redis-check.php
+     lando drush perf:diagnose --redis
      ```
 
-     Good output: lines 1-8 filled in, `bins on Redis` lists six bins, line 8 is `...FailOpenCacheBackend`, line 9 is `PONG`.
+     The report shows configuration, runtime/client details and diagnostic outcomes rather than the old script's nine numbered lines. Compare the final bin backend, Redis host/DNS/address details and original exception. The legacy `scripts/redis-check.php` command delegates to this collector. If CLI works but web requests do not, use the [actual web report](#azure-drush-works-but-web-requests-do-not-use-redis); CLI cannot report the Apache worker's runtime.
 
-     | Line shows | Fix |
-     |---|---|
-     | 1 `NOT SET` | `REDIS_HOST: cache` is missing from `.lando.yml` → `appserver` → `overrides` → `environment`, is indented wrong, or Lando wasn't rebuilt. See "Line 1 `NOT SET`" below. |
-     | 2 `NO` | The PHP image has no phpredis: `lando exec appserver -- php -m \| grep -i redis` |
-     | 3 `NO` | `lando composer require drupal/redis` (quick start step 2a) |
-     | 4 `0` | `REDIS_ENABLED=0` is set somewhere: remove it |
-     | 5 `NONE` with 1-4 good | `settings.performance.php` isn't loaded, or something after it resets the bins: check the `require` in `settings.php` (step 4) |
-     | 6 or 7 `NO` | `lando drush pm:enable redis perf_redis_failopen -y`, then `lando drush cr` |
-     | 9 `FAILED` | PHP can't reach the `cache` service: `lando logs -s cache`, then `lando restart` |
-
-     [V: tested 2026-10-08 on an OIG site copy (DDEV): normal run, `REDIS_HOST` unset and a wrong host each show the broken line]
-
-     **Line 1 `NOT SET`:**
-
-     ```bash
-     lando exec appserver -- printenv REDIS_HOST PERF_MOCK_AFD_PROXY
-     grep -n -E '^ *(environment|REDIS_HOST|PERF_MOCK_AFD_PROXY):' .lando.yml
-     ```
-
-     - **`PERF_MOCK_AFD_PROXY` prints but `REDIS_HOST` doesn't:** the environment block works, so the `REDIS_HOST` line itself is wrong. In the `grep` output it must start in the same column as `PERF_MOCK_AFD_PROXY` (8 spaces, 2 more than `environment:`). A line indented differently is not part of `environment` and is ignored without an error [REPORTED: Bo's Lando site, 2026-10-08, an indent error in `.lando.yml`]. Fix the indent, then `lando rebuild -y`.
-     - **Neither prints:** the whole block is missing or misplaced, or Lando wasn't rebuilt. Check the nesting `services` → `appserver` → `overrides` → `environment`, then `lando rebuild -y`.
-
-  3. All lines good but `lando redis-cli` still shows nothing: `redis-cli` is looking at a different Redis. Compare line 1 with the tooling's `service:` in `.lando.yml` (`cache`).
+  3. Diagnostic configuration looks correct but `lando redis-cli` still shows nothing: compare the report's configured Redis host with the tooling's `service:` in `.lando.yml` (`cache`) before assuming both commands query the same Redis.
 - **4-D: `evicted_keys` climbing fast.** `maxmemory` is too small for the site. Normal under a crawl; on Azure, raise `REDIS_MAXMEMORY` in the Redis container.
 - **4-E: `lando redis-cli` not found:**
 
@@ -230,27 +208,36 @@ lando redis-cli info stats | grep -E 'evicted_keys|keyspace_hits|keyspace_misses
 
 ### Azure: Drush works but web requests do not use Redis
 
-Use the debug section in `drupal-performance-modules/settings/settings.performance.php` to capture the web runtime's configuration. Keep `perf_redis_failopen` installed while investigating. This diagnostic does not attempt a Redis connection or prove that the compiled service container uses the expected backend.
+Use the shared post-bootstrap diagnostic report in `perf_redis_failopen` to compare the actual web runtime with Drush. Keep the fail-open module installed while investigating. This replaces the older settings-time `error_log` snapshots; updating only `settings.performance.php` no longer installs the complete diagnostic.
 
-1. Deploy the settings include containing the `REDIS_DEBUG` section using the site's normal build/deploy process. Preserve site-specific changes and ensure Composer does not replace the modified include during the build.
-2. Set `REDIS_DEBUG=1` in that site's App Service environment variables; apply/save and allow the normal app restart. Once the debug-capable include is deployed, this toggle needs no further application build/deploy ([App Service environment settings](azure.md#app-service-application-settings-environment-variables)).
-3. As an administrator, visit `/admin/reports/status`, then find `REDIS_DIAG` in the configured PHP error log. Use App Service Log stream if PHP errors are routed there. An empty Log stream does not prove the include was skipped: check the PHP error destination.
-4. Capture the JSON line and compare its PHP SAPI/version, loaded/scanned INI files, Redis extension, environment-variable presence and effective cache assignments against the CLI runtime. `env_host_hash` and `connection_host_hash` are SHA-256 fingerprints, not raw hostnames; they may differ when TLS adds `tls://` to the effective host. Passwords and the request URL are not logged.
-5. Set `REDIS_DEBUG=0` or remove it; apply/save and allow the normal app restart to stop logging. The debug section can remain installed and disabled.
+1. Deploy the updated `perf_redis_failopen` module, its Drush command/services, the settings include, and the matching package files. Preserve site-specific changes. Run `drush cr` after deployment so Drupal/Drush discover the changes.
+2. Set `REDIS_DEBUG=1` on the App Service being investigated, and optionally `FRONTDOOR_DEBUG=1` for its Front Door section; apply/save and allow the normal app restart. Each flag is independently off unless it is exactly `1`.
+3. As an administrator with the Redis report permission, open the existing `/admin/reports/redis` page; no new screen is required. The same shared report is also available at `/admin/reports/status`. It is logged as `PERF_DIAG` on channel `perf_redis_failopen`. With Database Logging (`dblog`) enabled, the same report is available at `/admin/reports/dblog` (Recent log messages). Without dblog, inspect the site's configured logger destination instead.
+4. Capture the report from that web request, then compare with the same collector in the App Service SSH console:
 
-Only exact `REDIS_DEBUG=1` enables this log; unset, empty, `0`, and other values leave it off. It runs on web requests whose URL contains `/admin/reports/status`, including subdirectory/language-prefixed URLs and the PHP report. This substring filter is not authentication; settings load before access checks. A matching substring in a query string also matches the filter.
+   ```bash
+   drush perf:diagnose --redis --frontdoor
+   drush watchdog:show --type=perf_redis_failopen --count=10 --extended
+   ```
 
-The snapshot is taken at the end of this include. Later overrides in `settings.php` or another include will not appear. `false` for an environment field means absent; missing `REDIS_ENABLED` does not mean disabled. Correlate configuration evidence with the original error in the `perf_redis_failopen` logger rather than treating a successful Drush ping as proof of web-runtime connectivity. No Azure runtime result is claimed here.
+   Explicit Drush switches request those sections without changing web debug flags. CLI output identifies the CLI runtime; it cannot measure Apache's loaded INI, worker identity or request context. The web report is the evidence for the actual Apache runtime.
+5. Set enabled web flags to `0` or remove them; apply/save and allow the normal restart. The code may remain installed and disabled. No further build is needed to toggle flags after the module/settings deployment.
+
+The report inspects runtime configuration and the requested Redis/DNS/address and proxy information after bootstrap rather than assuming that a settings-time override is the active value. The structured report has a `runtime` section plus `checks.redis` and/or `checks.frontdoor` according to the requested sections. Credentials, cookies and authorization data are excluded. It includes requested operational IP/address information. Redis checks use separate transport stages and the actual configured client/backend; they use unique synthetic test items with a 60-second TTL rather than requesting application-bin clears. The separate transport probe deletes its key; the actual backend item expires without a destructive wrapper cleanup, and pending-flush/cooldown backend states are skipped. DNS timeout remains controlled by the system resolver.
+
+`false`/absent environment fields do not mean Redis is disabled: the settings include defaults `REDIS_ENABLED` to on when Redis prerequisites hold. Compare the report's final cache assignments and actual exception with CLI findings rather than treating a successful Drush ping as proof of web connectivity. A failure before Drupal can bootstrap may prevent the runtime report from being built; retain the existing PHP/container error log for that case. No live Azure result is claimed here.
 
 ### Azure Front Door configuration debugging
 
-`FRONTDOOR_DEBUG` works independently of `REDIS_DEBUG`. After deploying the debug-capable `settings.performance.php`, set `FRONTDOOR_DEBUG=1` on the App Service being investigated, apply/save and allow its normal restart. As an administrator, visit `/admin/reports/status` and find `FRONTDOOR_DIAG` in the configured PHP error log. Set `FRONTDOOR_DEBUG=0` or remove it afterward; no further application rebuild is needed for that switch. The same web-only URL substring filter and include-time limitations described above apply.
+`FRONTDOOR_DEBUG` enables the Front Door/proxy section of the same runtime report independently of `REDIS_DEBUG`. Follow the module-plus-settings deployment above. View the existing `/admin/reports/redis` page (or `/admin/reports/status`) and Recent log messages on the actual web request, or run `drush perf:diagnose --frontdoor` for the CLI view. Final Drupal config can be inspected after bootstrap; the report no longer relies only on settings-file overrides.
 
-The log includes cloud/endpoint-type/API-version overrides, presence flags for variables in the existing Azure mapping, and SHA-256 fingerprints only for the subscription/resource-group/profile/endpoint target identifiers. It records whether the client-secret environment value starts with a Key Vault reference prefix, without logging the reference or secret. That flag is only a clue that the value may be unresolved; credential presence does not prove validity. Proxy fields contain the current flag, trusted-header mask and counts, not IP addresses. Request fields contain FDID presence/fingerprint and an allowlisted forwarded scheme, not cookies, authorization, URLs or full headers.
+Read address fields by role: Redis `dns` addresses are the configured Redis host's resolved targets; `peer_ip` is the immediate web peer seen by PHP, while `server_ip` is the request's `SERVER_ADDR` when available. `configured_peer_match` and `active_peer_match` compare it against configured and Symfony-active proxy ranges, with separate header-trust masks. HTTP probe `local_ip` and `primary_ip`, when the HTTP handler supplies them, identify the local socket and remote endpoint used for that probe; they are not proof of the App Service's public outbound address. The derived client is fingerprinted separately from the peer.
 
-These are **config overrides at include time**, not merged active Drupal configuration. A missing endpoint-type/API-version override may be normal: the recipe supplies `afdEndpoints` and `2024-02-01` in config. The snapshot cannot prove those stored defaults are active, that a header came from Front Door, that a purge succeeded, or that an edge response was a cache HIT. FDID can be spoofed unless origin restrictions are independently verified. Use browser response headers for actual edge caching and the existing `azurecdn` and `perf_purge_paths` logs for purge errors; the diagnostic makes no Azure API calls and does not change proxy trust or the purger's `devel` setting.
+Front Door transport requests use a 2-second connection timeout and 5-second overall timeout per request, with TLS verification on and redirects off. Authentication success permits one endpoint metadata GET; missing/unsupported configuration leaves explicit skipped stages. Token/response bodies are not included in the report.
 
-QA and production each need their own correct purge target and credentials: [per-environment checklist](quickstart-azure-frontdoor.md#whats-needed-one-copy-per-site-per-environment). A qa edit must not target the production endpoint.
+Proxy and host/IP diagnostics describe the current request/runtime and configured trust; they do not change that trust. FDID/header presence cannot prove a request came through legitimate Front Door: headers may be spoofed unless origin restrictions are independently verified. The Front Door collector can perform the authorized OAuth-token and endpoint-read probes; it does not purge content or enable the purger's `devel` mode. An endpoint GET returning 403 is not proof that the separate purge action is denied. A report cannot prove an edge HIT/MISS or successful live purge. Inspect browser response headers for edge behavior and existing `azurecdn` and `perf_purge_paths` logs for actual purge failures.
+
+QA and production each need their own correct target and credentials: [per-environment checklist](quickstart-azure-frontdoor.md#whats-needed-one-copy-per-site-per-environment). The flags do not select the environment, and a qa edit must not target the production endpoint.
 
 ## 5. Purge and Front Door
 

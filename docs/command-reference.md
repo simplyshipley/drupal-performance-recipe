@@ -37,7 +37,7 @@ Module logs. `Unrecognized message type` means that log has no rows yet (nothing
 
 ```bash
 lando drush watchdog:show --type=perf_purge_paths --count=20     # good: "queued ..." lines, or no rows
-lando drush watchdog:show --type=perf_redis_failopen --count=20  # good: no rows (a row = Redis was unreachable)
+lando drush watchdog:show --type=perf_redis_failopen --count=20  # outage warnings and requested runtime diagnostic reports
 lando drush watchdog:show --type=azurecdn --count=20             # good: no rows (a row = a purge call failed)
 lando drush watchdog:show --type=purge --count=20                # good: no errors
 ```
@@ -54,6 +54,16 @@ lando rebuild -y                             # good: all services start again
 - Config differences: `lando drush config:status` # good: no unexpected "Different" rows. Values overridden in `settings.php` differ on purpose.
 
 Source: [troubleshooting-commands.md](troubleshooting-commands.md) sections 1, 2, 7, 8; [quickstart-lando.md](quickstart-lando.md); Drush core commands.
+
+### Shared runtime diagnostic report
+
+After deploying the updated `perf_redis_failopen` module and settings include, run `drush cr` to discover the service/command. The same collector serves the existing Redis report (`/admin/reports/redis`), Status report, Recent log messages (with dblog), and Drush:
+
+```bash
+drush perf:diagnose --redis --frontdoor   # explicit CLI request for both sections
+```
+
+Use the environment wrapper locally (`lando drush ...` or `ddev drush ...`). Web sections are independently enabled with exact `REDIS_DEBUG=1` / `FRONTDOOR_DEBUG=1` and viewed at `/admin/reports/redis` or `/admin/reports/status`. Set flags back to `0`/unset afterward. CLI identifies its own runtime; only the web report describes the actual Apache request. The report includes requested DNS/address/proxy information and authorized connection/endpoint checks. Redis checks use unique synthetic test items with a 60-second TTL: the separate transport probe deletes its key, while the actual backend test lets its item expire so cleanup cannot create an outage-flush marker. They do not request application-bin clears. Credentials are excluded and no Front Door purge is sent. [Deployment, report interpretation and limits](troubleshooting-commands.md#azure-drush-works-but-web-requests-do-not-use-redis).
 
 ## 2. Cache modes
 

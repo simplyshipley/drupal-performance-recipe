@@ -9,6 +9,7 @@ use Drupal\Core\Hook\Attribute\Hook;
 use Drupal\Core\Site\Settings;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\Core\StringTranslation\TranslationInterface;
+use Drupal\perf_redis_failopen\Diagnostic\RuntimeDiagnostics;
 
 /**
  * The status report entry of the Redis fail-open module.
@@ -26,10 +27,13 @@ final class PerfRedisFailopenHooks {
    *   The site settings.
    * @param \Drupal\Core\StringTranslation\TranslationInterface $translation
    *   The string translation service.
+   * @param \Drupal\perf_redis_failopen\Diagnostic\RuntimeDiagnostics $diagnostics
+   *   The shared runtime diagnostic collector.
    */
   public function __construct(
     private readonly Settings $settings,
     TranslationInterface $translation,
+    private readonly RuntimeDiagnostics $diagnostics,
   ) {
     $this->stringTranslation = $translation;
   }
@@ -45,6 +49,13 @@ final class PerfRedisFailopenHooks {
    */
   #[Hook('runtime_requirements')]
   public function runtimeRequirements(): array {
+    return $this->stateRequirement() + $this->diagnostics->requirements();
+  }
+
+  /**
+   * Returns the existing configured-bin status independently of debug probes.
+   */
+  private function stateRequirement(): array {
     if ($this->settings->get('perf_redis_enabled') === FALSE) {
       return $this->requirement(1, $this->t('Off (REDIS_ENABLED=0)'), $this->t('Set by the environment. The cache bins use the database.'));
     }

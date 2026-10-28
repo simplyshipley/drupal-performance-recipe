@@ -17,3 +17,9 @@ services:
     decorates: cache.backend.redis
 
   Drupal\perf_redis_failopen\Hook\PerfRedisFailopenHooks: ~
+
+  Drupal\perf_redis_failopen\Diagnostic\RedisProbe: ~
+
+  Drupal\perf_redis_failopen\Diagnostic\RuntimeDiagnostics: ~
+
+  Drupal\perf_redis_failopen\Diagnostic\FrontDoorDiagnostics: ~

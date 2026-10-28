@@ -1,0 +1,19 @@
+<?php
+
+/**
+ * @file
+ * Adds gated diagnostics to the contributed Redis report.
+ */
+
+declare(strict_types=1);
+
+use Drupal\perf_redis_failopen\Diagnostic\RuntimeDiagnostics;
+
+/**
+ * Implements hook_page_top().
+ */
+function perf_redis_failopen_page_top(array &$page_top): void {
+  if (\Drupal::routeMatch()->getRouteName() === 'redis.report') {
+    \Drupal::service(RuntimeDiagnostics::class)->redisReport($page_top);
+  }
+}
