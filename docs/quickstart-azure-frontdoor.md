@@ -48,6 +48,8 @@ End-to-end purge test and the Front Door side of purging: [setup guide §10](fro
 | App setting | qa value | prod value | Where to find it |
 |---|---|---|---|
 | `AZURE_CLOUD` | `usgovernment` | `usgovernment` | Fixed. Without it purges go to commercial Azure and fail |
+| `REDIS_DEBUG` | unset/`0` normally; `1` only during investigation | unset/`0` normally; `1` only during investigation | Independent Redis web configuration log on `/admin/reports/status`; no Redis connection test |
+| `FRONTDOOR_DEBUG` | unset/`0` normally; `1` only during investigation | unset/`0` normally; `1` only during investigation | Independent `FRONTDOOR_DIAG` config-override/proxy log; [debug procedure](troubleshooting-commands.md#azure-front-door-configuration-debugging) |
 | `AZURE_CDN_TENANT_ID` | | | Entra ID → App registrations → the purge app → Overview → **Directory (tenant) ID** |
 | `AZURE_CDN_CLIENT_ID` | | | Same page → **Application (client) ID** |
 | `AZURE_CDN_CLIENT_SECRET` | Key Vault reference | Key Vault reference | The purge app → Certificates & secrets → New client secret → copy the **Value** (shown once) into Key Vault. App setting: `@Microsoft.KeyVault(SecretUri=https://<kv>.vault.usgovcloudapi.net/secrets/<name>)` |
@@ -57,6 +59,9 @@ End-to-end purge test and the Front Door side of purging: [setup guide §10](fro
 | `AZURE_CDN_ENDPOINT` | | | The endpoint's **name** in that profile (not its `azurefd` host name) |
 
 - **qa and prod should differ** in the endpoint (and the profile, resource group or subscription if qa has its own Front Door). Never point qa at the prod endpoint: a qa edit would purge production.
+- Both environments need all seven `AZURE_CDN_*` identity/target settings in the table, plus `AZURE_CLOUD=usgovernment` for these Government sites. Tenant, subscription or resource group may be shared where that matches the deployed resources; the endpoint must identify the correct environment. Keep the site's existing environment bootstrap; the debug flags do not select qa or production.
+- Debugging requires the new settings include to be deployed once. Then set either flag to exact `1`, apply/save, visit the status report, and restore `0`/unset after capture. The normal App Service restart applies; no application rebuild is needed to toggle flags. Snapshots are include-time configuration, not proof of a cache HIT or successful purge.
+- **If you use deployment slots:** mark environment-bound endpoint/identity/secret settings as deployment-slot settings when they must stay with that environment during a swap ([Learn, make an app setting unswappable](https://learn.microsoft.com/en-us/azure/app-service/deploy-staging-slots#make-an-app-setting-unswappable)). Separate qa/prod App Services still each need their own correct values.
 - **Use one purge app (service principal) per environment** if you can, each with the purge role on its own endpoint only. Then a qa secret can't purge prod. Setup: [azure.md, Service principal for purging](azure.md#service-principal-for-purging) (DevOps).
 - **The Key Vault reference needs** the app's managed identity with **Key Vault Secrets User** on the vault ([azure.md, Key Vault references](azure.md#key-vault-references-azure-government)).
 

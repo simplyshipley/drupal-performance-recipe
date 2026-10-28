@@ -34,7 +34,7 @@ Nothing here was run against Azure. Azure statements cite Microsoft Learn or Mic
 
 App Service passes "app settings" to a custom container "by using the `--env` flag", and editing one "triggers an app restart"
 ([Learn, configure-common](https://learn.microsoft.com/en-us/azure/app-service/configure-common#configure-app-settings)). This is the complete list `settings.performance.php`
-reads in production, checked against the code on 2026-10-08 (the two modules read no
+reads in production, checked against the code on 2026-10-28 (the two modules read no
 environment variables; they read the `$settings` this file sets). "Unset" means not set or empty.
 
 - Where to set: "App setting" = a plain App Service application setting. "Key Vault ref" = an
@@ -50,6 +50,8 @@ environment variables; they read the `$settings` this file sets). "Unset" means 
 | `REDIS_SCHEME` | App setting `tcp` | No | `tcp` | `tls` connects with TLS. Must match the container's `REDIS_TLS` |
 | `REDIS_PREFIX` | App setting, one per site | No by code; recommended | the redis module's own long prefix | Key prefix (`cache_prefix`), for example `oig-cpsc-prod` |
 | `REDIS_ENABLED` | Leave unset; `0` during a long Redis outage | No | `1` | `0` = the Redis bins use the database, no deploy. Back on: `1`, then `drush cr` |
+| `REDIS_DEBUG` | App setting `1` while collecting diagnostics | No | off (unset/`0`) | Logs a configuration snapshot on web status-report URL requests only. Hostnames are hashed; no passwords. Set `0`/unset afterward. [Web-vs-Drush check](troubleshooting-commands.md#azure-drush-works-but-web-requests-do-not-use-redis) |
+| `FRONTDOOR_DEBUG` | App setting `1` while collecting diagnostics | No | off (unset/`0`) | Independent Front Door config-override/proxy snapshot on web status-report URL requests. No credentials or Azure API calls. Set `0`/unset afterward. [Front Door debug check](troubleshooting-commands.md#azure-front-door-configuration-debugging) |
 | `REDIS_BINS` | Leave unset | No | `render,page,dynamic_page_cache,data,entity,menu` | Which cache bins use Redis. Run `drush cr` after a change |
 | `REDIS_DB` | Leave unset | No | not selected (database 0) | Redis database number |
 | `REDIS_COMPRESS_LENGTH` | Leave unset | No | `100` | Compress entries longer than this many bytes |
@@ -77,6 +79,8 @@ environment variables; they read the `$settings` this file sets). "Unset" means 
 `REVERSE_PROXY_ENABLED`, `REVERSE_PROXY_ADDRESSES` and `HOST_NAME`; keep using those.
 `settings.performance.php` is included last, so `DRUPAL_REVERSE_PROXY=1` would overwrite OIG's
 proxy address list [REPORTED from quickstart-lando.md, not re-checked in a site].
+
+`REDIS_DEBUG` and `FRONTDOOR_DEBUG` were added on 2026-10-28. Each requires exact value `1` and works independently; neither changes cache backends or proxy trust. Their snapshots reflect configuration at the end of `settings.performance.php`; later settings overrides are not included. Front Door fields describe local config overrides, not merged active Drupal configuration. After deploying the debug-capable include, toggle the App Service variables without rebuilding the application, allowing the normal app restart described above. Keep both off in qa and production except while investigating; configure the flags separately on each App Service.
 
 ### Never set these on App Service
 

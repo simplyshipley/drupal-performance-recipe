@@ -268,5 +268,93 @@ foreach ($perf_azure_map as $perf_var => $perf_key) {
 $settings['perf_purge_list_paths'] = (string) $perf_env('PERF_PURGE_LIST_PATHS', '/,/node,/rss.xml');
 $settings['perf_purge_sitewide_paths'] = (string) $perf_env('PERF_PURGE_SITEWIDE_PATHS', '');
 
+// ---------------------------------------------------------------------------
+// Redis debug: REDIS_DEBUG=1 logs configuration for status report URL requests.
+// Unset/0 is off. This records settings at include time; later settings.php
+// overrides are not reflected. No credentials or Redis connection attempts.
+// ---------------------------------------------------------------------------
+if (getenv('REDIS_DEBUG') === '1'
+  && PHP_SAPI !== 'cli'
+  && str_contains($_SERVER['REQUEST_URI'] ?? '', '/admin/reports/status')) {
+  $redis_diag_host = getenv('REDIS_HOST');
+  $redis_diag_connection = $settings['redis.connection'] ?? [];
+  error_log('REDIS_DIAG ' . json_encode([
+    'sapi' => PHP_SAPI,
+    'php_version' => PHP_VERSION,
+    'settings_file' => __FILE__,
+    'site_path' => $site_path ?? NULL,
+    'php_ini' => php_ini_loaded_file(),
+    'php_ini_scanned' => php_ini_scanned_files(),
+    'redis_extension' => extension_loaded('redis'),
+    'redis_extension_version' => phpversion('redis'),
+    'env_host_present' => $redis_diag_host !== FALSE && $redis_diag_host !== '',
+    'env_host_hash' => hash('sha256', (string) $redis_diag_host),
+    'env_enabled' => getenv('REDIS_ENABLED'),
+    'env_scheme' => getenv('REDIS_SCHEME'),
+    'env_port' => getenv('REDIS_PORT'),
+    'env_bins' => getenv('REDIS_BINS'),
+    'redis_code_exists' => is_dir($app_root . '/modules/contrib/redis'),
+    'effective_enabled' => $settings['perf_redis_enabled'] ?? NULL,
+    'cache_default' => $settings['cache']['default'] ?? NULL,
+    'cache_bins' => $settings['cache']['bins'] ?? [],
+    'connection_interface' => $redis_diag_connection['interface'] ?? NULL,
+    'connection_host_hash' => is_string($redis_diag_connection['host'] ?? NULL) ? hash('sha256', $redis_diag_connection['host']) : NULL,
+    'connection_port' => $redis_diag_connection['port'] ?? NULL,
+    'settings_includes' => array_values(array_filter(get_included_files(), static fn ($file) => str_contains(basename($file), 'settings'))),
+  ], JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
+  unset($redis_diag_host, $redis_diag_connection);
+}
+
+// ---------------------------------------------------------------------------
+// Front Door debug: independent FRONTDOOR_DEBUG=1 status report URL snapshot.
+// These are config overrides, not merged Drupal config. Later settings.php
+// overrides are not reflected. No credentials, API calls, or trust changes.
+// ---------------------------------------------------------------------------
+if (getenv('FRONTDOOR_DEBUG') === '1'
+  && PHP_SAPI !== 'cli'
+  && str_contains($_SERVER['REQUEST_URI'] ?? '', '/admin/reports/status')) {
+  $frontdoor_diag_config = $config['azure_cdn_purge.settings'] ?? [];
+  $frontdoor_diag_values = [];
+  // Reuse the production mapping, with fingerprints only for target identity.
+  foreach ($perf_azure_map as $perf_var => $perf_key) {
+    $frontdoor_diag_env = $perf_env($perf_var);
+    $frontdoor_diag_override = $frontdoor_diag_config[$perf_key] ?? NULL;
+    $frontdoor_diag_values[$perf_var] = [
+      'env_present' => $frontdoor_diag_env !== NULL,
+      'config_override_present' => $frontdoor_diag_override !== NULL && $frontdoor_diag_override !== '',
+    ];
+    if (in_array($perf_key, ['resource_group_name', 'profile_name', 'endpoint_name', 'subscription_id'], TRUE)) {
+      $frontdoor_diag_values[$perf_var]['env_hash'] = $frontdoor_diag_env !== NULL ? hash('sha256', $frontdoor_diag_env) : NULL;
+      $frontdoor_diag_values[$perf_var]['config_override_hash'] = is_string($frontdoor_diag_override) && $frontdoor_diag_override !== '' ? hash('sha256', $frontdoor_diag_override) : NULL;
+    }
+  }
+  $frontdoor_diag_fdid = $_SERVER['HTTP_X_AZURE_FDID'] ?? '';
+  $frontdoor_diag_proto = strtolower(trim($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''));
+  $frontdoor_diag_cloud = $frontdoor_diag_config['azure_environment'] ?? NULL;
+  error_log('FRONTDOOR_DIAG ' . json_encode([
+    'sapi' => PHP_SAPI,
+    'php_version' => PHP_VERSION,
+    'settings_file' => __FILE__,
+    'site_path' => $site_path ?? NULL,
+    'azure_values' => $frontdoor_diag_values,
+    'cloud_env' => isset($perf_clouds[$perf_cloud]) ? $perf_cloud : ($perf_cloud === '' ? NULL : 'unknown'),
+    'cloud_env_hash' => $perf_cloud !== '' ? hash('sha256', $perf_cloud) : NULL,
+    'cloud_override' => in_array($frontdoor_diag_cloud, ['azureCloud', 'azureUSGovernmentCloud'], TRUE) ? $frontdoor_diag_cloud : ($frontdoor_diag_cloud === NULL ? NULL : 'other'),
+    'endpoint_type_override' => $frontdoor_diag_config['endpoint_type'] ?? NULL,
+    'api_version_override' => $frontdoor_diag_config['api_version'] ?? NULL,
+    'client_secret_keyvault_reference' => str_starts_with((string) $perf_env('AZURE_CDN_CLIENT_SECRET', ''), '@Microsoft.KeyVault('),
+    'reverse_proxy' => (bool) ($settings['reverse_proxy'] ?? FALSE),
+    'trusted_header_mask' => $settings['reverse_proxy_trusted_headers'] ?? NULL,
+    'trusted_proxy_count' => count($settings['reverse_proxy_addresses'] ?? []),
+    'trusted_host_pattern_count' => count($settings['trusted_host_patterns'] ?? []),
+    'fdid_header_present' => $frontdoor_diag_fdid !== '',
+    'fdid_header_hash' => $frontdoor_diag_fdid !== '' ? hash('sha256', $frontdoor_diag_fdid) : NULL,
+    'forwarded_proto' => in_array($frontdoor_diag_proto, ['http', 'https'], TRUE) ? $frontdoor_diag_proto : ($frontdoor_diag_proto === '' ? NULL : 'invalid'),
+  ], JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
+  unset($frontdoor_diag_config, $frontdoor_diag_values, $frontdoor_diag_env,
+    $frontdoor_diag_override, $frontdoor_diag_fdid, $frontdoor_diag_proto,
+    $frontdoor_diag_cloud);
+}
+
 unset($perf_env, $perf_patterns, $perf_host, $perf_pattern, $perf_redis_dir, $perf_scheme,
   $perf_bins, $perf_bin, $perf_azure_map, $perf_cloud, $perf_clouds, $perf_var, $perf_key);
