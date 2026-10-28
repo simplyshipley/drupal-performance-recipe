@@ -6,7 +6,7 @@ Run in the local DDEV lab; no Azure involved. `result.txt` line 1 has the date, 
   - Result (`result.txt`):
     - Unset: no `redis.connection` and no bins on Redis.
     - Set: the bins `render,page,dynamic_page_cache,data,entity,menu` are on Redis.
-  - Code: `settings.performance.php:141-144`. Redis is configured only when `REDIS_HOST` is set, the phpredis extension is loaded, the redis module directory exists and Drupal isn't being installed.
+  - Code: [Redis activation guard in settings.performance.php](../../../../drupal-performance-modules/settings/settings.performance.php). Redis is configured only when `REDIS_HOST` is set, the phpredis extension is loaded, the redis module directory exists and Drupal isn't being installed.
 - `bins.php`, run with `drush php:script` on the lab site, prints the cache class of those six bins (`result-site.txt`):
   - With `REDIS_HOST` unset, all six are `Drupal\Core\Cache\DatabaseBackend`.
   - With `REDIS_HOST=redis`, all six are the recipe's `Drupal\perf_redis_failopen\Cache\FailOpenCacheBackend`.

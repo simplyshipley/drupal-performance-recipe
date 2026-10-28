@@ -163,7 +163,7 @@ Moving the high-churn bins to Redis removes the big cron deletes from the HA dat
 
 ### Does `drush cr` clear Redis?
 
-Yes, when Drupal is configured for Redis. Drush connects over the network, so a separate container doesn't matter. The module marks a full clear with a timestamp instead of deleting keys, so the key count does not drop; old keys age out by TTL or eviction \[V: redis 8.x-1.11 `CacheBase.php:511-519`; `redis_invalidate_all_as_delete` is TRUE, `settings.performance.php:199`; lab: [troubleshooting.md](troubleshooting.md#drush-cr-does-not-delete-redis-keys)\]. For a full wipe, `redis-cli FLUSHDB` on Drupal's database, only if nothing else shares it.
+Yes, when Drupal is configured for Redis. Drush connects over the network, so a separate container doesn't matter. The module marks a full clear with a timestamp instead of deleting keys, so the key count does not drop; old keys age out by TTL or eviction \[V: redis 8.x-1.11 `CacheBase.php:511-519`; `redis_invalidate_all_as_delete` is TRUE, [Redis invalidation setting in settings.performance.php](../drupal-performance-modules/settings/settings.performance.php); lab: [troubleshooting.md](troubleshooting.md#drush-cr-does-not-delete-redis-keys)\]. For a full wipe, `redis-cli FLUSHDB` on Drupal's database, only if nothing else shares it.
 
 ### Sizing
 
@@ -173,7 +173,7 @@ Yes, when Drupal is configured for Redis. Drush connects over the network, so a 
 | Medium (many pages or languages) | 512 MB to 1 GB | 0.75 to 1.5 GB |
 | Large or faceted | 1 to 2 GB | 1.5 to 3 GB |
 
-**Default: `maxmemory` 768 MB in a 1 GiB container**, the Redis Bicep's values (`redis/azure/redis-containerapp.bicep` lines 45-52). Why: a full crawl of an OIG site copy (580 pages) filled the six Redis bins with about 60 MB of data \[V: database cache tables, 2026-10-06\], so 768 MB holds many times that plus search and bot variants. When to change: raise it if `evicted_keys` keeps growing; the table above is for much larger sites. Measure with `redis-cli INFO memory` (`used_memory_peak_human`) and `INFO stats` (`evicted_keys`, hit and miss counts) after a crawl. The module's compression option (`redis_compress_length`, on at 100 bytes: redis README, `settings.performance.php:191`) can cut render-cache memory several times.
+**Default: `maxmemory` 768 MB in a 1 GiB container**, the Redis Bicep's values (`redis/azure/redis-containerapp.bicep` lines 45-52). Why: a full crawl of an OIG site copy (580 pages) filled the six Redis bins with about 60 MB of data \[V: database cache tables, 2026-10-06\], so 768 MB holds many times that plus search and bot variants. When to change: raise it if `evicted_keys` keeps growing; the table above is for much larger sites. Measure with `redis-cli INFO memory` (`used_memory_peak_human`) and `INFO stats` (`evicted_keys`, hit and miss counts) after a crawl. The module's compression option (`redis_compress_length`, on at 100 bytes: redis README, [Redis compression setting in settings.performance.php](../drupal-performance-modules/settings/settings.performance.php)) can cut render-cache memory several times.
 
 ### Container vs managed service
 
@@ -182,7 +182,7 @@ Redis options, limits and cost in Azure Government: [hosting-and-cost.md](../red
 - **Separate App Service:** Learn: "App Service currently allows your container to expose only one port for HTTP requests" \[Learn: [Configure a custom container](https://learn.microsoft.com/en-us/azure/app-service/configure-custom-container#configure-port-number)\].
 - **App Service sidecar:** Learn marks "National Clouds" as "Not yet supported" for sidecars \[Learn: [Migrate to sidecars](https://learn.microsoft.com/en-us/azure/app-service/migrate-sidecar-multi-container-apps#migration-limitations-and-considerations)\].
 - **Container Apps:** "you can use TCP ingress to expose a container app that uses the Redis protocol" \[Learn: [Ingress overview](https://learn.microsoft.com/en-us/azure/container-apps/ingress-overview#tcp)\]. Ruled choice (Bo, 2026-09-25), with Valkey 9.1.2 (2026-10-05). DevOps has no Container Apps (DevOps to Bo, 2026-10-13).
-- **Per site: no Redis unless the site's App Service sets `REDIS_HOST`** (set 2026-10-14). Bo, 2026-10-15: Azure Managed Redis, B0 for qa and B1 for production, for the sites that use Redis; the other sites on the shared base image "will NOT be using Redis at the moment" ([hosting-and-cost.md](../redis/docs/hosting-and-cost.md#summary)). Without `REDIS_HOST`, the bins use Drupal core's database cache (`settings.performance.php:141-144`; lab check: [no-redis-check](../redis/docs/evidence/no-redis-check/README.md)).
+- **Per site: no Redis unless the site's App Service sets `REDIS_HOST`** (set 2026-10-14). Bo, 2026-10-15: Azure Managed Redis, B0 for qa and B1 for production, for the sites that use Redis; the other sites on the shared base image "will NOT be using Redis at the moment" ([hosting-and-cost.md](../redis/docs/hosting-and-cost.md#summary)). Without `REDIS_HOST`, the bins use Drupal core's database cache ([Redis activation guard in settings.performance.php](../drupal-performance-modules/settings/settings.performance.php); lab check: [no-redis-check](../redis/docs/evidence/no-redis-check/README.md)).
 
 ## Purge and purge queue
 

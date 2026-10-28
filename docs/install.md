@@ -71,7 +71,7 @@ require $app_root . '/modules/custom/drupal-performance-modules/settings/setting
 
 - Where each setting comes from (module README or our own choice): [sources.md](sources.md).
 - Performance features are controlled by environment variables. Redis/Front Door runtime diagnostic flags are off by default, even when Redis is not configured. See the header and final flag declarations in `settings.performance.php` and the complete [Azure variable table](azure.md#app-service-application-settings-environment-variables).
-- Redis is used only when `REDIS_HOST` is set, the `redis` extension is loaded, the module code exists and Drupal is not installing [V: guard at `settings.performance.php:141-144`].
+- Redis is used only when `REDIS_HOST` is set, the `redis` extension is loaded, the module code exists and Drupal is not installing; see the [Redis activation guard in settings.performance.php](../drupal-performance-modules/settings/settings.performance.php).
 
 - With DDEV's `ddev/ddev-redis` add-on: it adds its own `settings.ddev.redis.php`. Retire it (rename with the `__ARCHIVED_` prefix) so this file is the only Redis configuration [V].
 

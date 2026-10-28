@@ -21,11 +21,17 @@
  * "Application settings" become environment variables). Every block is a
  * no-op when its variables are not set, so the file is safe on any
  * environment. No secret is stored in this file or in exported config.
+ * Redis host/port/scheme and Redis/debug/reverse-proxy switches trim exterior
+ * whitespace and quote characters. Switches accept 1/0, true/false, on/off and
+ * yes/no case-insensitively; missing/empty/invalid values use their defaults.
+ * Passwords and client secrets are never trimmed.
  *
  * Environment variables (all optional):
  *
  * Redis
  *   REDIS_HOST              Hostname. Unset = Redis is not used at all.
+ *   REDIS_DEBUG, FRONTDOOR_DEBUG
+ *                           Boolean debug switches, both off by default.
  *   REDIS_ENABLED           1 (default) = the bins below use Redis. 0 = they
  *                           use the database, no deploy or drush needed. To
  *                           switch back: 1, then drush cr.
@@ -94,7 +100,19 @@ use Symfony\Component\HttpFoundation\Request;
 
 $perf_env = static function (string $name, ?string $default = NULL): ?string {
   $value = getenv($name);
+  // Typed connection fields tolerate shell-style exterior quoting. Credentials
+  // and all unlisted values retain their original bytes.
+  if ($value !== FALSE && in_array($name, [
+    'REDIS_HOST', 'REDIS_PORT', 'REDIS_SCHEME', 'REDIS_ENABLED',
+    'REDIS_PERSISTENT', 'REDIS_DEBUG', 'FRONTDOOR_DEBUG', 'DRUPAL_REVERSE_PROXY',
+  ], TRUE)) {
+    $value = trim($value, " \t\n\r\0\x0B\"'");
+  }
   return ($value === FALSE || $value === '') ? $default : $value;
+};
+$perf_bool = static function (string $name, bool $default = FALSE) use ($perf_env): bool {
+  $value = $perf_env($name);
+  return $value === NULL ? $default : (filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? $default);
 };
 
 // ---------------------------------------------------------------------------
@@ -110,7 +128,7 @@ $settings['cache_ttl_4xx'] = (int) $perf_env('DRUPAL_CACHE_TTL_4XX', '3600');
 // ---------------------------------------------------------------------------
 // Reverse proxy and trusted hosts (Azure Front Door -> App Service).
 // ---------------------------------------------------------------------------
-if ($perf_env('DRUPAL_REVERSE_PROXY') === '1') {
+if ($perf_bool('DRUPAL_REVERSE_PROXY')) {
   $settings['reverse_proxy'] = TRUE;
   $settings['reverse_proxy_addresses'] = array_values(array_filter(array_map('trim', explode(',', (string) $perf_env('DRUPAL_REVERSE_PROXY_ADDRESSES', '')))));
   // X-Forwarded-Port is deliberately NOT trusted: Front Door does not
@@ -157,7 +175,7 @@ if ($perf_env('REDIS_HOST') !== NULL
   if ($perf_env('REDIS_DB') !== NULL) {
     $settings['redis.connection']['base'] = (int) $perf_env('REDIS_DB');
   }
-  if ($perf_env('REDIS_PERSISTENT') === '1') {
+  if ($perf_bool('REDIS_PERSISTENT')) {
     $settings['redis.connection']['persistent'] = TRUE;
   }
   // The redis README recommends an explicit prefix ("Prefixing site cache
@@ -176,7 +194,7 @@ if ($perf_env('REDIS_HOST') !== NULL
   // xviii) leaves these bins on the database. While Redis serves them their
   // database tables stay empty (perf_redis_failopen empties them at drush cr),
   // so switching off starts from an empty database cache, never a stale one.
-  $settings['perf_redis_enabled'] = $perf_env('REDIS_ENABLED', '1') !== '0';
+  $settings['perf_redis_enabled'] = $perf_bool('REDIS_ENABLED', TRUE);
   // The bins name cache.backend.redis. Our perf_redis_failopen module (Bo
   // ruling 2026-09-25: fail open when Redis is down; installed by the recipe)
   // DECORATES that service, so a Redis outage becomes cache misses instead of
@@ -268,11 +286,11 @@ foreach ($perf_azure_map as $perf_var => $perf_key) {
 $settings['perf_purge_list_paths'] = (string) $perf_env('PERF_PURGE_LIST_PATHS', '/,/node,/rss.xml');
 $settings['perf_purge_sitewide_paths'] = (string) $perf_env('PERF_PURGE_SITEWIDE_PATHS', '');
 
-unset($perf_env, $perf_patterns, $perf_host, $perf_pattern, $perf_redis_dir, $perf_scheme,
-  $perf_bins, $perf_bin, $perf_azure_map, $perf_cloud, $perf_clouds, $perf_var, $perf_key);
-
 // Runtime diagnostics remain available even when Redis is not configured.
-// Each flag is off unless its environment variable is exactly 1. Collection
+// Each flag defaults off; normalized boolean spellings enable it. Collection
 // happens after bootstrap in perf_redis_failopen, not during settings loading.
-$settings['perf_redis_debug'] = getenv('REDIS_DEBUG') === '1';
-$settings['perf_frontdoor_debug'] = getenv('FRONTDOOR_DEBUG') === '1';
+$settings['perf_redis_debug'] = $perf_bool('REDIS_DEBUG');
+$settings['perf_frontdoor_debug'] = $perf_bool('FRONTDOOR_DEBUG');
+
+unset($perf_env, $perf_bool, $perf_patterns, $perf_host, $perf_pattern, $perf_redis_dir, $perf_scheme,
+  $perf_bins, $perf_bin, $perf_azure_map, $perf_cloud, $perf_clouds, $perf_var, $perf_key);
