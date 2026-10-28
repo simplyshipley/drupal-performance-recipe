@@ -82,6 +82,8 @@ DevOps can create the same thing by hand from the pushed image. These are the se
 | Environment variables | `REDIS_PASSWORD` = secret `redis-password`; `REDIS_MAXMEMORY` = `768mb` (about 75 percent of memory) |
 | Probes | TCP liveness and readiness on 6379. Container Apps runs only TCP or HTTP probes and "`exec` probes aren't supported" [Learn: [health probes](https://learn.microsoft.com/en-us/azure/container-apps/health-probes)], so the image's `HEALTHCHECK` command isn't used there |
 
+**Connection port versus listener:** the examples/template above keep target and exposed ports at `6379`. If QA already has working ingress with exposed port `6378` mapped to target/listener `6379`, Drupal uses `REDIS_PORT=6378`; the internal Redis listener remains `6379`. Use the exposed port for App Service connection tests too. This example does not change the Bicep defaults or require an ingress redeployment. An explicit `REDIS_PORT` overrides the settings file's TCP/TLS fallback ports.
+
 Optional variables the image reads (defaults in [docs/redis-image.md](../docs/redis-image.md)): `REDIS_MAXMEMORY_POLICY` (`volatile-lfu`), `REDIS_ADMIN_PASSWORD`, `REDIS_APP_USERS` + `REDIS_APP_PASSWORD_<NAME>` (shared mode: never set them, the sites don't support it), `REDIS_TLS*`. Never set a start command or arguments: the image's entrypoint builds the config, and it refuses to start without `REDIS_PASSWORD`.
 
 az CLI, same settings. Every flag is in the `az containerapp create` reference; probes have no flag, so add them in the portal (Health probes) or with `--yaml` [Learn]:
@@ -134,6 +136,8 @@ An internal environment's apps resolve under `environmentDefaultDomain`. Steps a
      REDIS_PASSWORD='@Microsoft.KeyVault(SecretUri=https://<kv>.vault.usgovcloudapi.net/secrets/redis-password)' \
      REDIS_PREFIX=<site> AZURE_CLOUD=usgovernment
    ```
+
+   The command shows the default exposed port `6379`. For the existing QA mapping `6378` → `6379`, supply `REDIS_PORT=6378` instead. `REDIS_SCHEME=tls` adds TLS to the connection host; it does not overwrite that explicit port.
 
    Nothing else to set for the timeouts or fail-open; they are fixed in the code, not variables:
 

@@ -2,6 +2,10 @@
 
 For developers reading or running the recipe's test suite. Look up a test by name to see what it does and what PASS means.
 
+## Runtime diagnostic regressions
+
+`RuntimeDiagnosticsWebTest` exercises the actual contributed Redis report and core Status report through Drupal's browser-test harness. It verifies the authorized metadata marker while probes are off, denied access without diagnostic output, and enabled diagnostic tables and Recent log entries. Its synthetic fixture selects the unsupported transport path so this UI test makes no Redis DNS or Azure requests. The unit suite separately checks environment versus final settings, literal hostname quotes, and QA's explicit port `6378`; isolated kernel tests cover the real recent-log query. These checks do not establish live Azure connectivity.
+
 `scripts/test-local.sh` runs inside the web container from the project root.
 - Each check prints `PASS`, `FAIL` or `INFO`, then `# summary`.
 - Exit status = number of FAILs.

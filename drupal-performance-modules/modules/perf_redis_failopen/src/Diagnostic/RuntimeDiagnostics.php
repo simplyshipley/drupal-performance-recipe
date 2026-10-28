@@ -25,6 +25,11 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
 final class RuntimeDiagnostics {
 
   /**
+   * Identifies the diagnostic implementation independently of a deploy tag.
+   */
+  private const REVISION = 'runtime-visibility-1';
+
+  /**
    * Reports already collected in this request, keyed by selected sections.
    *
    * @var array<string, array>
@@ -71,7 +76,7 @@ final class RuntimeDiagnostics {
     if ($frontdoor) {
       $report['checks']['frontdoor'] = $this->section(fn (): array => $this->frontDoor->collect());
     }
-    return $this->reports[$key] = $this->sanitize($report);
+    return $this->reports[$key] = $report['checks'] ? $this->sanitize($report) : $report;
   }
 
   /**
@@ -92,42 +97,42 @@ final class RuntimeDiagnostics {
   }
 
   /**
-   * Adds an escaped report to the Status report only when debugging is enabled.
+   * Always shows the gate; live checks remain gated by final Settings flags.
    */
   public function requirements(): array {
     $report = $this->collect();
-    if (!$report['checks']) {
-      return [];
-    }
     $this->log($report);
     return [
       'perf_runtime_diagnostics' => [
         'title' => 'Performance diagnostics',
-        'value' => 'Debug report — ' . $report['runtime']['sapi'],
-        'description' => $this->render($report),
-        'severity' => $this->severity($report['checks']),
+        'value' => ($report['checks'] ? 'Debug report — ' : 'Debug disabled — ') . $report['runtime']['sapi'],
+        'description' => $this->render($report, FALSE),
+        'severity' => $report['checks'] ? $this->severity($report['checks']) : -1,
       ],
     ];
   }
 
   /**
    * Adds diagnostics to contrib's Redis report without modifying contrib code.
+   *
+   * @param array<string, mixed> $pageTop
+   *   The page-top render array, extended for an authorized Redis report.
+   *
+   * @param-out array<string, mixed> $pageTop
    */
   public function redisReport(array &$pageTop): void {
     if ($this->routeMatch->getRouteName() !== 'redis.report' || !$this->account->hasPermission('access redis report')) {
       return;
     }
     $report = $this->collect();
-    if ($report['checks']) {
-      $this->log($report);
-      $pageTop['perf_runtime_diagnostics'] = $this->render($report);
-    }
+    $this->log($report);
+    $pageTop['perf_runtime_diagnostics'] = $this->render($report);
   }
 
   /**
    * Builds escaped rows shared by the Status report and Redis report.
    */
-  private function render(array $report): array {
+  private function render(array $report, bool $heading = TRUE): array {
     $rows = [];
     foreach ($report['checks'] as $section => $checks) {
       foreach ($checks as $name => $check) {
@@ -140,15 +145,21 @@ final class RuntimeDiagnostics {
         $rows[] = array_map(static fn ($value): array => ['data' => ['#plain_text' => (string) $value]], $values);
       }
     }
-    return [
-      'runtime' => ['#plain_text' => json_encode($report['runtime'], JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)],
-      'checks' => [
+    $build = $heading ? ['heading' => ['#type' => 'html_tag', '#tag' => 'h2', '#value' => 'Performance diagnostics']] : [];
+    $build['runtime'] = [
+      '#plain_text' => json_encode($report['runtime'], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE),
+      '#prefix' => '<pre>',
+      '#suffix' => '</pre>',
+    ];
+    if ($rows) {
+      $build['checks'] = [
         '#theme' => 'table',
         '#header' => ['Section', 'Check', 'Result', 'Details'],
         '#rows' => $rows,
-      ],
-      '#cache' => ['max-age' => 0],
-    ];
+      ];
+    }
+    $build['#cache'] = ['max-age' => 0];
+    return $build;
   }
 
   /**
@@ -180,12 +191,67 @@ final class RuntimeDiagnostics {
    */
   private function runtime(): array {
     return [
+      'revision' => self::REVISION,
+      'source_file' => __FILE__,
       'sapi' => PHP_SAPI,
       'php' => PHP_VERSION,
       'ini' => php_ini_loaded_file(),
       'scanned_ini' => php_ini_scanned_files(),
       'site_path' => $this->container->hasParameter('site.path') ? $this->container->getParameter('site.path') : NULL,
       'settings_includes' => array_values(array_filter(get_included_files(), static fn (string $file): bool => str_contains(basename($file), 'settings'))),
+      'debug_flags' => [
+        'REDIS_DEBUG' => $this->debugFlag('REDIS_DEBUG', 'perf_redis_debug'),
+        'FRONTDOOR_DEBUG' => $this->debugFlag('FRONTDOOR_DEBUG', 'perf_frontdoor_debug'),
+      ],
+      'redis_configuration' => $this->hostMetadata($this->settings->get('redis.connection', [])) + [
+        'default_backend' => $this->settings->get('cache', [])['default'] ?? NULL,
+        'bins' => $this->settings->get('cache', [])['bins'] ?? [],
+      ],
+    ];
+  }
+
+  /**
+   * Compares non-secret environment state with final Settings activation.
+   */
+  private function debugFlag(string $environment, string $setting): array {
+    $value = getenv($environment);
+    return [
+      'environment' => match ($value) {
+        FALSE => 'unset',
+        '' => 'empty',
+        '0', '1' => $value,
+        default => 'other',
+      },
+      'setting_present' => array_key_exists($setting, Settings::getAll()),
+      'enabled' => (bool) $this->settings->get($setting, FALSE),
+    ];
+  }
+
+  /**
+   * Measures host bytes and port values without changing connection settings.
+   */
+  private function hostMetadata(mixed $connection): array {
+    $host = is_array($connection) ? ($connection['host'] ?? NULL) : NULL;
+    $envHost = getenv('REDIS_HOST');
+    $envPort = getenv('REDIS_PORT');
+    $portPresent = $envPort !== FALSE && $envPort !== '';
+    $port = is_array($connection) ? ($connection['port'] ?? NULL) : NULL;
+    return [
+      'env_host_present' => $envHost !== FALSE && $envHost !== '',
+      'env_host_length' => $envHost !== FALSE ? strlen($envHost) : 0,
+      'env_host_hash' => $envHost !== FALSE && $envHost !== '' ? hash('sha256', $envHost) : NULL,
+      'env_host_outer_whitespace' => $envHost !== FALSE && trim($envHost) !== $envHost,
+      'env_host_outer_quotes' => $envHost !== FALSE && preg_match('/^[\'\"]|[\'\"]$/', $envHost) === 1,
+      'effective_host_present' => is_string($host) && $host !== '',
+      'effective_host_length' => is_string($host) ? strlen($host) : NULL,
+      'effective_host_outer_whitespace' => is_string($host) && trim($host) !== $host,
+      'effective_host_outer_quotes' => is_string($host) && preg_match('/^[\'\"]|[\'\"]$/', $host) === 1,
+      'effective_host_hash' => is_string($host) ? hash('sha256', preg_replace('~^(tcp|tls)://~', '', $host)) : NULL,
+      'host_matches_environment' => is_string($host) && $envHost !== FALSE ? preg_replace('~^(tcp|tls)://~', '', $host) === $envHost : NULL,
+      'env_port_present' => $portPresent,
+      'env_port_as_integer' => $portPresent ? (int) $envPort : NULL,
+      'env_port_outer_quotes' => $envPort !== FALSE && preg_match('/^[\'\"]|[\'\"]$/', $envPort) === 1,
+      'effective_port' => is_int($port) || is_string($port) ? (int) $port : NULL,
     ];
   }
 
@@ -217,7 +283,6 @@ final class RuntimeDiagnostics {
    */
   private function redisConfiguration(array $connection, array $cache): array {
     $host = $connection['host'] ?? NULL;
-    $envHost = getenv('REDIS_HOST');
     return [
       'extension' => $this->row(extension_loaded('redis') ? 'PASS' : 'FAIL', 'PhpRedis extension', ['version' => phpversion('redis')]),
       'modules' => $this->row($this->modules->moduleExists('redis') ? 'PASS' : 'FAIL', 'Drupal module state', [
@@ -225,15 +290,7 @@ final class RuntimeDiagnostics {
         'failopen' => $this->modules->moduleExists('perf_redis_failopen'),
         'code_exists' => $this->container->hasParameter('app.root') && is_dir($this->container->getParameter('app.root') . '/modules/contrib/redis'),
       ]),
-      'settings' => $this->row(is_string($host) && $host !== '' ? 'PASS' : 'FAIL', 'Final Drupal settings; hashes compare host identity without disclosing it.', [
-        'env_host_present' => $envHost !== FALSE && $envHost !== '',
-        'env_host_length' => $envHost !== FALSE ? strlen($envHost) : 0,
-        'effective_host_length' => is_string($host) ? strlen($host) : NULL,
-        'env_host_outer_whitespace' => $envHost !== FALSE && trim($envHost) !== $envHost,
-        'env_host_outer_quotes' => $envHost !== FALSE && preg_match('/^[\'\"]|[\'\"]$/', $envHost) === 1,
-        'env_host_hash' => $envHost ? hash('sha256', $envHost) : NULL,
-        'effective_host_hash' => is_string($host) ? hash('sha256', preg_replace('~^(tcp|tls)://~', '', $host)) : NULL,
-        'host_matches_environment' => is_string($host) && $envHost !== FALSE ? preg_replace('~^(tcp|tls)://~', '', $host) === $envHost : NULL,
+      'settings' => $this->row(is_string($host) && $host !== '' ? 'PASS' : 'FAIL', 'Final Drupal settings; hashes compare host identity without disclosing it.', $this->hostMetadata($connection) + [
         'port' => $connection['port'] ?? NULL,
         'interface' => $connection['interface'] ?? NULL,
         'database' => $connection['base'] ?? 0,

@@ -98,7 +98,7 @@ The container needs (details in [HANDOFF.md](HANDOFF.md)):
 The site needs:
 
 - [ ] App Service VNet integration (same or peered VNet).
-- [ ] App settings `REDIS_HOST`, `REDIS_PORT=6379`, `REDIS_PASSWORD` (Key Vault reference), `REDIS_PREFIX` (one per site).
+- [ ] App settings `REDIS_HOST`, `REDIS_PORT` matching the exposed connection port (`6379` by default; `6378` for an existing QA `6378` → `6379` mapping), `REDIS_PASSWORD` (Key Vault reference), `REDIS_PREFIX` (one per site).
 - [ ] The site's identity can read the Key Vault secret.
 
 Examples for all of this (Bicep, portal, az CLI): [azure/README.md](../azure/README.md).
@@ -174,7 +174,7 @@ az network private-dns link vnet list -g <dns rg> -z <zone> -o table
 - **Good:**
   - Steps 1 and 2 show subnets in the same VNet (the part after `/virtualNetworks/` in each ID), or two VNets with a peering in step 4.
   - Step 2: `internal` is `true`, as in section 2.
-  - Step 3: `tcp`, `external` `true`, ports `6379`.
+  - Step 3: `tcp`, `external` `true`; the examples use target/exposed `6379`. An existing QA exposed `6378` → target `6379` mapping is also compatible: connect using `REDIS_PORT=6378`.
   - Step 5: the App Service's VNet is listed.
 - **The real proof is 3c:** a private IP and `port open` from inside the App Service.
 - Commands and fields are from the Learn references for [az webapp vnet-integration](https://learn.microsoft.com/en-us/cli/azure/webapp/vnet-integration?view=azure-cli-latest), [az containerapp env](https://learn.microsoft.com/en-us/cli/azure/containerapp/env?view=azure-cli-latest), [managedEnvironments](https://learn.microsoft.com/en-us/azure/templates/microsoft.app/managedenvironments), [containerApps](https://learn.microsoft.com/en-us/azure/templates/microsoft.app/containerapps), [private-dns link vnet](https://learn.microsoft.com/en-us/cli/azure/network/private-dns/link/vnet?view=azure-cli-latest) and [vnet peering](https://learn.microsoft.com/en-us/cli/azure/network/vnet/peering?view=azure-cli-latest). They haven't been run against a subscription.
@@ -185,21 +185,22 @@ az network private-dns link vnet list -g <dns rg> -z <zone> -o table
 set | egrep --color 'WEBSITE_PRIVATE_IP'                                         # VNet integration: the app has a private IP
 cat /proc/1/environ | tr '\0' '\n' | grep -aE '^REDIS_(HOST|PORT|PREFIX)='      # settings the site process sees
 getent hosts "$REDIS_HOST"                                                       # DNS: prints a private IP
-timeout 3 bash -c "</dev/tcp/$REDIS_HOST/6379" && echo "port open"               # network
-php -r '$r=new Redis(); $r->connect(getenv("REDIS_HOST"),6379,2); $r->auth(getenv("REDIS_PASSWORD")); echo $r->ping(),PHP_EOL;'
+timeout 3 bash -c "</dev/tcp/$REDIS_HOST/${REDIS_PORT:-6379}" && echo "port open"               # network
+php -r '$r=new Redis(); $r->connect(getenv("REDIS_HOST"),(int)(getenv("REDIS_PORT") ?: 6379),2); $r->auth(getenv("REDIS_PASSWORD")); echo $r->ping(),PHP_EOL;'
 ```
 
 - Good: `WEBSITE_PRIVATE_IP=<IP address>`, the three settings, a private IP, `port open`, then `1` or `+PONG`.
+- These TCP-container checks use the client-facing `REDIS_PORT`, falling back to `6379` when unset/empty. Set `REDIS_PORT=6378` for the existing QA exposed `6378` → listener `6379` mapping; no ingress or listener change is required. The Drupal settings include also honors explicit `6378` under TLS; TLS changes the connection scheme, not an explicitly supplied port.
 - `WEBSITE_PRIVATE_IP` and the `curl` test are Learn's checks for Linux apps ([troubleshoot virtual network integration](https://learn.microsoft.com/en-us/troubleshoot/azure/app-service/troubleshoot-vnet-integration-apps)):
   - Integration: "If the private IP is assigned successfully, you get the following output: WEBSITE_PRIVATE_IP=<IP address>". It's also on the app's Kudu `/Env` page.
-  - Connection: "To test connectivity, use Curl directly with the following syntax: ... curl hostname:[port]". Against Redis, `curl -v "$REDIS_HOST:6379"` prints `Connected to <host> (<ip>) port 6379` when the network path works, then `Empty reply from server` and exit code 52, because Redis doesn't speak HTTP [V: lab Redis, 2026-10-23]. The `/dev/tcp` line above tests the same thing.
+  - Connection (default-port example): "To test connectivity, use Curl directly with the following syntax: ... curl hostname:[port]". Against Redis, `curl -v "$REDIS_HOST:6379"` prints `Connected to <host> (<ip>) port 6379` when the network path works, then `Empty reply from server` and exit code 52, because Redis doesn't speak HTTP [V: lab Redis, 2026-10-23]. The `/dev/tcp` line above tests the same thing.
 - If `REDIS_HOST` is empty in the SSH session but present in `/proc/1/environ`, run `while IFS= read -r v; do export "$v"; done < <(tr '\0' '\n' < /proc/1/environ | grep -a '^REDIS_')` first. Learn: app settings are "injected into the process as environment variables", and in SSH "you might see only a few environment variables" ([custom container, Configure environment variables](https://learn.microsoft.com/en-us/azure/app-service/configure-custom-container#configure-environment-variables)).
 
 ### 3d. Drupal uses it
 
 ```bash
 drush php:eval "print get_class(\Drupal::cache('render')) . PHP_EOL;"
-drush php:eval "\$r = new Redis(); \$r->connect(getenv('REDIS_HOST'), 6379, 2); \$r->auth(getenv('REDIS_PASSWORD')); print \$r->dbSize() . ' keys' . PHP_EOL;"
+drush php:eval "\$r = new Redis(); \$r->connect(getenv('REDIS_HOST'), (int) (getenv('REDIS_PORT') ?: 6379), 2); \$r->auth(getenv('REDIS_PASSWORD')); print \$r->dbSize() . ' keys' . PHP_EOL;"
 drush watchdog:show --type=perf_redis_failopen --count=10
 ```
 

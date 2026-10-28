@@ -75,13 +75,14 @@ final class RuntimeDiagnosticsTest extends UnitTestCase {
   }
 
   /**
-   * Default-off status collection performs no probe and adds no debug entry.
+   * Default-off status collection shows the gate without probes or logging.
    */
   public function testDefaultOffDoesNotProbe(): void {
-    [$collector, $probe] = $this->collector();
+    [$collector, $probe, , , , $logger] = $this->collector();
     $probe->expects($this->never())->method('run');
+    $logger->expects($this->never())->method('notice');
     $this->assertSame([], $collector->collect()['checks']);
-    $this->assertSame([], $collector->requirements());
+    $this->assertArrayHasKey('perf_runtime_diagnostics', $collector->requirements());
   }
 
   /**
@@ -246,6 +247,134 @@ final class RuntimeDiagnosticsTest extends UnitTestCase {
     $this->assertTrue($row['details']['read_after_write_succeeded']);
     $this->assertTrue($row['details']['known_database_or_null_backend']);
     $this->assertFalse($row['details']['redis_backend_confirmed']);
+  }
+
+  /**
+   * An authorized Redis report remains observable when all probes are off.
+   */
+  public function testAuthorizedDisabledReportExplainsTheDebugGate(): void {
+    [$collector, $probe, , , $notes, $logger] = $this->collector();
+    $probe->expects($this->never())->method('run');
+    $logger->expects($this->never())->method('notice');
+    $notes->expects($this->never())->method('getAll');
+    /** @var array<string, mixed> $top */
+    $top = [];
+    $collector->redisReport($top);
+    $this->assertArrayHasKey('perf_runtime_diagnostics', $top);
+    $runtime = $collector->collect()['runtime'];
+    $this->assertSame('runtime-visibility-1', $runtime['revision']);
+    $this->assertStringEndsWith('/Diagnostic/RuntimeDiagnostics.php', $runtime['source_file']);
+  }
+
+  /**
+   * Environment 1 cannot silently override a final disabled Settings flag.
+   */
+  public function testEnvironmentEnabledButFinalSettingDisabledIsVisible(): void {
+    $previous = getenv('REDIS_DEBUG');
+    putenv('REDIS_DEBUG=1');
+    try {
+      [$collector, $probe] = $this->collector(['perf_redis_debug' => FALSE]);
+      $probe->expects($this->never())->method('run');
+      $report = $collector->collect();
+      $this->assertSame([], $report['checks']);
+      $this->assertSame([
+        'environment' => '1',
+        'setting_present' => TRUE,
+        'enabled' => FALSE,
+      ], $report['runtime']['debug_flags']['REDIS_DEBUG']);
+    }
+    finally {
+      putenv($previous === FALSE ? 'REDIS_DEBUG' : 'REDIS_DEBUG=' . $previous);
+    }
+  }
+
+  /**
+   * Missing web environment differs from a missing Settings include flag.
+   */
+  public function testMissingEnvironmentAndSettingsPresenceAreDistinct(): void {
+    $previous = getenv('REDIS_DEBUG');
+    putenv('REDIS_DEBUG');
+    try {
+      [$collector] = $this->collector(['perf_redis_debug' => FALSE]);
+      $state = $collector->collect()['runtime']['debug_flags']['REDIS_DEBUG'];
+      $this->assertSame('unset', $state['environment']);
+      $this->assertTrue($state['setting_present']);
+      [$withoutInclude] = $this->collector();
+      $this->assertFalse($withoutInclude->collect()['runtime']['debug_flags']['REDIS_DEBUG']['setting_present']);
+    }
+    finally {
+      putenv($previous === FALSE ? 'REDIS_DEBUG' : 'REDIS_DEBUG=' . $previous);
+    }
+  }
+
+  /**
+   * Literal effective-host quotes remain observable and are never corrected.
+   */
+  public function testEffectiveHostQuotesAreMeasuredWithoutChangingSettings(): void {
+    $previous = getenv('REDIS_HOST');
+    putenv('REDIS_HOST=synthetic-redis.invalid');
+    try {
+      [$collector, $probe] = $this->collector([
+        'redis.connection' => ['host' => '"synthetic-redis.invalid"'],
+      ]);
+      $probe->expects($this->never())->method('run');
+      $metadata = $collector->collect()['runtime']['redis_configuration'];
+      $this->assertFalse($metadata['env_host_outer_quotes']);
+      $this->assertTrue($metadata['effective_host_outer_quotes']);
+      $this->assertFalse($metadata['host_matches_environment']);
+      $this->assertSame(hash('sha256', '"synthetic-redis.invalid"'), $metadata['effective_host_hash']);
+      $this->assertSame($metadata['env_host_length'] + 2, $metadata['effective_host_length']);
+    }
+    finally {
+      putenv($previous === FALSE ? 'REDIS_HOST' : 'REDIS_HOST=' . $previous);
+    }
+  }
+
+  /**
+   * Debug environment values are normalized without disclosing arbitrary text.
+   */
+  public function testDebugEnvironmentValuesAreNormalized(): void {
+    $previous = getenv('REDIS_DEBUG');
+    try {
+      foreach (['' => 'empty', '0' => '0', 'synthetic-unexpected-value' => 'other'] as $value => $expected) {
+        putenv('REDIS_DEBUG=' . $value);
+        [$collector, $probe] = $this->collector();
+        $probe->expects($this->never())->method('run');
+        $runtime = $collector->collect()['runtime'];
+        $this->assertSame($expected, $runtime['debug_flags']['REDIS_DEBUG']['environment']);
+        $this->assertStringNotContainsString('synthetic-unexpected-value', json_encode($runtime));
+      }
+    }
+    finally {
+      putenv($previous === FALSE ? 'REDIS_DEBUG' : 'REDIS_DEBUG=' . $previous);
+    }
+  }
+
+  /**
+   * Explicit external ports differ visibly from a missing web port fallback.
+   */
+  public function testPortMetadataSeparatesExplicitAndFallbackValues(): void {
+    $previous = getenv('REDIS_PORT');
+    try {
+      putenv('REDIS_PORT=6378');
+      [$explicit, $probe] = $this->collector([
+        'redis.connection' => ['port' => 6378],
+      ]);
+      $probe->expects($this->never())->method('run');
+      $metadata = $explicit->collect()['runtime']['redis_configuration'];
+      $this->assertTrue($metadata['env_port_present']);
+      $this->assertSame(6378, $metadata['env_port_as_integer']);
+      $this->assertSame(6378, $metadata['effective_port']);
+      putenv('REDIS_PORT');
+      [$fallback] = $this->collector(['redis.connection' => ['port' => 6379]]);
+      $metadata = $fallback->collect()['runtime']['redis_configuration'];
+      $this->assertFalse($metadata['env_port_present']);
+      $this->assertNull($metadata['env_port_as_integer']);
+      $this->assertSame(6379, $metadata['effective_port']);
+    }
+    finally {
+      putenv($previous === FALSE ? 'REDIS_PORT' : 'REDIS_PORT=' . $previous);
+    }
   }
 
 }
