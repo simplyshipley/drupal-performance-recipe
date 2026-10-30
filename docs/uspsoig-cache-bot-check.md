@@ -42,8 +42,8 @@ Two slow GET requests to `https://www.uspsoig.gov/` on 2026-09-29 at 20:31:05 an
 
 These follow from the homepage headers; the Front Door configuration itself was not visible.
 
-1. **Cache anonymous HTML at Front Door, honoring Drupal's `max-age`.** Default 900 s, as the recipe sets ([why](frontdoor-setup-guide.md#anonymous-pages-15-minutes-default)). Bypass on `SESS`/`SSESS` cookies and `/user*`, `/admin*`, `/node/*/edit`, `/batch`, `/search*`. Some requests still reach App Service, because "each Front Door edge site manages its own cache" ([Learn](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-caching)). **Confirm on prod:** Front Door profile > Analytics > Reports > Cache (cache hit ratio).
-2. **Long lifetimes for static assets:** aggregated CSS/JS, `/themes/*`, `/libraries/*`, files. Keep "Use query string"; ignore only `utm_*`, `fbclid`, `gclid`.
+1. **Cache anonymous HTML at Front Door, honoring Drupal's `max-age`.** Default 900 s, as the recipe sets ([why](frontdoor-setup-guide.md#anonymous-pages-15-minutes-default)). Apply the complete [cache-bypass matrix](frontdoor-setup-guide.md#3-bypass-the-cache-for-logged-in-users-and-admin-paths), including independent session/Authorization and generic entity-action protection. Do not bypass every search/form/query URL solely because it is dynamic; use its actual cacheability and traffic evidence. Some requests still reach App Service, because "each Front Door edge site manages its own cache" ([Learn](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-caching)). **Confirm on prod:** Front Door profile > Analytics > Reports > Cache (cache hit ratio).
+2. **Explicit lifetimes for public static assets:** use the [directory AND extension rule](frontdoor-setup-guide.md#4-static-files-and-keeping-pdfs-uncached), a 1-day edge TTL and the existing PDF/Office no-cache policy. The public capture confirms `/libraries/` assets and TTF fonts, now included in that rule; use the separate recommended `PublicVideo` rule for MP4 beneath `/sites/default/files/video/` and validate range/replacement purging on QA. Browser freshness is separate. Keep **Use Query String**; optional tracking exceptions use the [individual names](frontdoor-setup-guide.md#2-query-strings), not a wildcard.
 3. **Turn on Front Door compression** to add Brotli for text.
 4. **Headers at the edge:** add `includeSubDomains` to HSTS if all subdomains are HTTPS; roll out a stricter CSP in report-only mode; remove the Generator meta tag.
 5. **Pair with the recipe:** Redis for heavy bins, path purging (aliases, listings), cron every 5 minutes.
@@ -123,10 +123,7 @@ Bo asked what uspsoig.gov sends for CSS/JS and other headers. Raw rows: `workspa
 
 ### Suggestions
 
-1. **Turn on Front Door caching with lifetimes per file type** (rules engine, or origin headers):
-   - aggregated CSS/JS (`/sites/default/files/css/`, `/sites/default/files/js/`): `public, max-age=31536000, immutable`. Their file names change when the content changes.
-   - `/themes/`, `/libraries/`, `/core/` assets and images: about 7 days, `public`.
-   - HTML: Front Door 900 s, browsers 120 s, as the performance recipe sets with `http_cache_control`, plus path purging.
+1. **Use the current [Front Door lifetime policy](frontdoor-setup-guide.md#how-long-front-door-caches-each-kind-of-response)**: the public-directory AND extension rule uses a 1-day edge TTL, with `/libraries/` and TTF coverage, plus the separately recommended public-video rule and QA range/purge checks. Browser freshness is configured separately. HTML follows the actual Drupal header (recipe default 900 s) plus path purging; this recipe does not establish a separate 120-second browser TTL through `http_cache_control`. This current policy supersedes the earlier 7-day/one-year static and split HTML suggestions.
 2. **CSP, in report-only mode first** (`Content-Security-Policy-Report-Only`) for 2–4 weeks, then enforce. Starting policy for this homepage:
    `default-src 'self'; script-src 'self' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://www.google-analytics.com https://*.google-analytics.com https://www.googletagmanager.com; frame-src https://www.googletagmanager.com; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests`
    - Replace the 5 `onclick` handlers with plain links (`target="_blank" rel="noopener"`) so `'unsafe-inline'` is not needed for scripts.

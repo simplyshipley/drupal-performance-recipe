@@ -9,7 +9,7 @@ Labels:
 - **Confirm on qa:** Learn doesn't say, so the guide states the behaviour it's designed for and gives the one check that proves it on the qa run. Correct the guide if the check disagrees.
 - **[Lab]**: proven on the local Front Door stand-in ([edge-waf.md](edge-waf.md), results in [tests.md](tests.md)), not on Azure.
 
-Nothing here has been run against real Azure yet. The qa run is the first.
+The portal rule configuration and expanded bypass matrix below have not been validated on the real QA profile. Historical lab checks and public response observations are labeled separately; they do not establish the current QA configuration.
 
 All commands are bash (WSL2 or Azure Cloud Shell). The `curl` tests only read the public site. Set these first:
 
@@ -36,7 +36,7 @@ Config changes take time to spread: "Azure Front Door configuration changes take
 ## 1. Route caching
 
 - **Where:** Front Door profile → Settings → **Front Door manager** → expand the endpoint → **…** next to the route → **Edit route** → **Caching** → **Update** [Learn].
-- **Set:** Caching on. No cache duration on the route: Front Door uses the origin's headers, "s-maxage", then "max-age", then "Expires" [Learn]. Drupal sends `max-age=900, public` for anonymous pages and `must-revalidate, no-cache, private` for logged-in pages [Lab: headers_anon, headers_auth]. Front Door "doesn't cache" `private`, `no-cache` or `no-store` [Learn].
+- **Set:** Caching on after the bypass rules are associated and ordered (section 3). No cache duration on the route: Front Door uses the origin's headers, "s-maxage", then "max-age", then "Expires" [Learn]. Drupal sends `max-age=900, public` for anonymous pages and `must-revalidate, no-cache, private` for logged-in pages [Lab: headers_anon, headers_auth]. Front Door "doesn't cache" `private`, `no-cache` or `no-store` [Learn].
 - "Honor origin" is the Rules Engine name for this behaviour; you only pick it in a rule that overrides caching (section 4).
 
 **Test.** Use GET. "Only requests that use the GET request method are cacheable" [Learn], so `curl -I` (HEAD) can never show a hit.
@@ -83,45 +83,99 @@ curl -s -o /dev/null -D - "$SITE$CSS&x=1" | grep -i '^x-cache:'
 
 ## 3. Bypass the cache for logged-in users and admin paths
 
-- **Where:** Front Door profile → Settings → **Rule sets** → **+ Add** → name it → **+ Add condition** / **+ Add action** → **Save**. Then link it to the route: the **Unassociated** link → **Associate a route**, or the route's **Edit route** → **Rules** [Learn].
-- **Set:** three rules, each with the action **Route configuration override** → **Caching: Disabled** [Learn], and **Stop evaluating remaining rule** ticked.
+This is the authoritative cache-bypass matrix for the recipe. The rules are a conservative supplement to Drupal's cacheability and access checks; a URL containing an operation name is not a complete inventory of Drupal forms or custom routes. Apply and validate the complete matrix on QA before production.
 
-| Rule | Condition [Learn names] | Value |
+### Association and processing order
+
+- **Where:** Front Door profile → Settings → **Rule sets**. Add the rules below, save, then **Associate a route** with the QA route (or select them in the route's **Edit route → Rules**).
+- Inspect **every rule set associated with the route**, in its configured order. Put mandatory security-header, redirect and origin-selection actions that must run for bypassed requests **before** these stopping rules, or supply those headers at the origin. Put cache-enabling/static rules **after** the bypasses. Do not leave required header actions in a later rule set: a matched **Stop evaluating remaining rules** also skips remaining rule sets, not just the next rule [Microsoft processing order](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-rules-engine#architecture).
+- Each table row is a **separate rule**. Give every row the action **Route configuration override → Caching: Disabled** and select **Stop evaluating remaining rules**. An authenticated request must not also have to match an admin/edit path to bypass caching.
+
+### Exact conditions and match values
+
+For each path row use **Request path → Wildcards → To lowercase**. Enter the listed strings as **individual values in that one condition**; values use OR. Do not paste a comma-separated expression or create separate AND conditions for alternatives. Different conditions within one rule use AND [Microsoft match conditions](https://learn.microsoft.com/en-us/azure/frontdoor/rules-match-conditions?pivots=front-door-standard-premium&tabs=portal#request-path).
+
+| Rule | Condition | Individual match values (OR) |
 |---|---|---|
-| `SessionCookie` | **Request header** `Cookie`, operator **Contains** | `SESS` (also matches `SSESS`) |
-| `AdminPaths` | **Request path**, operator **Begins With**, transform **To lowercase** | `user`, `admin`, `batch`, `system/ajax` |
-| `NodeEdit` | **Request path**, operator **Wildcards** | `node/*/edit` |
+| `SessionCookie` | **Request header** `Cookie`, **Contains** | `SESS` (also matches `SSESS`; conservative substring test) |
+| `Authorization` | **Request header** `Authorization`, **Any** | No match value: presence of that header is sufficient |
+| `AccountAdminPaths` | **Request path**, **Wildcards**, **To lowercase** | `user` · `user/*` · `*/user` · `*/user/*` · `admin` · `admin/*` · `*/admin` · `*/admin/*` |
+| `RuntimePaths` | **Request path**, **Wildcards**, **To lowercase** | `batch` · `batch/*` · `*/batch` · `*/batch/*` · `cron` · `cron/*` · `*/cron` · `*/cron/*` |
+| `AjaxPrivatePaths` | **Request path**, **Wildcards**, **To lowercase** | `system/ajax` · `system/ajax/*` · `*/system/ajax` · `*/system/ajax/*` · `system/files` · `system/files/*` · `*/system/files` · `*/system/files/*` |
+| `OEmbedPaths` | **Request path**, **Wildcards**, **To lowercase** | `media/oembed` · `media/oembed/*` · `*/media/oembed` · `*/media/oembed/*` |
+| `EditPaths` | **Request path**, **Wildcards**, **To lowercase** | `edit` · `edit/*` · `*/edit` · `*/edit/*` |
+| `AddDeletePaths` | **Request path**, **Wildcards**, **To lowercase** | `add` · `add/*` · `*/add` · `*/add/*` · `delete` · `delete/*` · `*/delete` · `*/delete/*` |
+| `RevisionPaths` | **Request path**, **Wildcards**, **To lowercase** | `revision` · `revision/*` · `*/revision` · `*/revision/*` · `revisions` · `revisions/*` · `*/revisions` · `*/revisions/*` |
+| `PreviewRevertPaths` | **Request path**, **Wildcards**, **To lowercase** | `preview` · `preview/*` · `*/preview` · `*/preview/*` · `revert` · `revert/*` · `*/revert` · `*/revert/*` |
 
-- Why a header condition: the **Request cookies** condition needs an exact cookie name [Learn], and Drupal's is `SESS` plus a per-site hash.
-- Paths: "If you specify a leading slash, it gets ignored" and "All paths in Rules Engine are case-sensitive" [Learn].
-- Drupal already marks logged-in pages `private`, which Front Door won't cache "even if you override the caching behavior by using the Rules Engine" [Learn]. These rules are the second safety net.
+The middle dots are separators in this documentation, not characters to enter in Azure. A family `P` has four values: `P`, `P/*`, `*/P`, `*/P/*`. The first pair covers the root family and its descendants; the second pair is intended to cover nested/language-prefixed paths without assuming a two-letter language prefix. For example, the edit family covers a synthetic `/edit`, a synthetic `/node/123/edit`, a synthetic `/taxonomy/term/123/edit/` and a synthetic `/es/media/123/edit/options`. `*/edit` alone does not cover the root path `edit`. A public alias containing a complete matched segment may also bypass caching; this is a cache-reuse tradeoff, not an access grant.
 
-**Test:**
+**Rule-set matching is not route selection.** These patterns belong in a rule-set **Request path** condition, not the route's **Patterns to match**, which remains `/*` for this site. Microsoft's rule-set documentation defines `*` as zero or more path characters, ignores a leading slash in the value and makes rule-engine paths case-sensitive. The multi-segment examples above follow those documented semantics; the exact Azure Government behavior still requires the QA checks below. Percent-encoded paths and normalization are not certified by a local glob check.
+
+Retain Drupal's origin `private`, `no-cache` and `no-store` response handling. Never replace a private response with `public` to obtain a HIT. The oEmbed bypass reflects the private/no-cache response observed on the public homepage on 2026-10-28; it is not a claim that all Drupal oEmbed responses are inherently private. The matrix includes standard singular/plural revision, preview and revert segments. Review this site's additional custom form/action routes, aliases and configured private-file prefixes. Add exceptions for sensitive paths not covered by these literal families. Do not bypass every form or every query-string request: Drupal supports cacheable anonymous forms such as search, and pagers/aggregated assets need their query values.
+
+### QA acceptance matrix
+
+These are required **QA checks**, not results already obtained on Azure. Existing local lab checks prove the older stand-in's session bypass only; they do not certify this full matrix or the Azure rule engine. A local synthetic matcher can check intended pattern coverage, but only the actual QA requests establish deployed behavior.
+
+Use GET for edge-cache tests, repeat from the same client, and inspect the response and any configured rule-version header. To isolate a path rule, omit session cookies and Authorization: otherwise an earlier header rule correctly stops evaluation before the path rule, so its marker will not appear. A redirect, access-denied response or origin-private response alone does not prove the intended rule matched; a temporary rule-version response marker can distinguish that. Use existing QA test content/users/private files and valid language prefixes. Do not submit destructive operations as a cache test.
+
+| QA case | Required result |
+|---|---|
+| Anonymous public homepage and published content, with no session/Authorization | Eligible public response warms to `TCP_HIT` or `TCP_REMOTE_HIT`; correct content |
+| Public CSS/JS/image/font in the allowed directories from section 4, including `/libraries/` assets and the theme `.ttf` font | Eligible response warms to an edge HIT; correct content type and file |
+| Public MP4 beneath `/sites/default/files/video/` using `PublicVideo` | Correct HTTP 206/Content-Range for a valid range GET; repeated eligible range/full GETs inspected, with X-Cache scoped to its first 8-MB chunk rather than the entire file; replacement plus path purge serves the new video |
+| Root edit family, including a synthetic `/edit` and synthetic `/edit/` path | `EditPaths` marker matches; cache bypass, never an edge HIT |
+| Existing node, media and taxonomy edit pages; trailing slash and descendant variants where valid | `EditPaths` marker and bypass; not just node edit |
+| Configured language-prefix variants and uppercase path variants | Intended path rule marker and bypass; do not assume the lab's language regex is sufficient |
+| Existing add/delete screens and singular/plural revision, preview and revert screens, including descendants | Appropriate action-family marker and bypass; do not submit changes or trigger a revision operation |
+| Synthetic `/editorial`, synthetic `/reports/editing`, synthetic `/reports/additional` and synthetic `/reports/revisions-summary` paths | No entity-action segment rule marker; ordinary origin cacheability still governs the response |
+| Account/admin, batch/cron/AJAX paths | Appropriate operational marker and bypass; do not invoke a state-changing cron/AJAX operation just to test caching |
+| Private-file delivery and oEmbed | Bypassed; private files retain their access checks; private/no-cache remains private/no-cache |
+| Public URL with a **synthetic** `SESSsynthetic=1` cookie, and a real authenticated test session | Session rule bypasses independently of path; no shared cached personalized response |
+| Public URL carrying a **synthetic** non-secret Authorization test header | Authorization rule bypasses independently of path; a 401 alone is not proof of matching |
+| Two meaningful pager/search query variants and an aggregated CSS/JS URL | Correct distinct content and intact assets; query parameters are preserved |
+| Actual custom/aliased form paths and private-file prefixes outside the listed families | Explicit reviewed bypass or correctly private origin policy; no cacheability assumed from the route name |
+| Edit/save an existing published QA test page after warming its public URL | Queued path purge completes; updated public content is served; see section 10 |
+| Required response/security headers on both cache HIT and bypass responses | Present; stopping a bypass did not skip their only source |
+
+For a quick session smoke check, use the existing GET commands below. The cookie is explicitly synthetic:
 
 ```bash
 curl -s -o /dev/null -D - "$SITE/user/login" | grep -i '^x-cache:'
 curl -s -o /dev/null -D - -H 'Cookie: SESSsynthetic=1' "$SITE/" | grep -i '^x-cache:'
 ```
 
-- Good: `CONFIG_NOCACHE` for both. The cookie is a made-up test value.
-- Then log in with a browser, open a node page, and check `x-cache` in the developer tools (Network tab): `CONFIG_NOCACHE` or `PRIVATE_NOSTORE`, never `TCP_HIT`.
-- To see when a rule change is live, Learn suggests a response header "`X-<RuleName>-Version`" that you change with each edit.
-- [Lab: edge_bypass_session, headers_auth PASS].
-
-| You see | Do this |
-|---|---|
-| `TCP_HIT` with the test cookie | The rule set isn't linked to this route (Rule sets page still says **Unassociated**), or the change hasn't spread yet (10 minutes) |
-| `/User/Login` cached but `/user/login` not | Add the **To lowercase** transform |
+For bypass rows expect `CONFIG_NOCACHE` from the matching rule; an origin `PRIVATE_NOSTORE` is also uncacheable but does not by itself verify the path rule. A real authenticated browser must never receive a shared edge HIT containing personalized content. If a bypass misses, check route association, rule-set order, OR values versus AND conditions, the lowercase transform and propagation before changing the policy.
 
 ## 4. Static files (and keeping PDFs uncached)
 
 ### Static files
 
-- **Where:** the same rule set, after the three section 3 rules.
-- **Set:** rule `StaticFiles`: **Request file extension** `css js png jpg jpeg gif svg ico webp woff woff2` (no leading dot [Learn]) → Route configuration override → **Caching: Enabled**, Use Query String, Compression Enabled, **Override always**, 1 day ([why 1 day, and when to change it](#theme-files-1-day-default)).
+- **Where:** the same rule set, after all section 3 bypass rules (and the `NoCacheDocs` rule when using its fallback).
+- **Set:** rule `StaticFiles` with two conditions combined by **AND**: **Request path → Begins With** any of `core/`, `themes/`, `modules/`, `libraries/`, `sites/default/files/`, and **Request file extension → Equal** any of `css`, `js`, `png`, `jpg`, `jpeg`, `gif`, `svg`, `ico`, `webp`, `woff`, `woff2`, `ttf` (no leading dots). Apply **To lowercase** for case-insensitive matching. Use **Route configuration override → Caching: Enabled**, **Use Query String**, **Compression: Enabled**, **Override always**, **1 day** ([why 1 day, and when to change it](#theme-files-1-day-default)). Do not make the directory and extension alternatives separate cache-enable rules: both conditions must hold.
 - When a rule overrides the route "you must configure caching. Otherwise, caching gets disabled for the request" [Learn]. Fill in all the caching fields.
 - The local edge uses 7 days (`EDGE_STATIC_TTL`) [Lab]. CSS/JS aggregates change URL when they change; replaced images are purged by the recipe (section 10). Every kind of response: [How long Front Door caches each kind of response](#how-long-front-door-caches-each-kind-of-response).
-- No PDFs or Office files in this rule. [caching-guide.md](caching-guide.md#azure-front-door-for-drupal) step 4 (cache all of `/sites/default/files/*` for days) doesn't apply to them.
+- No PDFs, Office files or MP4 video are in this extension list. Preserve the PDF/Office policy below; MP4 uses the separate `PublicVideo` rule below. The static rule changes the **edge TTL**; it does not automatically add a browser `Cache-Control` lifetime. Configure appropriate origin/browser freshness separately, with replacement/purge behavior for files overwritten at the same URL.
+
+### Public MP4 video
+
+The 2026-10-28 full homepage capture loaded a public MP4 beneath `/sites/default/files/video/` and transferred 13.66 MB. It also loaded public `/libraries/` assets and a theme `.ttf` font, which are included in `StaticFiles` above. These are observed asset classes, not speculative extensions.
+
+**Recommended addition, not yet validated in the lab or on Azure QA:** create `PublicVideo` after all section 3 bypasses and after `NoCacheDocs` when using that fallback. Use two conditions combined by **AND**:
+
+| Field | Value |
+|---|---|
+| Request path | **Begins With**, **To lowercase**, individual value `sites/default/files/video/` |
+| Request file extension | **Equal**, **To lowercase**, individual value `mp4` |
+| Action | **Route configuration override → Caching: Enabled** |
+| Query string caching behavior | **Use Query String** |
+| Compression | **Disabled** |
+| Cache behavior / duration | **Override always / 1 day** |
+
+This rule is limited to that public video directory. It does not override private/no-cache/no-store responses or apply to arbitrary media/private downloads. The edge duration does not add browser freshness headers. Replacing video at the same URL requires a tested purge policy or waiting for expiry; do not assume a video-file replacement is covered by image-style purge tests.
+
+[Microsoft large-file caching guidance](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-caching#delivery-of-large-files) documents range/chunk delivery. On QA verify a valid range GET returns HTTP 206 with a correct `Content-Range`, that repeated eligible range/full GETs exhibit the expected edge-cache behavior, and that replacing a test video plus purging its path serves the replacement. A 206 alone is not proof of an edge HIT. The saved public receipt did not retain `Content-Range`, so it does not validate production range delivery. For large-file delivery Microsoft defines the `X-Cache` HIT/MISS value for the **first 8-MB chunk**; it does not establish the cache state of the entire 13.66-MB response. Validate the requested ranges and returned data accordingly. Do not infer video-cache behavior from a small-image test.
 
 ### PDFs and Office files: `Cache-Control: no-cache` (decided, Bo 2026-10-09)
 
@@ -144,7 +198,7 @@ a2enmod headers && a2enconf no-cache-docs
 
 - The same `<FilesMatch>` block works in the site's `.htaccess` only if `AllowOverride` permits it. Apache's default is `AllowOverride None`, which ignores `.htaccess` [Apache docs]. The site's `.htaccess` `ExpiresDefault "access plus 1 year"` doesn't reach visitors today (no `Cache-Control` or `Expires` on a live PDF, 2026-10-09, or on `/robots.txt`, 2026-10-13 [V: live GET]), so don't rely on `.htaccess`. Option A doesn't need it.
 
-**Option B (fallback): a Front Door rule.** Rule `NoCacheDocs`, above `StaticFiles`:
+**Option B (fallback): a Front Door rule.** Rule `NoCacheDocs`, above `StaticFiles` and `PublicVideo`:
 
 | Condition | Actions |
 |---|---|
@@ -188,11 +242,12 @@ What Learn says:
 |---|---|---|---|---|
 | Anonymous HTML pages | Drupal: Configuration → Performance → **Browser and proxy cache maximum age** | 15 min (the recipe's 900 s) | Bounds every page the recipe can't purge (views, menus) | Recipe purge on save (section 10), else expiry |
 | Logged-in pages | Drupal: `must-revalidate, no-cache, private` | Not cached | Front Door "doesn't cache" `private`/`no-cache` "even if you override" [Learn] | Always fresh |
-| 404 and 403 pages | Drupal sends the page max-age (core 404: `max-age=900, public` [Lab]) | Leave as is | Front Door caches only 200 responses; 4xx not cached [Microsoft Q&A answer by a Microsoft moderator, not docs]. Confirm on qa: GET `$SITE/no-such-page-check` twice; `x-cache` never `TCP_HIT`. Drupal's own cache keeps them up to `cache_ttl_4xx` ([why 403s arrive in batches](caching-guide.md#why-403s-arrive-in-batches)) | Drupal clears them on any entity save |
+| 404 and 403 pages | Actual Drupal/origin error-response policy; a lab core 404 sent `max-age=900, public` | Review the intended error policy and verify it on QA; no new 4xx default is prescribed here | Do not assume status alone makes a response uncacheable or that Front Door caches only HTTP 200. Repeat a safe nonexistent-path GET on QA and inspect status, Cache-Control and X-Cache; review any unintended shared error response. Drupal's separate internal 4xx cache uses `cache_ttl_4xx` ([why 403s arrive in batches](caching-guide.md#why-403s-arrive-in-batches)) | Drupal's internal 4xx tag is cleared on entity saves; edge handling follows its observed policy/purge/expiry |
 | CSS/JS aggregates (`/sites/default/files/css`, `/js`) | Front Door rule `StaticFiles` (section 4) | Same as theme files | The hash in the name changes with the content | New URL |
 | CSS/JS with a `?` version string (aggregation off) | `StaticFiles` | Same as theme files | Drupal makes a new string on every cache rebuild (`drush cr`, `drush deploy`) [V: `drupal_flush_all_caches()` resets `asset.query_string`, core `common.inc:429`, Drupal 11.4]. Needs Use Query String (section 2) | New URL |
 | Images and fonts under `/core` and `/modules` | `StaticFiles` | Same as theme files | Same URL until a core or module update | Purge `/core/*`, `/modules/*` after an update, or expiry |
 | Theme files under `/themes` (logo, icons, sprites, fonts) | `StaticFiles` | **1 day** ([why](#theme-files-1-day-default)) | Same URL across deploys | Expiry within a day, or purge `/themes/*` after the deploy |
+| Public MP4 under `/sites/default/files/video/` | Separate recommended `PublicVideo` rule (section 4) | 1 day edge TTL; browser freshness separate | Confines caching to public video; range behavior requires QA validation | Explicit tested video-path purge on replacement, or expiry |
 | Uploaded images and image styles | `StaticFiles` | Same as theme files | Same URL when a file is replaced | The recipe purges the file and its image styles ([azure.md](azure.md#what-gets-purged-path-based-no-tags)) |
 | PDFs and Office files | Apache in the image: `no-cache` (decided, section 4) | Not cached | A replaced report must show at once | Browser asks each time (304) |
 | Redirects (301) | Drupal page max-age (`max-age=900, public` on a 301 [V: lab `tmp/codex-oig/run4-smoke.log`; core `FinishResponseSubscriber.php:164-168`]) | Leave as is | Learn doesn't say whether Front Door caches a 301; either way it's 15 minutes at most. Confirm on qa: GET a `/node/<nid>` that has an alias twice and read `x-cache` | Purge the old path, or expiry |
@@ -200,7 +255,7 @@ What Learn says:
 
 ### Anonymous pages: 15 minutes (default)
 
-- **Default: 900 seconds**, set by `recipe.yml` (`cache.page.max_age: 900`).
+- **Default: 900 seconds**, set by `recipe.yml` (`cache.page.max_age: 900`). The public production homepage observation on 2026-10-28 returned `public, max-age=1800`; that historical response is not the recipe default or proof of QA's current value. Read the actual QA config/header before choosing its lifetime.
 - **Why:** the recipe purges a node's own URLs on save, but not the pages that list it (views, menus, blocks). The page lifetime is the longest those can stay stale; 15 minutes keeps that short while still taking most anonymous traffic off the origin.
 - **An existing site may hold another value** in `config/sync` (one site copy has 3600 s). Production runs `config/sync`, so set it there: `drush cset system.performance cache.page.max_age 900 -y && drush cex -y` locally, commit, deploy. Check on the live site over SSH: `drush cget system.performance cache.page.max_age`.
 - **When to change:** raise it (3600) only if origin load is too high and editors accept listings up to an hour old. Lower it (300) if editors need listings to update within minutes and the recipe's sitewide purge (`PERF_PURGE_SITEWIDE_PATHS`) is off.

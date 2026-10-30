@@ -155,9 +155,10 @@ Confirm on qa from the SSH link: `getent hosts <redisHost>` prints `environmentS
 
 Step by step, with where to find each value, a test for each setting and troubleshooting: [frontdoor-setup-guide.md](frontdoor-setup-guide.md).
 
-Background: [caching-guide.md](caching-guide.md#azure-front-door-for-drupal); the local edge reproduces these rules.
-- Cache on, honour origin headers. Bypass for `SESS` cookies and `/user*`, `/admin*`, `/node/*/edit`, `/batch`, `/system/ajax`.
-- Query strings: Use query string, never Ignore. To drop marketing parameters, ignore-specified for `utm_*`, `fbclid`, `gclid`.
+Background: [caching-guide.md](caching-guide.md#azure-front-door-for-drupal). The local edge models related behavior; it does not certify the expanded Azure rule matrix.
+- Associate and order the complete [cache-bypass matrix](frontdoor-setup-guide.md#3-bypass-the-cache-for-logged-in-users-and-admin-paths), then enable route caching and honour origin headers. The matrix covers independent session/Authorization, operational/private/oEmbed and generic entity-action bypasses. Required header/redirect/origin-selection actions must run before stopping bypasses.
+- Query strings: **Use Query String**, never Ignore. Optional ignore-specified tracking exclusions must use the [individual names](frontdoor-setup-guide.md#2-query-strings); `utm_*` is not a supported wildcard in that list.
+- Public static caching requires the guide's directory **AND** extension conditions, including `/libraries/` assets and TTF fonts. Apply its separate recommended `PublicVideo` rule for public MP4 and run the range/purge checks on QA. The 1-day edge TTL does not itself set browser freshness; PDFs/Office retain their no-cache policy.
 - Lock the origin to the `AzureFrontDoor.Backend` tag plus `X-Azure-FDID`.
 
 ### 3.7 App Service settings
