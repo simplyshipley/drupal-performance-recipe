@@ -2,7 +2,7 @@
 
 Target: https://www.drupal.org/project/azure_cdn_purge/issues/3427718
 ("Support Multiple Azure Cloud Environments", Needs review, MR !6). This is a follow-up
-comment for that issue, not a new issue. Bo decides whether and when to post it.
+comment for that issue, not a new issue. Posting requires the repository maintainer's approval.
 
 ---
 

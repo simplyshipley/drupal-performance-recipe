@@ -90,7 +90,7 @@ Patches (step 3) go before the settings include and the recipe apply, so the ord
 There is no upgrade path. Apply this recipe to a site that has not run an older version.
 
 1. Let Composer place recipes: `composer config --json extra.installer-paths.recipes/{\$name} '["type:drupal-recipe"]'`
-2. Get the recipe. OIG sites commit it into the site repo (Bo, 2026-10-07): [quickstart-lando.md](quickstart-lando.md) steps 1 and 2. Other sites: path repositories ([install.md](install.md#3-require-the-recipe), option a). A `vcs` repository on this repo fails: it can't supply `simplyshipley/drupal-performance-modules`, which `composer.json` requires.
+2. Get the recipe. OIG sites commit it into the site repo: [quickstart-lando.md](quickstart-lando.md) steps 1 and 2. Other sites: path repositories ([install.md](install.md#3-require-the-recipe), option a). A `vcs` repository on this repo fails: it can't supply `simplyshipley/drupal-performance-modules`, which `composer.json` requires.
 3. Add the patches to the root `composer.json`: run the whole block in [install.md](install.md#5b-azure-government-patch) top to bottom, then commit `patches/` and `patches.lock.json`.
    - Required for Azure Government.
    - With path purging on (the default) the wildcard patch is needed for `*` list or site-wide paths.
@@ -142,7 +142,7 @@ Confirm on qa from the SSH link: `getent hosts <redisHost>` prints `environmentS
 
 - Default is plain `tcp` on 6379 inside the VNet.
 - The shipped Bicep does not support TLS: ingress and probes are fixed to 6379, with no TLS settings or certificate secret. The image with `REDIS_TLS=1` closes the plain port.
-- TLS on 6380 needs Bicep changes not in this repo (ingress and probe port, certificate secret, `REDIS_TLS*` variables). Default: plain `tcp` inside the VNet; TLS deferred to the next pass, DevOps decides (ruling xii, 2026-10-06).
+- TLS on 6380 needs Bicep changes not in this repo (ingress and probe port, certificate secret, `REDIS_TLS*` variables). Default: plain `tcp` inside the VNet; TLS deferred to the next pass, DevOps decides.
 - Decide before go-live: [redis-image.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis/docs/redis-image.md). One Redis per site; shared mode: [redis-sharing.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis/docs/redis-sharing.md#3-recommendation).
 
 ### 3.5 Purge credentials
@@ -165,6 +165,8 @@ Background: [caching-guide.md](caching-guide.md#azure-front-door-for-drupal). Th
 
 Secrets go in as Key Vault references. Full list, with required and default values: [azure.md](azure.md#app-service-application-settings-environment-variables). Front Door purge values for qa and prod, where to find each and how to check them: [quickstart-azure-frontdoor.md](quickstart-azure-frontdoor.md).
 
+Keep `settings.performance.php` code and mapping strings unchanged: the values on the right, such as `'tenant_id'`, are Drupal configuration keys. Put actual values in App Service. Government Front Door setup needs **eight identity/cloud/target entries**, not all supported overrides. `AZURE_CLOUD=usgovernment` selects login/management defaults and an empty scope derives `/.default`; API version and endpoint type come from recipe config. Existing nonempty stored overrides still take precedence over those defaults.
+
 ```bash
 az webapp config appsettings set -g $RG -n <webapp> --settings \
   REDIS_HOST=<redisHost output> REDIS_PORT=6379 REDIS_SCHEME=tcp \
@@ -175,8 +177,9 @@ az webapp config appsettings set -g $RG -n <webapp> --settings \
 | Group | Variables | Default and rule |
 |---|---|---|
 | Redis | `REDIS_HOST`, `REDIS_ENABLED`, `REDIS_PORT`, `REDIS_SCHEME`, `REDIS_PASSWORD`, `REDIS_PREFIX` | Unset `REDIS_HOST` = no Redis. `REDIS_ENABLED=0` = the Redis bins use the database. Prefix required on a shared Redis |
-| Purge credentials | `AZURE_CDN_TENANT_ID`, `AZURE_CDN_CLIENT_ID`, `AZURE_CDN_CLIENT_SECRET` (Key Vault), `AZURE_CDN_SUBSCRIPTION_ID`, `AZURE_CDN_RESOURCE_GROUP`, `AZURE_CDN_PROFILE`, `AZURE_CDN_ENDPOINT`, `AZURE_CDN_ENDPOINT_TYPE` (`afdEndpoints`) | All required for purge, except `AZURE_CDN_ENDPOINT_TYPE` (leave unset). Leave `AZURE_CDN_SCOPE` unset and clear any stored scope ([azure.md](azure.md#azure-government-patched-azure_cdn_purge)) |
-| Cloud | `AZURE_CLOUD` (`usgovernment`) | **Required for Azure Government**: unset, purges go to the commercial hosts |
+| Purge credentials/target | `AZURE_CDN_TENANT_ID`, `AZURE_CDN_CLIENT_ID`, `AZURE_CDN_CLIENT_SECRET` (Key Vault), `AZURE_CDN_SUBSCRIPTION_ID`, `AZURE_CDN_RESOURCE_GROUP`, `AZURE_CDN_PROFILE`, `AZURE_CDN_ENDPOINT` | Seven required site-specific entries. Cloud selection cannot infer identity or target resource details. |
+| Cloud | `AZURE_CLOUD=usgovernment` | The eighth prescribed Government entry. Leave login/management/scope overrides unset and clear stale stored overrides to use cloud defaults. |
+| Path queuing | `AZURE_CDN_PURGE_PATHS_ENABLED` | Optional: `0` off, `1` on, unset/empty keeps stored config (module default on). Does not disable edge caching or empty the queue. [Details](install.md#8-turn-caching-off-per-environment) |
 | Proxy | `DRUPAL_TRUSTED_HOSTS`, `DRUPAL_TRUSTED_HOST_PATTERNS`, `DRUPAL_REVERSE_PROXY`, `DRUPAL_REVERSE_PROXY_ADDRESSES` | Non-OIG sites only; OIG sites leave them unset (`settings.base.php` handles it). [azure.md](azure.md#client-ip) |
 
 - Never set `PERF_MOCK_AFD_PROXY` or `PERF_EDGE_PROXY_HOST` outside a local lab.
@@ -184,7 +187,7 @@ az webapp config appsettings set -g $RG -n <webapp> --settings \
 
 ### 3.8 WAF and edge rules
 
-Follow [hardening.md](hardening.md#edge-front-door-waf). JS challenge needs Front Door Premium [Learn: WAF JavaScript challenge]; OIG profiles were reported Premium (Bo, 2026-10-09). Verify the actual environment's SKU and Government feature availability. Start in Detection mode, review for a week, then Prevention. Header-consistency rule: JS challenge, never Block.
+Follow [hardening.md](hardening.md#edge-front-door-waf). JS challenge needs Front Door Premium [Learn: WAF JavaScript challenge]; OIG profiles were reported Premium. Verify the actual environment's SKU and Government feature availability. Start in Detection mode, review for a week, then Prevention. Header-consistency rule: JS challenge, never Block.
 
 ## Phase 4: Verify on Azure
 
@@ -200,7 +203,7 @@ Run controlled outage/recovery, content-edit and WAF rule-specific tests in QA f
 4. Monitor restarts, memory, evictions and connection errors ([redis/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis/azure/README.md#monitoring-and-alerts)).
 5. Roll back:
    - Redis image: ask the Azure team to point the app back to the previous image version. The cache holds no persistent data (`save ""`, `appendonly no`).
-   - Purge: `$config['perf_purge_paths.settings']['enabled'] = FALSE;` in `settings.php` ([install.md](install.md#8-turn-caching-off-per-environment)).
+   - Automatic path queuing: `AZURE_CDN_PURGE_PATHS_ENABLED=0` in App Service; restore `1` to enable, or unset to resume stored config ([install.md](install.md#8-turn-caching-off-per-environment)). Existing queued purges can still be processed.
    - Redis off: `REDIS_ENABLED=0` (no deploy, no `drush cr`); back on: `REDIS_ENABLED=1`, then `drush cr` ([install.md](install.md#8-turn-caching-off-per-environment)).
    - Patches and recipe: revert the Composer change and redeploy.
 

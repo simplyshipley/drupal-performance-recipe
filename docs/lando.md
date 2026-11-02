@@ -11,7 +11,7 @@ Followed on the SYNTHETIC lab `perflab106lando` (Lando 3.26.9, drupal10 recipe, 
   - Only if DDEV is also installed, pick one:
     - stop DDEV while you use Lando: `ddev poweroff`, or
     - run Lando with the proxy off: `export LANDO_PROXY=OFF`. Then `.lndo.site` addresses do not work and the tests fall back to `http://appserver_nginx`.
-  - Our choice (ruling 2026-10-07): the proxy stays on by default; tests use `https://<project>.lndo.site`.
+  - The proxy stays on by default; tests use `https://<project>.lndo.site`.
 - **Random ports are fine:** none of the recipe's services publishes a host port. Lando's own web server and `database` bind random 127.0.0.1 high ports (for example 32814, 32813) [V: `docker ps`]. They do not collide with DDEV.
 - **`node` tooling:** Lando 3.26.9 rewrites a tooling `cmd` that starts with `node` (lando/lando#3460). The recipe's tooling uses `bash -c` / `redis-cli`, not `node`.
 - **Missing static files:** Lando's default drupal10 nginx vhost answers missing `.js/.css/.png/...` files itself, so Drupal's Fast 404 never sees them [V: first Lando run, the old `fast404_static` test was answered by nginx; the replacement is `core_404_static`].
@@ -68,7 +68,7 @@ require $app_root . '/modules/custom/drupal-performance-modules/settings/setting
 
 ## 2. Add the services
 
-Lab setup: the site keeps its own copies, so the recipe folder can be removed after `drush recipe` (Our choice, Bo, 2026-10-07). From the recipe clone (here `../repo`):
+Lab setup: the site keeps its own copies, so the recipe folder can be removed after `drush recipe`. From the recipe clone (here `../repo`):
 
 ```bash
 mkdir -p tests/performance .lando

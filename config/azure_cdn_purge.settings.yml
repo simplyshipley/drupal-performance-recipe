@@ -1,7 +1,8 @@
 # Non-secret defaults only. Identity and credential values (tenant_id,
-# client_id, client_secret, scope, subscription_id, resource_group_name,
-# profile_name, endpoint_name) are left empty here and are supplied at runtime
-# by settings/settings.performance.php from environment variables.
+# client_id, client_secret, subscription_id, resource_group_name,
+# profile_name, endpoint_name) are left empty here and supplied at runtime
+# by settings/settings.performance.php from App Service environment variables.
+# Scope is an optional override; empty derives the selected cloud's OAuth scope.
 endpoint_type: afdEndpoints
 devel: false
 chunk_size: 50

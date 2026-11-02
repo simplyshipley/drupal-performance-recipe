@@ -6,7 +6,7 @@ Setting up Front Door purging for qa and prod: start with the one-page [Front Do
 
 Nothing here was run against Azure. Azure statements cite Microsoft Learn or Microsoft's REST specs; the few only a real run can prove say **Confirm on qa** with the check. Every Azure service used here (App Service, Front Door, WAF, Key Vault, Container Apps, Container Registry, Entra ID, MySQL, Monitor) is in FedRAMP High scope in Azure Government ([Learn, audit scope](https://learn.microsoft.com/en-us/azure/azure-government/compliance/azure-services-in-fedramp-auditscope), read 2026-10-13).
 
-> **Redis ruling (Bo, 2026-09-25):**
+> **Redis deployment requirements:**
 > - OIG sites use a **self-hosted Redis container** (Azure Container Apps, see
 >   [redis/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis/azure/README.md)), not the managed service.
 > - **Only the heavy bins** go to Redis: `render`, `page`, `dynamic_page_cache`, `data`,
@@ -34,13 +34,15 @@ Nothing here was run against Azure. Azure statements cite Microsoft Learn or Mic
 
 App Service passes "app settings" to a custom container "by using the `--env` flag", and editing one "triggers an app restart"
 ([Learn, configure-common](https://learn.microsoft.com/en-us/azure/app-service/configure-common#configure-app-settings)). This is the complete list `settings.performance.php`
-reads in production, checked against the code on 2026-10-28 (the two modules read no
-environment variables; they read the `$settings` this file sets). "Unset" means not set or empty.
+reads in production, checked against the code on 2026-11-02. Runtime settings/config control behavior; diagnostic collectors also read raw ENV metadata for comparison/redaction. "Unset" below means absent or empty after the settings helper; it does not erase a previously saved Drupal config value.
+
+**Put real deployment values in App Service → Settings → Environment variables → App settings. Keep the literal mapping keys in PHP unchanged.** For example, `'AZURE_CDN_TENANT_ID' => 'tenant_id'` maps an environment-variable name to a Drupal configuration key; neither string is a placeholder for your tenant ID. If either was replaced, restore the repository mapping, preserving the separate working Redis normalization change, then supply the actual tenant ID as the App Service value. The required settings include remains in `settings.php`; credentials do not go there.
+
+The settings file tolerates absent variables so the shared image can run sites without Redis/purging. That does **not** make them all optional for this deployment. Government Front Door purging needs **eight App Service entries**: `AZURE_CLOUD` + three OAuth identity entries + four purge-target entries. Debug flags, the five Azure authentication/API overrides and the path-queuing toggle below are separate optional controls. Redis additionally needs its own client connection values. No twelve-entry Azure setup is required.
 
 - Where to set: "App setting" = a plain App Service application setting. "Key Vault ref" = an
   App Service setting whose value is a Key Vault reference (format below).
-- **Required for Azure Government** means the site runs in Azure Government: without it purges
-  go to the commercial hosts.
+- **Required for this setup** describes the supported Government configuration. Without explicit cloud selection or a matching existing saved cloud value, the recipe defaults to commercial; stale host/scope overrides must be checked separately.
 
 | Variable | Where to set | Required? | Default | What it does |
 |---|---|---|---|---|
@@ -49,14 +51,14 @@ environment variables; they read the `$settings` this file sets). "Unset" means 
 | `REDIS_PORT` | App setting: exposed connection port | No (set it explicitly) | `6379`; `6380` when `REDIS_SCHEME=tls` | Port the Drupal client connects to, which can differ from the container listener. QA ingress exposed `6378` → target `6379` uses `REDIS_PORT=6378` |
 | `REDIS_SCHEME` | App setting `tcp` | No | `tcp` | `tls` connects with TLS. Must match the container's `REDIS_TLS` |
 | `REDIS_PREFIX` | App setting, one per site | No by code; recommended | the redis module's own long prefix | Key prefix (`cache_prefix`), for example `oig-cpsc-prod` |
-| `REDIS_ENABLED` | Leave unset; `0` during a long Redis outage | No | `1` | `0` = the Redis bins use the database, no deploy. Back on: `1`, then `drush cr` |
+| `REDIS_ENABLED` | Leave unset; `0` during a long Redis outage | No | `1` | `0` skips this include's Redis assignments; normal database defaults resume unless earlier config selects another backend. Back on: `1`, then `drush cr`. An outage itself means misses, not automatic DB fallback. |
 | `REDIS_DEBUG` | App setting `1` while collecting diagnostics | No | off (unset/`0`) | Enables the Redis section of the post-bootstrap web Redis/Status report and Recent log report. Set `0`/unset afterward. [Shared runtime report](troubleshooting-commands.md#azure-drush-works-but-web-requests-do-not-use-redis) |
 | `FRONTDOOR_DEBUG` | App setting `1` while collecting diagnostics | No | off (unset/`0`) | Independently enables the shared Front Door/proxy report and authorized token/endpoint-read probes; no purge. Set `0`/unset afterward. [Front Door runtime check](troubleshooting-commands.md#azure-front-door-configuration-debugging) |
 | `REDIS_BINS` | Leave unset | No | `render,page,dynamic_page_cache,data,entity,menu` | Which cache bins use Redis. Run `drush cr` after a change |
 | `REDIS_DB` | Leave unset | No | not selected (database 0) | Redis database number |
 | `REDIS_COMPRESS_LENGTH` | Leave unset | No | `100` | Compress entries longer than this many bytes |
 | `REDIS_PERSISTENT` | Leave unset | No | off | `1` = persistent connections |
-| `AZURE_CLOUD` | App setting `usgovernment` | **Yes for Azure Government** | recipe config `azureCloud` (commercial) | Picks the Government login and management hosts. An unknown value is ignored with a PHP warning ([details](#azure-government-patched-azure_cdn_purge)) |
+| `AZURE_CLOUD` | App setting `usgovernment` | **Yes for this Government purge setup** | recipe config `azureCloud` (commercial) | Selects Government defaults in the patched purger; nonempty stored/runtime host or scope overrides still take precedence. Does not set endpoint type/API version. Unknown value is ignored with a warning ([details](#azure-government-patched-azure_cdn_purge)) |
 | `AZURE_CDN_TENANT_ID` | App setting | **Yes** for purge | empty | Service principal's tenant |
 | `AZURE_CDN_CLIENT_ID` | App setting | **Yes** for purge | empty | Service principal's app id |
 | `AZURE_CDN_CLIENT_SECRET` | Key Vault ref | **Yes** for purge | empty | Service principal's secret. Never in config |
@@ -64,8 +66,12 @@ environment variables; they read the `$settings` this file sets). "Unset" means 
 | `AZURE_CDN_RESOURCE_GROUP` | App setting | **Yes** for purge | empty | Front Door resource group |
 | `AZURE_CDN_PROFILE` | App setting | **Yes** for purge | empty | Front Door profile name |
 | `AZURE_CDN_ENDPOINT` | App setting | **Yes** for purge | empty | Front Door endpoint name |
-| `AZURE_CDN_ENDPOINT_TYPE` | Leave unset | No | `afdEndpoints` (recipe config) | Front Door vs classic CDN |
-| `AZURE_CDN_API_VERSION` | Leave unset | No | `2024-02-01` (recipe config) | Purge API version. A published stable version with `afdEndpoints` purge; [Azure Government check](#azure-government-patched-azure_cdn_purge) |
+| `AZURE_CDN_SCOPE` | Normally leave unset | No | If effective `scope` empty: effective management base URL + `/.default` | OAuth audience, not an Azure resource ID. Normal Government result `https://management.usgovcloudapi.net/.default`; a nonempty ENV value overrides saved config |
+| `AZURE_LOGIN_HOST` | Normally leave unset | No | If effective `login_host` empty: cloud default `https://login.microsoftonline.us` for Government | Explicit authority URL override; a nonempty ENV value overrides saved config |
+| `AZURE_MANAGEMENT_HOST` | Normally leave unset | No | If effective `management_host` empty: cloud default `https://management.usgovcloudapi.net` for Government | Explicit Resource Manager base URL override; also supplies the base for an empty scope |
+| `AZURE_CDN_ENDPOINT_TYPE` | Leave unset | No | `afdEndpoints` (recipe config) | Front Door vs classic CDN; independent of cloud selection |
+| `AZURE_CDN_API_VERSION` | Leave unset | No | `2024-02-01` (recipe config) | Independent of cloud selection. Purge API version. A published stable version with `afdEndpoints` purge; [Azure Government check](#azure-government-patched-azure_cdn_purge) |
+| `AZURE_CDN_PURGE_PATHS_ENABLED` | Optional App Service boolean | No | Unset/blank preserves saved `perf_purge_paths.settings:enabled` (recipe default `true`) | `1` enables and `0` disables this module's path queuing at runtime; not an edge-cache or debug switch. Does not empty existing queue or disable other queuers/processors |
 | `PERF_PURGE_LIST_PATHS` | Optional app setting | No | `/,/node,/rss.xml` | Paths purged on `*_list` tag invalidations |
 | `PERF_PURGE_SITEWIDE_PATHS` | Optional app setting | No | empty (`/*` = everything) | Paths purged on menu and block changes |
 | `DRUPAL_CACHE_TTL_4XX` | Leave unset | No | `3600` | How long 4xx responses are cached; see guide "Why 403s arrive in batches" |
@@ -88,31 +94,54 @@ An authorized browser can see a lightweight installation/debug-state marker on t
 
 For the current normalization-only upgrade, an existing runtime-diagnostics installation needs **only the updated settings include**. The module, Drush command and infrastructure are unchanged. The earlier no-deploy wording describes later environment toggles after this code is installed, not deployment of the code change itself.
 
-The existing settings helper strips leading/trailing whitespace and single/double-quote characters only from `REDIS_HOST`, `REDIS_PORT`, `REDIS_SCHEME`, `REDIS_ENABLED`, `REDIS_PERSISTENT`, `REDIS_DEBUG`, `FRONTDOOR_DEBUG` and `DRUPAL_REVERSE_PROXY`. Repeated or mismatched exterior quote characters are removed; embedded quotes remain. It does not change the process environment or apply this rule to other values. Passwords and client secrets are not trimmed or unquoted.
+**Deployment caution:** the operator reported Redis connected after removing the helper's allowlist in the deployed copy. That successful copy differs from this repository. Reconcile it before replacing the settings file; do not overwrite the working Redis fix while restoring Azure mapping keys. The description below is the repository behavior, not a claim that the deployed file matches.
 
-The five boolean switches accept case-insensitive `1`/`true`/`yes`/`on` and `0`/`false`/`no`/`off` after that normalization. Missing, empty or invalid values use the explicit default: enabled for `REDIS_ENABLED`, disabled for debug, persistent connections and the reverse-proxy switch. Recommended operational values remain `1` and `0`. OIG sites still leave `DRUPAL_REVERSE_PROXY` unset because their existing bootstrap handles proxy trust.
+The repository settings helper strips leading/trailing whitespace and single/double-quote characters only from `REDIS_HOST`, `REDIS_PORT`, `REDIS_SCHEME`, `REDIS_ENABLED`, `REDIS_PERSISTENT`, `REDIS_DEBUG`, `FRONTDOOR_DEBUG`, `DRUPAL_REVERSE_PROXY` and `AZURE_CDN_PURGE_PATHS_ENABLED`. Repeated or mismatched exterior quote characters are removed; embedded quotes remain. It does not change the process environment or apply this rule to other values. Passwords and client secrets are not trimmed or unquoted.
+
+The six boolean switches accept case-insensitive `1`/`true`/`yes`/`on` and `0`/`false`/`no`/`off` after that normalization. For `REDIS_ENABLED`, debug, persistent and reverse-proxy switches, missing/empty/invalid input uses the explicit default: enabled for `REDIS_ENABLED`, disabled for the others. `AZURE_CDN_PURGE_PATHS_ENABLED` differs: unset/blank leaves saved config unchanged; a supplied invalid nonblank value falls back to `TRUE`. Recommended operational values remain `1` and `0`. OIG sites still leave `DRUPAL_REVERSE_PROXY` unset because their existing bootstrap handles proxy trust.
 
 An explicit normalized `REDIS_PORT` wins over both defaults: `6378` stays `6378` for TCP or TLS. Only an absent/empty normalized port selects `6379` for TCP or `6380` for TLS. TLS prepends `tls://` to the normalized host; it does not force another supplied port. Keep the working QA exposed `6378` → listener `6379` mapping; this settings change does not alter ingress or Bicep. Source: the `$perf_env` / `$perf_bool` helpers and Redis connection assignments in [settings.performance.php](../drupal-performance-modules/settings/settings.performance.php).
 
 The report intentionally retains raw `getenv` evidence: quoted input can still show `env_host_outer_quotes: true`, `env_port_as_integer: 0` and debug environment `other` while the normalized effective host has no exterior quotes, `effective_port` is `6378` and the final debug flag is enabled. That difference demonstrates the settings normalization; it is not proof that the environment itself was repaired or that authentication succeeds. Credential bytes remain unchanged.
 
-### Never set these on App Service
+### Optional overrides and values to keep off App Service
+
+`AZURE_CDN_SCOPE`, `AZURE_LOGIN_HOST` and `AZURE_MANAGEMENT_HOST` are supported optional overrides, **not additional required entries**. Normally leave their App Service values absent and their corresponding saved Drupal fields empty so cloud defaults apply. Removing an ENV variable alone does not clear a stale saved field. The API version/type likewise come from recipe config, not from `AZURE_CLOUD`.
 
 | Variable | Why |
 |---|---|
-| `AZURE_CDN_SCOPE` | Leave it empty: the scope then follows `AZURE_CLOUD`. A commercial scope breaks Azure Government |
-| `AZURE_LOGIN_HOST`, `AZURE_MANAGEMENT_HOST` | Overrides for other clouds or testing; `AZURE_CLOUD` sets them |
 | `PERF_MOCK_AFD_PROXY` | Local lab only: sends all Drupal outbound HTTP to the mock and turns TLS verification off. Ignored outside DDEV or Lando (warning in the PHP error log) |
 | `PERF_EDGE_PROXY_HOST`, `PERF_CACHE_MODE`, `PERF_CACHE_GUARD_SIMULATE_REMOTE` | Local lab only (`settings.local-lab.php`) |
 | `LANDO`, `IS_DDEV_PROJECT` | Set by Lando and DDEV themselves. On App Service they would switch the lab blocks on |
 | The `AZURE_CDN_*` values in `lando/lando.perf.yml` and `ddev/config.perf.yaml` | SYNTHETIC placeholders for the mock. Never copy them to App Service |
 | `REDIS_USERNAME` | Not read by the settings file. One Redis per site, no user name |
 
-Not environment variables (fixed in code, nothing to set):
+Fixed behavior and operational controls:
 
 - Redis connect and read timeout: 2 s (`perf_redis_failopen`, `TimeoutPhpRedis.php`). Retry after an error: 30 s (`RedisHealth.php`).
 - Fail-open: on whenever `perf_redis_failopen` is installed. To take Redis out, set `REDIS_ENABLED=0`.
-- Path purging off: `$config['perf_purge_paths.settings']['enabled'] = FALSE;` in that environment's `settings.php`.
+- Path queuing has an App Service control: `AZURE_CDN_PURGE_PATHS_ENABLED=0` disables and `1` enables the existing `perf_purge_paths` module's queuing; see [path-queuing toggle](#path-queuing-toggle).
+
+### Path-queuing toggle
+
+`AZURE_CDN_PURGE_PATHS_ENABLED` is an optional **App Service** variable. It overrides `perf_purge_paths.settings:enabled` at runtime, without a new module or a PHP mapping edit:
+
+| Value | Result |
+|---|---|
+| `1` / `true` / `yes` / `on` | Enable the existing module's path queuing |
+| `0` / `false` / `no` / `off` | Disable the existing module's path queuing |
+| Absent or blank after exterior whitespace/quote normalization | Preserve the saved Drupal value (recipe default `true`) |
+| Other supplied nonblank value | Parser fallback `TRUE`; use explicit `1` or `0` |
+
+Values are case-insensitive and tolerate exterior whitespace/single/double quotes. Saving App Service settings triggers the normal app restart; the deployed settings include must contain this new mapping first. Later toggles do not require a rebuild. Removing the variable restores the saved value, which can differ from the recipe default.
+
+This changes **new path queuing by `perf_purge_paths`**. It does not disable Azure Front Door edge caching, disable every purge processor/other queuer, or delete already queued items. It is independent of `FRONTDOOR_DEBUG`, which only controls diagnostics. Review alternate queuers/remaining queue work separately when planning a complete purge pause. The settings verifier normally expects enabled path queuing; an intentional disabled state needs an approved expectation/exception rather than treating that mismatch as a connection failure.
+
+### Redis server variables belong on the Redis Container App
+
+The table above is the **Drupal client** inventory for App Service. Configure the Redis/Valkey server separately on its Container App: `REDIS_MAXMEMORY` (image default `256mb`; Azure example explicitly `768mb`), `REDIS_MAXMEMORY_POLICY` (`volatile-lfu`), listener `REDIS_PORT` (`6379`), `REDIS_TLS` (`0`), and its secret-backed `REDIS_PASSWORD`. TLS certificate/key, ACL/admin and secret-file options are listed in the [image reference](../redis/docs/redis-image.md); they are not extra App Service requirements.
+
+Setting `REDIS_MAXMEMORY` on Drupal's App Service does not change Redis memory. App Service `REDIS_PORT` is the **exposed connection port** (QA `6378`), while the Redis Container App's `REDIS_PORT` is its **listener** (`6379`); keep the working ingress mapping. The two apps share the intended password secret but have different roles. `REDIS_USERNAME` is not read by this settings include; the supported setup is one Redis per site.
 
 ### Key Vault references (Azure Government)
 
@@ -177,13 +206,26 @@ Settings (environment variables, read by `settings.performance.php`):
   commercial scope to the Government host [V: the Lando lab's first gov run failed exactly
   this way until the stored scope was cleared].
 
-To clear a stored scope [V]:
+### OAuth scope versus Azure role-assignment scope
+
+These are different values:
+
+| Field | Purpose | Government value/form |
+|---|---|---|
+| Drupal `scope` / optional `AZURE_CDN_SCOPE` | OAuth client-credentials token audience | `https://management.usgovcloudapi.net/.default` (normally derived, not set explicitly) |
+| Azure RBAC role-assignment `--scope` | Resource boundary where the identity may act | Endpoint resource ID `/subscriptions/<id>/resourceGroups/<rg>/providers/Microsoft.Cdn/profiles/<profile>/afdEndpoints/<endpoint>` |
+
+Do not put the endpoint resource ID, tenant ID, subscription ID or client ID into the OAuth scope. Microsoft requires the resource audience followed by `/.default` for the client-credentials flow ([Microsoft identity documentation](https://learn.microsoft.com/en-us/entra/identity-platform/scenario-daemon-acquire-token), read 2026-11-02). For `AADSTS1002012`/invalid-scope errors, inspect the effective scope and its source before changing identity permissions. A correct OAuth scope does not grant the purge action; RBAC remains separate.
+
+### Clear a stale saved scope safely
+
+First restore unchanged mapping keys if they were edited, verify `AZURE_CLOUD=usgovernment`, and inspect **only** effective nonsecret `scope`, `login_host`, `management_host`, `azure_environment`, endpoint type and API version. Do not dump all `azure_cdn_purge.settings`: it can include runtime secrets. Back up the previous nonsecret scope and record the intended correction. If the saved scope is wrong, remove any conflicting `AZURE_CDN_SCOPE` override and use the following intentional config write in the approved QA/change workflow:
 
 ```bash
 drush php:eval '\Drupal::configFactory()->getEditable("azure_cdn_purge.settings")->set("scope", "")->save();'
 ```
 
-`lando drush cset ... scope ''` did not clear it.
+This clears the **stored** scope only. It cannot override a nonempty runtime `AZURE_CDN_SCOPE`; fix that App Service entry separately. Likewise, cloud selection cannot replace nonempty stored `login_host`/`management_host` fields. Recheck the allowlisted effective fields and run `drush perf:diagnose --frontdoor`, then the controlled end-to-end purge test. Historical lab note: `lando drush cset ... scope ''` did not clear the value in that test.
 
 Lab proof: with the Government setting, the mock logged the token request to
 `login.microsoftonline.us` (scope `https://management.usgovcloudapi.net/.default`) and the purge
@@ -272,7 +314,7 @@ Door never caches `private`/`no-cache` responses, "even if you override the cach
 using the Rules Engine" [Learn, [caching](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-caching)]. Honouring
 origin headers and the `SESS` cookie bypass are set in [frontdoor-setup-guide.md](frontdoor-setup-guide.md#3-bypass-the-cache-for-logged-in-users-and-admin-paths) [Lab: edge_bypass_session].
 
-## Redis: self-hosted container (ruled)
+## Redis: self-hosted container
 
 Deploy steps (Bicep, az CLI, private DNS, VNet integration, sizing, monitoring) are in
 [redis/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis/azure/README.md). Rules:
@@ -320,7 +362,7 @@ After either fix, run the test again and check that a page's canonical link stil
 
 ## 404 pages on Azure
 
-- Sites use Drupal core's Fast 404 (Our choice, Bo ruling 2026-10-07; why: [sources.md](sources.md#404-pages-core-fast-404)).
+- Sites use Drupal core's Fast 404 ([source and rationale](sources.md#404-pages-core-fast-404)).
 - No self-request: core's 404 is built by Drupal and cached like any page, so nothing calls the public host from inside the container.
 - Set it in `docroot/sites/default/settings.config.php` (`system.performance`: `fast_404.paths`, `fast_404.exclude_paths`, `fast_404.html`).
 - Cacheable 404s: `Cache-Control: max-age=900, public` [V: tmp/drop-fast404-20261007/04-measure-core-fast404.log].

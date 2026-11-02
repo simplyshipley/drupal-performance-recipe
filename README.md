@@ -71,7 +71,7 @@ include $app_root . '/modules/custom/drupal-performance-modules/settings/setting
 
 1. **Start here: [setup guide](docs/setup-guide.md)** (nothing to working, verified; links every detail doc)
 2. [Install into an existing site](docs/install.md)
-   - Where each setting comes from (module README or our choice): [sources.md](docs/sources.md)
+   - Where each setting comes from (module guidance and implementation notes): [sources.md](docs/sources.md)
 3. [Azure configuration](docs/azure.md) (Front Door, App Service settings, Redis managed vs container, client IP). Short version: Front Door settings and the purge settings for qa and prod, [Front Door quick start](docs/quickstart-azure-frontdoor.md)
    - Front Door setup guide for DevOps (where to set each item, how to test it, troubleshooting, qa then prod): [frontdoor-setup-guide.md](docs/frontdoor-setup-guide.md)
 4. [DDEV setup and test walkthrough](docs/ddev.md)
@@ -131,7 +131,7 @@ Full suite incl. 11 edge/WAF tests: DDEV 29 PASS / 0 FAIL [V: tmp/ddev/run10-edg
 29 PASS / 0 FAIL [V: tmp/lando-run8-edge.log]. Edge fail-proof (`EDGE_NEGATIVE=1`): 11 of 11 FAIL
 in both labs [V: tmp/ddev/edge-failproof.log, tmp/lando-edge-failproof.log].
 
-## Earlier lab results (2026-09-25, after the Redis ruling)
+## Earlier lab results (2026-09-25)
 
 All 15 in-container tests plus `redis_down`, `redis_recover` and `redis_hang` PASS in both labs
 [V: tmp/ddev/run9.log, tmp/lando-run7.log]. Redis holds only the heavy bins and a

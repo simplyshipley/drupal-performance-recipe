@@ -6,7 +6,7 @@ Labels:
 - **[V]**: run against this image on 2026-10-08, exact output shown.
 - **[Learn]**: an Azure command checked against the Microsoft Learn CLI reference, not yet run against a subscription. The "Good:" line under it is what to confirm on qa.
 
-> **This guide is for the self-hosted Redis container (Azure Container Apps).** Sites using Azure Managed Redis (Balanced B0 for qa, B1 for production; Bo, 2026-10-15) have no container app. They follow [paid-redis-setup.md](paid-redis-setup.md) instead.
+> **This guide is for the self-hosted Redis container (Azure Container Apps).** Sites using Azure Managed Redis (Balanced B0 for qa, B1 for production) have no container app. They follow [paid-redis-setup.md](paid-redis-setup.md) instead.
 
 Replace these placeholders with your own names:
 
@@ -235,7 +235,7 @@ drush sqlq "SELECT COUNT(*) FROM cache_render"
 
 **In the browser:** the redis module's report, `/admin/reports/redis`, needs the "access redis report" permission.
 - It shows the client, Keys, "Keys per cache bin" and Memory (`redis/src/Controller/ReportController.php:197-236`).
-- It warns "No cache tags found, make sure that the redis cache tag checksum service is used". That's expected here: the recipe keeps cache tag checksums in the database (Bo ruling 2026-09-25, [database-backed checksum/lock/flood configuration in settings.performance.php](../../drupal-performance-modules/settings/settings.performance.php)).
+- It warns "No cache tags found, make sure that the redis cache tag checksum service is used". That's expected here: the recipe keeps cache tag checksums in the database ([database-backed checksum/lock/flood configuration in settings.performance.php](../../drupal-performance-modules/settings/settings.performance.php)).
 
 ### 3e. Ongoing health (inside the container)
 

@@ -46,6 +46,8 @@ All bin rows compare the effective selected factory service, using core preceden
 
 Service class differences for checksum, lock and flood are WARN because reviewed custom decorators can be legitimate. Recipe baseline keeps these in the database. CLI APCu can be disabled even when Apache APCu works; that WARN requires actual web-runtime evidence. Xdebug modes account for the `XDEBUG_MODE` override ahead of INI and redact unrecognized values.
 
+The `purge.paths_enabled` row expects the production baseline `true`. It reads effective config, including the optional `AZURE_CDN_PURGE_PATHS_ENABLED` override. Intentionally disabling QA path queuing produces a baseline mismatch to record in the checklist; it is not evidence that Front Door edge caching is disabled. Unset/empty preserves stored config, `0` disables this module's queuing and `1` enables it.
+
 The report's `runtime.settings_performance_files` lists included files named `settings.performance.php` with SHA256 hashes. Compare the deployed working QA file with the intended artifact before swapping: the reported live broad ENV trim differs from the repository's allowlist. This tool never changes that normalizer. A file copied elsewhere, conditionally included differently, or a separate Apache worker needs its own deployment/web verification.
 
 ## What remains outside this check
@@ -61,6 +63,9 @@ With PHP8.1+ and PhpRedis available:
 
 ```bash
 php verification/drupal/tests/run.php
+php verification/drupal/tests/settings-env.php
 ```
 
 Fixtures are synthetic and load no real Drupal site or database. They check successful output, all six bin selections, a wrong single bin, quoted raw ENV with effective port6378, absent required expectations, bad profiles, Xdebug precedence, content-language browser negotiation, secret exclusion, JSON/Markdown output and entrypoint exit0/1/2. They do not claim live Drupal/Azure validation.
+
+`settings-env.php` additionally includes the real settings file in an isolated synthetic context. It covers 81 cases for the purge-path ENV override: absent/blank config preservation, `1`/`0` and boolean words, exterior quotes/whitespace, invalid-value fallback, and preservation of unrelated configuration and the process ENV.

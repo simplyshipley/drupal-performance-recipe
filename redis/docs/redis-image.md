@@ -1,8 +1,8 @@
 # Redis image for Azure
 
-Cache-only Valkey image for the self-hosted Redis on Container Apps (Bo, 2026-09-25). The image owner builds and pushes it with `bin/docker-*`; the Azure team deploys it ([HANDOFF.md](HANDOFF.md)).
+Cache-only Valkey image for the self-hosted Redis on Container Apps. The image owner builds and pushes it with `bin/docker-*`; the Azure team deploys it ([HANDOFF.md](HANDOFF.md)).
 
-Built from the pinned official `valkey/valkey:9.1.2-alpine3.24` (Bo, 2026-10-05; see [Version and licence](#version-and-licence)).
+Built from the pinned official `valkey/valkey:9.1.2-alpine3.24` (see [Version and licence](#version-and-licence)).
 
 ## What it does
 
@@ -100,11 +100,11 @@ The Bicep and this `.bicepparam` example compile (`az bicep build` and `az bicep
 | `REDIS_PASSWORD` | the Key Vault secret | that site's app-user password |
 | `REDIS_PREFIX` | the site name | **must equal** the ACL user name (`sitea`) |
 
-A shared instance with one ACL user per site needs a Redis user name. `settings.performance.php` doesn't read one (one Redis per site, ruling H4), so shared mode is not supported with the sites today.
+A shared instance with one ACL user per site needs a Redis user name. `settings.performance.php` doesn't read one (one Redis per site), so shared mode is not supported with the sites today.
 
 ## Version and licence
 
-Valkey 9.1.2 (Bo, 2026-10-05). Replaces `redis:7.4.11-alpine`.
+Valkey 9.1.2. Replaces `redis:7.4.11-alpine`.
 
 - **Why:** BSD-3 licence (Redis 7.4 is RSALv2/SSPLv1; Redis 8 adds AGPLv3). Linux Foundation project. 9.1 gets fixes to 2029 and security fixes to 2031. Patched 2026-09-01. Sources: redis.io, Redis `SECURITY.md`, valkey.io, read 2026-10-05 [REPORTED: research note, 2026-10-05].
 - **What changed:** `FROM valkey/valkey:9.1.2-alpine3.24`; `USER` and `chown` use `valkey` (uid 999). `entrypoint.sh`, `healthcheck.sh` and `redis.conf` are unchanged: the image ships `redis-server` and `redis-cli`.

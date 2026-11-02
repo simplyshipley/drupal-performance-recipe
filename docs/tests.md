@@ -24,7 +24,7 @@ For developers reading or running the recipe's test suite. Look up a test by nam
 - **Per developer:** `perf-test.env` is not committed; add it to `.gitignore`. The committed template is `tests/performance/scripts/perf-test.env.example`.
 - **Fallback** when nothing is set: `http://appserver_nginx` (Lando's internal web server).
 - **Certificate error on https** on a machine: use `http://<project>.lndo.site`.
-- Source: Our choice (ruling 2026-10-07).
+- Source: repository test configuration.
 
 Environment variables:
 - `BASE_URL`: DDEV `http://localhost`; Lando `https://<project>.lndo.site` (fallback when nothing is set: `http://appserver_nginx`). Usually set in `perf-test.env` below.
@@ -98,7 +98,7 @@ Four tests (`sync_delete`, `sync_alias_delete`, `sync_file_delete`, `sync_file_s
 
 | Test | What it does | PASS means | Lab result |
 |---|---|---|---|
-| `sync_alias_delete` | Deletes only the `path_alias` entity of a SYNTHETIC node (the node stays), works the queue | `alias` and `alias/` were `TCP_HIT` before; after, neither comes from the edge cache and each is fresh (`TCP_MISS`) or a 404 (Bo's ruling x, 2026-10-06). With the module Drupal answers 404 (`PRIVATE_NOSTORE/404`) | Module on: PASS. Module off: FINDING [V: tmp/lando-deleted-on.log, tmp/lando-deleted-off.log] |
+| `sync_alias_delete` | Deletes only the `path_alias` entity of a SYNTHETIC node (the node stays), works the queue | `alias` and `alias/` were `TCP_HIT` before; after, neither comes from the edge cache and each is fresh (`TCP_MISS`) or a 404. With the module Drupal answers 404 (`PRIVATE_NOSTORE/404`) | Module on: PASS. Module off: FINDING [V: tmp/lando-deleted-on.log, tmp/lando-deleted-off.log] |
 | `sync_file_delete` | Creates a SYNTHETIC public PNG file entity, caches the file and one image-style URL at the edge, deletes the entity, works the queue | Both URLs answer 404 and none is `TCP_HIT` | Module on: PASS. Module off: FINDING |
 | `sync_file_swap` | Creates a node with a SYNTHETIC image, caches the old file and its image-style URL, swaps the image for a second file, then deletes the old file entity (what cron does with an unused file) | Old URLs answer 404, none `TCP_HIT`; the new file answers 200 with the right bytes (md5) | Module on: PASS. Module off: FINDING |
 
@@ -110,7 +110,7 @@ module on but `SYNC_NEGATIVE=1`: all four FAIL [V: tmp/lando-deleted-failproof.l
 - **Problem:** new nodes start as drafts, so an anonymous request got 403 and the cache tests had nothing to measure.
 - **What the suite does:** it publishes its SYNTHETIC test node, including the moderation state [V: OIG site copy on Lando, 2026-10-08].
 - **Cleanup:** removes the test users and files it created, as well as the node.
-- Source: Our choice (Bo, 2026-10-08), after the quick-start run on an OIG site copy [V: OIG site copy on Lando, 2026-10-08].
+- Source: quick-start run on an OIG site copy [V: OIG site copy on Lando, 2026-10-08].
 
 ## Unit tests (fail-open module)
 

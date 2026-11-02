@@ -11,7 +11,7 @@ trigger: none
 pr: none
 
 variables:
-  # Default 10 (ruled 2026-10-09). Why: Learn gives no "pull finished" signal;
+  # Default 10. Why: Learn gives no "pull finished" signal;
   # it says the switch "might take a few minutes" and the platform waits up to
   # 230 s for a container start by default (WEBSITES_CONTAINER_START_TIME_LIMIT).
   # When to change: raise it if the app sets a longer start limit or the qa

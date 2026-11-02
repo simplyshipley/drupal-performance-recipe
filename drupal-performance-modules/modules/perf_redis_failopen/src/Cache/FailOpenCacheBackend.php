@@ -101,7 +101,7 @@ final class FailOpenCacheBackend implements CacheBackendInterface {
   public function deleteAll() {
     // The bin's database table stays empty while Redis serves the bin, so
     // REDIS_ENABLED=0 starts from an empty cache, never a stale one. drush cr
-    // empties it here when Redis is switched on (ruling xviii).
+    // empties it here when Redis is switched on.
     $this->database->get($this->bin)->deleteAll();
     $this->run('deleteAll', static fn (CacheBackendInterface $b) => $b->deleteAll(), NULL, TRUE);
   }

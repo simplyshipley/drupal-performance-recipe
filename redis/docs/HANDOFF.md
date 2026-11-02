@@ -3,7 +3,7 @@
 For the team that runs it in Azure. This page lists what the container and the Drupal sites need.
 
 - **Default way to deploy: the portal**, with the settings table in [azure/README.md](../azure/README.md#without-the-bicep-portal-or-az-cli).
-- Why: the sites' containers are deployed without pipelines (Bo, 2026-10-09), and one Redis app per site is a one-time setup.
+- Why: the sites' containers are deployed without pipelines, and one Redis app per site is a one-time setup.
 - When to change: if your team keeps Azure resources in Bicep or Terraform, start from the Bicep example instead.
 - The [azure/](../azure/) folder has the Bicep example (it compiles; it hasn't been deployed) and the same settings for the portal and CLI.
 
@@ -22,7 +22,7 @@ For the team that runs it in Azure. This page lists what the container and the D
   - Container Apps has no App Service-style deployment from a registry tag: "You aren't currently able to continuously deploy containers based on image changes in a container registry. You must instead use these source-code based continuous deployment pipelines" ([Azure Functions custom container, Container Apps tab](https://learn.microsoft.com/en-us/azure/azure-functions/functions-how-to-custom-container)). The GitHub Actions deploy also asks for "a unique tag such as the Git commit SHA ... instead of a generic tag like latest" ([GitHub Actions for Container Apps](https://learn.microsoft.com/en-us/azure/container-apps/github-actions)).
   - So `qa` and `prod` record which version each environment should run.
     - **Default:** set the app's image to the exact version (`9.1.2-N`) in the portal (the app → Revisions and replicas → Create new revision → Edit the container), then move the `qa` or `prod` tag to that version. That creates a new revision.
-    - Why: no deploy pipelines (Bo, 2026-10-09), and Learn says use unique tags (quotes above). When to change: only if DevOps adopts the optional pipeline below.
+    - Why: no deploy pipelines, and Learn says use unique tags (quotes above). When to change: only if DevOps adopts the optional pipeline below.
     - Optional example pipeline that redeploys when `qa` or `prod` moves (like App Service's Deployment Center): [azure/pipelines/](../azure/pipelines/README.md).
     - Let an ACR webhook scoped to `drupal/redis:qa` or `:prod` start your pipeline, which then sets the exact version. ACR webhooks can be scoped to `repository:tag` ([ACR webhooks](https://learn.microsoft.com/en-us/azure/container-registry/container-registry-webhook)).
     - For contrast, App Service CI/CD adds an ACR webhook so a push restarts the app and pulls the image ([App Service custom container CI/CD](https://learn.microsoft.com/en-us/azure/app-service/deploy-ci-cd-custom-container)); Container Apps doesn't do that.
@@ -52,7 +52,7 @@ What the Azure team sets on the container app. Read by `image/entrypoint.sh` and
 | `REDIS_MAXMEMORY` | Container app env var | Not by code, but **set it**: `768mb` for 1 GiB | `256mb` | Memory limit, about 75 percent of container memory. Raise both together |
 | `REDIS_MAXMEMORY_POLICY` | Leave unset | No | `volatile-lfu` | Eviction policy |
 | `REDIS_PORT` | Leave unset | No | `6379` | Plain port (ignored when TLS is on) |
-| `REDIS_TLS` | Leave unset unless TLS is decided | No | `0` | `1` = TLS only; the plain port closes |
+| `REDIS_TLS` | Leave unset unless TLS is required | No | `0` | `1` = TLS only; the plain port closes |
 | `REDIS_TLS_CERT_FILE`, `REDIS_TLS_KEY_FILE` | Secret volume paths | Only with `REDIS_TLS=1` (the container exits if they can't be read) | none | Server certificate and key |
 | `REDIS_TLS_CA_FILE` | Secret volume path | No | none (the health check then uses the cert file) | CA file |
 | `REDIS_TLS_PORT` | Leave unset | No | `6380` | TLS port |

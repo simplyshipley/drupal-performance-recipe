@@ -34,7 +34,7 @@ Consequences:
 
 ## Upgrading a site that already applied the recipe
 
-The recipe no longer installs `drupal/fast_404` or `drupal/themed_fast_404` (Our choice, Bo ruling 2026-10-07; reasons in [sources.md](sources.md#404-pages-core-fast-404)). On a site that already has them:
+The recipe no longer installs `drupal/fast_404` or `drupal/themed_fast_404` (reasons in [sources.md](sources.md#404-pages-core-fast-404)). On a site that already has them:
 
 1. Uninstall the modules BEFORE composer removes their code:
 
@@ -81,12 +81,12 @@ Core's Fast 404 is set in `docroot/sites/default/settings.config.php` (`system.p
 - **Page URLs:** Drupal's normal themed 404. Customise it under Configuration → Basic site settings → Error pages.
 - **Missing files** (such as a `.png`): core's plain page.
 - **Both are cacheable:** `Cache-Control: max-age=900, public` [V: tmp/drop-fast404-20261007/04-measure-core-fast404.log: missing `.png` MISS 38 ms then HIT 6.6 ms; unknown page MISS 430 ms then HIT 7 ms].
-- **Page not found shows after a page is published:** a cached 404 from before the page existed. Drupal's page cache keeps 404s for up to `cache_ttl_4xx` or until any entity save. Do not assume Front Door never caches 4xx; inspect actual status, origin policy and repeated QA responses ([duration checks](frontdoor-setup-guide.md#how-long-front-door-caches-each-kind-of-response)). `perf_purge_paths` purges any edge copy when the alias is created. Open gap (needs Bo's ruling): an alias added on its own leaves Drupal's cached 404 for up to `cache_ttl_4xx` (3600 s) ([cache-sync.md](cache-sync.md)).
+- **Page not found shows after a page is published:** a cached 404 from before the page existed. Drupal's page cache keeps 404s for up to `cache_ttl_4xx` or until any entity save. Do not assume Front Door never caches 4xx; inspect actual status, origin policy and repeated QA responses ([duration checks](frontdoor-setup-guide.md#how-long-front-door-caches-each-kind-of-response)). `perf_purge_paths` purges any edge copy when the alias is created. Open behavior gap: an alias added on its own leaves Drupal's cached 404 for up to `cache_ttl_4xx` (3600 s) ([cache-sync.md](cache-sync.md)).
 
 ## `PHP Fatal error: Cannot redeclare config_is_exported()` during `lando drush recipe`
 
 - **Message:** `Cannot redeclare config_is_exported() (previously declared in .../settings.base.php:6)`.
-- **Cause:** drush boots Drupal, then core's `RecipeCommand` boots it again and re-reads `settings.php` (`core/lib/Drupal/Core/Command/BootableCommandTrait.php` calls `Settings::initialize()`). `settings.base.php` is included a second time, so the function is declared again [V: Bo's Lando run, 2026-10-07].
+- **Cause:** drush boots Drupal, then core's `RecipeCommand` boots it again and re-reads `settings.php` (`core/lib/Drupal/Core/Command/BootableCommandTrait.php` calls `Settings::initialize()`). `settings.base.php` is included a second time, so the function is declared again [V: Lando run, 2026-10-07].
 - **Fix:** in the site's `settings.php` use `include_once`:
 
   ```php
@@ -99,7 +99,7 @@ Core's Fast 404 is set in `docroot/sites/default/settings.config.php` (`system.p
 ## `The configuration 'purge.plugins' exists already and does not match the recipe's configuration`
 
 - **Cause:** recipes are strict by default (`strict` defaults to TRUE in core `Recipe/ConfigConfigurator.php`). The site already has `purge.plugins`, from an earlier partial run or because it already uses Purge.
-- **Strict on purpose:** stale or half-finished Purge config stops the run instead of being kept silently. Our choice (Bo, 2026-10-07): the first case seen was leftover local config from building the recipe.
+- **Strict on purpose:** stale or half-finished Purge config stops the run instead of being kept silently. The first case seen was leftover local config from building the recipe.
 - **Simplest reset for leftover local config:** uninstall the Purge modules (removes all their config), then rerun the recipe:
 
   ```bash
@@ -133,7 +133,7 @@ node's alias. Check `perf_purge_paths.settings:enabled` and see
 Both are expected on a recipe site; do not "fix" them.
 
 - "Using an allkeys eviction policy may drop cache tag checksums ...": the checksums are in the
-  database, not Redis (`azure.md` ruling), so an evicted key is only a cache miss. We now use
+  database, not Redis (database-backed service configuration in `azure.md`), so an evicted key is only a cache miss. We now use
   `volatile-lfu`, so it no longer appears: it shows only for a policy starting with `allkeys` [V: redis 8.x-1.11 `ReportController.php:282-294`; image default `REDIS_MAXMEMORY_POLICY=volatile-lfu`, `redis/image/Dockerfile:15`].
 - "No cache tags found, make sure that the redis cache tag checksum service is used": same
   reason. Moving the checksum service to Redis made a Redis outage a site outage (HTTP 500).

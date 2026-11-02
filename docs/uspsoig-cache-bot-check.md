@@ -1,6 +1,6 @@
 # uspsoig.gov Caching and Bot Check
 
-Sep 29, 2026 · Bo Shipley
+Sep 29, 2026
 
 Exported from the Claude Doc https://claude.ai/code/artifact/1223714d-40ac-47a3-82fa-5f937a91e2c7 (the living copy).
 
@@ -13,7 +13,7 @@ Front Door does not cache the homepage HTML: both requests returned `x-cache: CO
 
 ## Method and scope
 
-Two slow GET requests to `https://www.uspsoig.gov/` on 2026-09-29 at 20:31:05 and 20:31:20 UTC, approved by Bo because bot blocking is tight.
+Two slow GET requests to `https://www.uspsoig.gov/` on 2026-09-29 at 20:31:05 and 20:31:20 UTC. The test was limited to two requests because bot blocking is tight.
 
 - **Client:** plain `curl` (not `curl_cffi`), Chrome-style user agent, `Accept: text/html`, compression on. No `Accept-Language` or `Sec-Fetch-*` headers.
 - **Result:** HTTP 200 both times from origin IP 20.140.56.69; request 2 returned the full 13.7 KB page.
@@ -95,7 +95,7 @@ The homepage sends the basic headers but two need tightening and a few are missi
 
 ## Re-check: static assets and headers (Oct 6, 2026)
 
-Bo asked what uspsoig.gov sends for CSS/JS and other headers. Raw rows: `workspace/sessions/20260925-drupal-performance-recipe/uspsoig-headers-20261006/` (outside the repo).
+The follow-up checked uspsoig.gov CSS/JS and other response headers. Raw rows: `workspace/sessions/20260925-drupal-performance-recipe/uspsoig-headers-20261006/` (outside the repo).
 
 - **Requests:** 13 at 17:31–17:32 UTC through moocher's polite downloader (curl_cffi, Chrome impersonation, built-in delay). These went **direct**: the one-off script did not load the repo `.env`, so the Webshare proxy was not used. Then 3 more at 17:52 UTC **through the Webshare proxy** (home, one CSS aggregate, one PNG). Both sets returned the same headers.
 - **Out of scope:** logged-in pages, PDFs, 404s, listings, WAF behaviour.

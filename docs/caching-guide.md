@@ -1,6 +1,6 @@
 # Drupal Caching on Azure: Setup, Testing and Tuning
 
-Sep 25, 2026 · @Bo Shipley
+Sep 25, 2026
 
 ## Purpose and how to use this doc
 
@@ -149,7 +149,7 @@ Front Door and App Service already send the visitor's IP in headers. Drupal or t
 
 ## Redis or Valkey
 
-Moving the high-churn bins to Redis removes the big cron deletes from the HA database. It hides a variation explosion rather than fixing it, so fix the burst source too. \[V: the redis backend's `garbageCollection()` is empty (redis 8.x-1.11 `CacheBase.php:490-492`), and while Redis is on the database copies of those bins stay empty (ruling xviii, 2026-10-06)\]
+Moving the high-churn bins to Redis removes the big cron deletes from the HA database. It hides a variation explosion rather than fixing it, so fix the burst source too. \[V: the redis backend's `garbageCollection()` is empty (redis 8.x-1.11 `CacheBase.php:490-492`), and while Redis is on the database copies of those bins stay empty\]
 
 ### Setup
 
@@ -181,8 +181,8 @@ Redis options, limits and cost in Azure Government: [hosting-and-cost.md](../red
 
 - **Separate App Service:** Learn: "App Service currently allows your container to expose only one port for HTTP requests" \[Learn: [Configure a custom container](https://learn.microsoft.com/en-us/azure/app-service/configure-custom-container#configure-port-number)\].
 - **App Service sidecar:** Learn marks "National Clouds" as "Not yet supported" for sidecars \[Learn: [Migrate to sidecars](https://learn.microsoft.com/en-us/azure/app-service/migrate-sidecar-multi-container-apps#migration-limitations-and-considerations)\].
-- **Container Apps:** "you can use TCP ingress to expose a container app that uses the Redis protocol" \[Learn: [Ingress overview](https://learn.microsoft.com/en-us/azure/container-apps/ingress-overview#tcp)\]. Ruled choice (Bo, 2026-09-25), with Valkey 9.1.2 (2026-10-05). DevOps has no Container Apps (DevOps to Bo, 2026-10-13).
-- **Per site: no Redis unless the site's App Service sets `REDIS_HOST`** (set 2026-10-14). Bo, 2026-10-15: Azure Managed Redis, B0 for qa and B1 for production, for the sites that use Redis; the other sites on the shared base image "will NOT be using Redis at the moment" ([hosting-and-cost.md](../redis/docs/hosting-and-cost.md#summary)). Without `REDIS_HOST`, the bins use Drupal core's database cache ([Redis activation guard in settings.performance.php](../drupal-performance-modules/settings/settings.performance.php); lab check: [no-redis-check](../redis/docs/evidence/no-redis-check/README.md)).
+- **Container Apps:** "you can use TCP ingress to expose a container app that uses the Redis protocol" \[Learn: [Ingress overview](https://learn.microsoft.com/en-us/azure/container-apps/ingress-overview#tcp)\]. The container option uses Valkey 9.1.2 (2026-10-05). For environments without container services, see the managed-service alternatives below.
+- **Per site: no Redis unless the site's App Service sets `REDIS_HOST`**. The managed-service sizing described here is B0 for qa and B1 for production where Redis is enabled; other sites sharing the base image can leave Redis disabled ([hosting-and-cost.md](../redis/docs/hosting-and-cost.md#summary)). Without `REDIS_HOST`, the bins use Drupal core's database cache ([Redis activation guard in settings.performance.php](../drupal-performance-modules/settings/settings.performance.php); lab check: [no-redis-check](../redis/docs/evidence/no-redis-check/README.md)).
 
 ## Purge and purge queue
 
@@ -213,12 +213,12 @@ A SYNTHETIC local site reproduces the problems and proves each fix before it rea
 
 ## Error pages and 403 load
 
-Use Drupal core's Fast 404 for 404s, and reduce 403s at the source (Our choice, Bo ruling 2026-10-07: the `fast_404` and `themed_fast_404` modules were dropped, see [sources.md](sources.md#404-pages-core-fast-404)). Module facts come from drupal.org project pages read on 2026-09-25.
+Use Drupal core's Fast 404 for 404s, and reduce 403s at the source (the `fast_404` and `themed_fast_404` modules were removed; see [sources.md](sources.md#404-pages-core-fast-404)). Module facts come from drupal.org project pages read on 2026-09-25.
 
 | Module | Decision | Latest release | Why |
 | --- | --- | --- | --- |
 | Fast 404 (`fast_404`) | **Removed 2026-10-07** (was `^3.7`) | 8.x-3.7, 14 January 2026, Drupal 10/11 | Its `fast404_preboot()` is broken upstream ([#2961512](https://www.drupal.org/project/fast_404/issues/2961512), open since 2018), so its 404 was not page-cacheable (26-66 ms every time) while core's is (repeat about 7 ms) [V: tmp/drop-fast404-20261007/04-measure-core-fast404.log] |
-| Themed Fast 404 (`themed_fast_404`) | **Removed 2026-10-07** (was `^1.0`) | 1.0.7, Drupal 10/11 | Overrides core's `fast_404.paths` with a match-everything regex and makes an HTTP request to the site on every uncached request; Bo saw a 404 page printed on top of a normal page |
+| Themed Fast 404 (`themed_fast_404`) | **Removed 2026-10-07** (was `^1.0`) | 1.0.7, Drupal 10/11 | Overrides core's `fast_404.paths` with a match-everything regex and makes an HTTP request to the site on every uncached request; a site test showed a 404 page printed on top of a normal page |
 | Fast Error Pages (`fast_error_pages`) | Skip for now | 1.0.2, November 2025 | 213 installs, created October 2025; its cache follows tags that every content save clears, and a miss makes an internal HTTP request |
 | Redirect 403 to User Login (`r4032login`) | Editor-facing sites only | 2.2.3, January 2025 | Confirms protected pages exist to scanners |
 | Error Custom Pages (`error_page`) | Pilot only | 2.1.0-beta1 for Drupal 10/11 | Friendly 500 pages, but beta has no security coverage |
@@ -251,7 +251,7 @@ A Composer `drupal-recipe` package plus a settings include file, because recipes
 - **Recipe configuration:** Page cache max age, CSS and JavaScript aggregation, BigPipe, `syslog` instead of `dblog`, core 403/404 pages, purge processors.
 - **`settings.performance.php`:** Redis connection and bins from environment variables, reverse proxy and trusted hosts, `database_cache_max_rows`, `cache_ttl_4xx`. Azure purge credentials come from App Service settings, never exported config.
 - **Local:** DDEV and Lando snippets for Redis or Valkey and a mock Front Door endpoint, plus a test script and Playwright checks.
-- **Decided:** OIG sites commit the recipe into the site repo (2026-10-07); Valkey (2026-10-05); 404/410 for unpublished content documented, not built; `fast_404` and `themed_fast_404` left out (2026-10-07).
+- **Configuration:** OIG sites commit the recipe into the site repo and use Valkey. The 404/410 behavior for unpublished content is documented, not built; `fast_404` and `themed_fast_404` are excluded.
 
 ## Per-site checklist
 
@@ -267,13 +267,13 @@ Copy this list for each site and record the results beside it.
 - [ ] Front Door rules: session-cookie bypass, admin paths bypassed, static files cached, query strings used
 - [ ] Real client IP appears in `/admin/reports/dblog`
 - [ ] Redis bins configured, `maxmemory` and `volatile-lfu` set, memory measured
-- [ ] Purge path decided and tested
+- [ ] Purge path configured and tested
 - [ ] OPcache and APCu sized; container restarted on deploy
 - [ ] Components documented in the System Security Plan
 
-## Open questions (answered 2026-10-13)
+## Configuration questions
 
-- **Valkey or Redis, managed or self-hosted?** Self-hosted container on Container Apps (Bo, 2026-09-25), Valkey 9.1.2 (2026-10-05).
+- **Valkey or Redis, managed or self-hosted?** Self-hosted container on Container Apps, Valkey 9.1.2 (2026-10-05).
 - **How many App Service instances per site?** Doesn't change the design: one shared Redis container serves every instance, so no sidecar. Check in the portal: App Service > Scale out.
 - **Does `azure_cdn_purge` support Drupal 10.6, and cover listings?** 1.0.4 ran on 10.6.17 in both labs \[V: README\]; listings come from `perf_purge_paths` (`PERF_PURGE_LIST_PATHS`).
 - **Which Azure services are in FedRAMP scope?** App Service, Front Door, WAF, Container Apps, Container Registry, Key Vault, MySQL and Azure Monitor (Log Analytics) are FedRAMP High in Azure Government \[Learn: Azure services in FedRAMP audit scope\].

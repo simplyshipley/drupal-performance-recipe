@@ -30,7 +30,7 @@ The recipe is two Composer packages:
 Composer reads `composer.json` only at a repository's root, so a `vcs` repository on this GitHub
 repo cannot supply the modules package [getcomposer.org Repositories: a subfolder `package-path` exists only for Subversion; monorepos use `path` repositories].
 
-**OIG sites (chosen 2026-10-07): commit the files into the site repo.** No package repositories:
+**OIG sites: commit the files into the site repo.** No package repositories:
 copy the recipe to `recipes/`, the modules to `docroot/modules/custom/`, and `composer require` the
 contrib modules. Steps: [quickstart-lando.md](quickstart-lando.md) steps 1 and 2. The other options:
 
@@ -60,7 +60,7 @@ Composer installs the recipe at `recipes/drupal-performance-recipe`, the modules
 
 ## 4. Include the settings file
 
-Append to the **end** of `web/sites/default/settings.php` (after `$databases` is defined). Our choice (Bo ruling 2026-10-07): the end of `settings.php` means no later line overrides these settings. Its first source, the fast_404 README ("Keep this code block at the end of this file to take full effect"), is gone with that module. Use `require`, not
+Append to the **end** of `web/sites/default/settings.php` (after `$databases` is defined). The end of `settings.php` means no later line overrides these settings. Its first source, the fast_404 README ("Keep this code block at the end of this file to take full effect"), is gone with that module. Use `require`, not
 a `file_exists` check: a missing package then fails loudly instead of silently dropping the Redis,
 proxy and trusted-host settings.
 
@@ -71,6 +71,7 @@ require $app_root . '/modules/custom/drupal-performance-modules/settings/setting
 
 - Where each setting comes from (module README or our own choice): [sources.md](sources.md).
 - Performance features are controlled by environment variables. Redis/Front Door runtime diagnostic flags are off by default, even when Redis is not configured. See the header and final flag declarations in `settings.performance.php` and the complete [Azure variable table](azure.md#app-service-application-settings-environment-variables).
+- **Keep the PHP mapping strings unchanged.** `'AZURE_CDN_TENANT_ID' => 'tenant_id'` maps an App Service ENV name to a Drupal configuration key. Neither string is a placeholder to replace or blank. Enter actual IDs, secrets and resource names in App Service; Government Front Door setup needs eight entries, with login/management/scope defaults supplied by the patched purger. [Required entries and optional overrides](quickstart-azure-frontdoor.md#whats-needed-one-copy-per-site-per-environment).
 - Redis is used only when `REDIS_HOST` is set, the `redis` extension is loaded, the module code exists and Drupal is not installing; see the [Redis activation guard in settings.performance.php](../drupal-performance-modules/settings/settings.performance.php).
 
 - With DDEV's `ddev/ddev-redis` add-on: it adds its own `settings.ddev.redis.php`. Retire it (rename with the `__ARCHIVED_` prefix) so this file is the only Redis configuration [V].
@@ -172,33 +173,30 @@ See [azure.md](azure.md) for production and [ddev.md](ddev.md) / [lando.md](land
 ## 8. Turn caching off per environment
 
 The path purge module shows its on/off switch on the Performance page
-(`admin/config/development/performance`). To switch purging off for one environment, add its line
-to that environment's `settings.php`; the Performance page then says the value is overridden.
+(`admin/config/development/performance`). After deploying the updated settings include, use this optional App Service ENV override:
 
-```php
-// Local or QA (example): no Front Door purges.
-$config['perf_purge_paths.settings']['enabled'] = FALSE;
-// Prod: add nothing.
+```text
+AZURE_CDN_PURGE_PATHS_ENABLED=0
 ```
 
-- Purge off: no paths are queued. azure_cdn_purge's own node hook stays removed while the module is installed.
+- `0` disables this module's automatic path queuing; `1` enables it. Unset/empty preserves the stored checkbox setting (module default enabled). Accepted boolean words and exterior quote/whitespace handling follow the [ENV reference](azure.md#normalized-connection-fields-and-boolean-switches); invalid nonempty values use `true`.
+- Save the App Service setting and allow its normal restart. Later toggles need no rebuild or PHP edits. This feature requires the updated `settings.performance.php`; preserve your separately tested Redis normalization when applying it.
+- This does not disable Front Door edge caching, stop queue processors, discard already queued items or disable other queuers. azure_cdn_purge's own node hook stays removed while the module is installed.
+- Existing direct `$config['perf_purge_paths.settings']['enabled']` overrides remain supported; this include's nonempty ENV switch wins when included last. Removing the ENV switch does not clear a stored or earlier PHP override.
 
 **Switch Redis off or on (environment variable, no deploy):**
 
-- Off: set `REDIS_ENABLED=0` (an App Service setting or Key Vault reference). The Redis bins use the
-  database. No deploy and no `drush cr`: their database tables are kept empty while Redis is on, so the
-  site starts cold, never stale.
-- On: set `REDIS_ENABLED=1` (or remove it), then run `drush cr` once the app has restarted. It empties
-  Redis, which missed the deletes made while it was off, and the database tables of the Redis bins.
+- Off: set `REDIS_ENABLED=0` in App Service. This include skips its Redis bin assignments; normal core database defaults resume unless an earlier include supplied another backend. Allow the app restart, then verify the actual backend. A Redis outage itself produces fail-open misses, not automatic database fallback.
+- On: set `REDIS_ENABLED=1` (or remove it), then run `drush cr` once the app has restarted. This invalidates/rebuilds caches after the off interval; it does not guarantee immediate physical removal of all Redis keys or return of allocated memory.
 - The status report shows the state the environment set.
 - **Check it** (App Service SSH console, Drupal folder, after the app restarts):
-  1. The site process has the new value. Run `tr '\0' '\n' < /proc/1/environ | grep -a '^REDIS_'`. No `REDIS_ENABLED` line means `1`. The `-a` (GNU grep: "equivalent to --binary-files=text") stops `grep` answering only "binary file matches" when another variable holds bytes that aren't text.
-  2. Load those values into the SSH shell, since SSH may not see app settings: `while IFS= read -r v; do export "$v"; done < <(tr '\0' '\n' < /proc/1/environ | grep -a '^REDIS_')`.
+  1. Inspect only the nonsecret switch: `tr '\0' '\n' < /proc/1/environ | grep -a '^REDIS_ENABLED='`. An absent switch uses enabled-by-default behavior when Redis prerequisites hold. Do not print all `REDIS_*` values; that exposes the password.
+  2. SSH and Apache can see different environments. Compare the actual web runtime report with CLI rather than exporting every Redis value into the shell. [Web/CLI diagnosis](troubleshooting-commands.md#azure-drush-works-but-web-requests-do-not-use-redis).
   3. Run `drush php:eval "print get_class(\Drupal::cache('render')) . PHP_EOL;"`.
      - `1` prints `Drupal\perf_redis_failopen\Cache\FailOpenCacheBackend`.
      - `0` prints `Drupal\Core\Cache\DatabaseBackend`.
      - [V: lab, both values, 2026-10-23; the `page` bin printed the same class]
-  4. Load a few pages. With `1`, Redis's key count grows; with `0`, `drush sqlq "SELECT COUNT(*) FROM cache_render"` grows instead.
+  4. Load approved pages and compare the correct site DB/prefix activity, hit/miss counters and web diagnostics. Key counts alone do not prove Redis use. [Usage acceptance](guides/deployment-verification-checklist.md#4-redis-container-real-usage-and-recovery).
 
 ## Optional: remove dblog
 

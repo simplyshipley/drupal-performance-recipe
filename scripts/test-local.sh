@@ -128,8 +128,8 @@ mock_count() { mock_log | grep -c "\"kind\": \"$1\"" || true; }
 
 queue_volume() { $DRUSH p:queue-volume --format=string 2>/dev/null | tr -dc '0-9'; }
 
-# Tests that edit content share one SYNTHETIC node per run, never a real node
-# (Bo ruling 2026-10-07); cleanup() deletes it at exit.
+# Tests that edit content share one SYNTHETIC node per run, never a real node.
+# cleanup() deletes it at exit.
 RUN_START=$(date +%s)
 TEST_NID=""
 first_node() { echo "$TEST_NID"; }
@@ -921,9 +921,8 @@ t_sync_delete() {
 # "route_match" for an alias, and Drupal's page cache entries do not expire, so
 # without the perf_purge_paths alias hook (which also invalidates the aliased
 # entity's tags) Drupal keeps answering 200 for the deleted alias.
-# Bo's ruling x (2026-10-06): "Pass when no URL is served from the edge cache and
-# each is fresh or a 404." The alias hook also makes Drupal answer 404 (not
-# cacheable at the edge), so "HIT -> MISS" was too narrow.
+# Pass when no URL is served from the edge cache and each is fresh or a 404.
+# The alias hook also makes Drupal answer 404 (not cacheable at the edge), so "HIT -> MISS" was too narrow.
 t_sync_alias_delete() {
   local r nid a on pre res
   sync_begin; r=$(rnd); a="/synthetic-sync-adel-$r"; on=$(deleted_mod)

@@ -5,8 +5,8 @@
  * Performance settings include (Redis, reverse proxy, Purge).
  *
  * Require this file at the END of sites/default/settings.php, after $databases
- * and the site's other includes, so nothing later overrides its settings (our
- * choice, Bo ruling 2026-10-07). It ships in the drupal-performance-modules
+ * and the site's other includes, so nothing later overrides its settings.
+ * It ships in the drupal-performance-modules
  * Composer package, which Composer installs under web/modules/custom and
  * updates with the site, so the include is required, not optional: a missing
  * package must be loud, not a silently dropped Redis, reverse proxy and trusted
@@ -17,16 +17,20 @@
  * require $app_root . '/modules/custom/drupal-performance-modules/settings/settings.performance.php';
  * @endcode
  *
- * Everything is driven by environment variables (Azure App Service
- * "Application settings" become environment variables). Every block is a
- * no-op when its variables are not set, so the file is safe on any
- * environment. No secret is stored in this file or in exported config.
+ * Enter deployment values in Azure App Service -> Environment variables,
+ * not in this PHP file. This include reads them with getenv() and maps them
+ * to Drupal settings/configuration. Keep the code and mapping strings intact:
+ * 'AZURE_CDN_TENANT_ID' => 'tenant_id' means read that ENV variable and put
+ * its value in Drupal's tenant_id key. Neither string is a placeholder to
+ * replace or blank out. No secret belongs in this file or exported config.
+ * Redis is optional; cache-tuning defaults and debug flags are still set
+ * when Redis is absent. Required values depend on the enabled feature.
  * Redis host/port/scheme and Redis/debug/reverse-proxy switches trim exterior
  * whitespace and quote characters. Switches accept 1/0, true/false, on/off and
  * yes/no case-insensitively; missing/empty/invalid values use their defaults.
  * Passwords and client secrets are never trimmed.
  *
- * Environment variables (all optional):
+ * Supported environment variables (full inventory: docs/azure.md):
  *
  * Redis
  *   REDIS_HOST              Hostname. Unset = Redis is not used at all.
@@ -52,14 +56,21 @@
  *                           database.
  *
  * Front Door path purging (the perf_purge_paths module, docs/cache-sync.md)
+ *   AZURE_CDN_PURGE_PATHS_ENABLED
+ *                           Optional boolean: 1 queues paths, 0 disables this
+ *                           module's automatic path queuing. Unset/empty keeps
+ *                           stored enabled config (module default TRUE).
+ *                           Invalid values use TRUE. It does not disable edge
+ *                           caching, other queuers or existing queue workers.
  *   PERF_PURGE_LIST_PATHS   Paths purged when a *_list tag is invalidated
  *                           (default "/,/node,/rss.xml"; "/news/*" allowed).
  *   PERF_PURGE_SITEWIDE_PATHS  Paths purged on menu / block changes (default
  *                           empty; "/*" purges everything).
  *
- * Path purging can be switched off per environment in settings.php (shown on
- * admin/config/development/performance):
- *   $config['perf_purge_paths.settings']['enabled'] = FALSE;
+ * The path-purge switch is shown on admin/config/development/performance.
+ * Set AZURE_CDN_PURGE_PATHS_ENABLED in App Service; keep this mapping code
+ * intact. Existing direct settings.php overrides remain supported, but this
+ * include's nonempty ENV override takes precedence when loaded last.
  *
  * Reverse proxy / hosts
  *   DRUPAL_TRUSTED_HOSTS    Comma-separated host names, e.g.
@@ -77,18 +88,36 @@
  *                                   Default 3600 (core default).
  *
  * Azure CDN / Front Door purge (azure_cdn_purge module)
- *   AZURE_CDN_TENANT_ID, AZURE_CDN_CLIENT_ID, AZURE_CDN_CLIENT_SECRET,
- *   AZURE_CDN_SUBSCRIPTION_ID, AZURE_CDN_RESOURCE_GROUP, AZURE_CDN_PROFILE,
- *   AZURE_CDN_ENDPOINT, AZURE_CDN_API_VERSION, AZURE_CDN_ENDPOINT_TYPE
- *   (afdEndpoints for Front Door), AZURE_CDN_SCOPE (empty = derived from the
- *   cloud).
+ *   Government setup needs eight App Service ENV entries: AZURE_CLOUD plus
+ *   the seven identity/resource values below. Cloud selection cannot infer
+ *   your credentials or which Front Door endpoint to purge.
+ *   AZURE_CDN_TENANT_ID     Entra directory (tenant) ID.
+ *   AZURE_CDN_CLIENT_ID     Purge app registration's application (client) ID.
+ *   AZURE_CDN_CLIENT_SECRET Key Vault reference to the client secret value.
+ *   AZURE_CDN_SUBSCRIPTION_ID  Subscription containing Front Door.
+ *   AZURE_CDN_RESOURCE_GROUP   Front Door resource group name.
+ *   AZURE_CDN_PROFILE       Front Door profile name.
+ *   AZURE_CDN_ENDPOINT      Endpoint name, not hostname or resource ID.
  *   AZURE_CLOUD             Case-insensitive. Commercial: public, commercial,
  *                           azurecloud. Government: usgovernment,
  *                           azureusgovernment, azureusgovernmentcloud. Anything
  *                           else is ignored with a PHP warning. Needs the
  *                           azure_cdn_purge Azure Government patch (patches/).
- *   AZURE_LOGIN_HOST, AZURE_MANAGEMENT_HOST
- *                           Explicit host URLs (override AZURE_CLOUD).
+ *   Leave these five optional override ENVs unset for the normal setup:
+ *   AZURE_LOGIN_HOST        Government default https://login.microsoftonline.us.
+ *   AZURE_MANAGEMENT_HOST   Government default
+ *                           https://management.usgovcloudapi.net.
+ *   AZURE_CDN_SCOPE         Empty stored scope derives the management URL plus
+ *                           /.default. Government OAuth scope is therefore
+ *                           https://management.usgovcloudapi.net/.default.
+ *                           A stored scope or ENV override takes precedence;
+ *                           changing the cloud does not clear an old scope.
+ *                           Do not use a Front Door /subscriptions/... ID.
+ *   AZURE_CDN_ENDPOINT_TYPE Recipe config default afdEndpoints.
+ *   AZURE_CDN_API_VERSION   Recipe config default 2024-02-01.
+ *   Login/management URLs require https:// and have no /.default suffix.
+ *   Scope is for authentication; Azure role-assignment scope is separate.
+ *   The recipe config supplies endpoint_type/api_version, not cloud selection.
  *
  * Local labs (DDEV/Lando): the local edge, the mock Front Door proxy and the
  * cache modes are in settings.local-lab.php, required after this file
@@ -105,6 +134,7 @@ $perf_env = static function (string $name, ?string $default = NULL): ?string {
   if ($value !== FALSE && in_array($name, [
     'REDIS_HOST', 'REDIS_PORT', 'REDIS_SCHEME', 'REDIS_ENABLED',
     'REDIS_PERSISTENT', 'REDIS_DEBUG', 'FRONTDOOR_DEBUG', 'DRUPAL_REVERSE_PROXY',
+    'AZURE_CDN_PURGE_PATHS_ENABLED',
   ], TRUE)) {
     $value = trim($value, " \t\n\r\0\x0B\"'");
   }
@@ -119,7 +149,8 @@ $perf_bool = static function (string $name, bool $default = FALSE) use ($perf_en
 // Core cache tuning.
 // ---------------------------------------------------------------------------
 $settings['database_cache_max_rows']['default'] = (int) $perf_env('DRUPAL_DATABASE_CACHE_MAX_ROWS', '5000');
-// Used when these bins are in the database (REDIS_ENABLED=0 or Redis down).
+// Used when these bins use the database, including normal REDIS_ENABLED=0
+// operation. A Redis outage itself produces fail-open misses, not DB fallback.
 // OIG sitemap crawl, 580 pages: 579 page rows, 5,251 render rows.
 $settings['database_cache_max_rows']['bins']['page'] = 2000;
 $settings['database_cache_max_rows']['bins']['render'] = 10000;
@@ -184,20 +215,17 @@ if ($perf_env('REDIS_HOST') !== NULL
     $settings['cache_prefix'] = $perf_env('REDIS_PREFIX');
   }
 
-  // Our choice (Bo ruling 2026-09-25; the redis README puts every bin on
-  // Redis): only the heavy, high-churn bins go to Redis. bootstrap, config,
+  // Only the heavy, high-churn bins go to Redis. bootstrap, config,
   // discovery and container keep core's default (database behind APCu via
   // ChainedFastBackend): they are small, read on every request and must
   // survive a Redis outage. Override with REDIS_BINS (comma-separated).
   $perf_bins = array_filter(array_map('trim', explode(',', (string) $perf_env('REDIS_BINS', 'render,page,dynamic_page_cache,data,entity,menu'))));
-  // REDIS_ENABLED=0 (an App Service setting, so no deploy; rulings ix-b and
-  // xviii) leaves these bins on the database. While Redis serves them their
-  // database tables stay empty (perf_redis_failopen empties them at drush cr),
-  // so switching off starts from an empty database cache, never a stale one.
+  // REDIS_ENABLED=0 skips these Redis assignments. Core's database defaults
+  // resume unless an earlier include supplied another explicit backend.
+  // The fail-open wrapper clears corresponding database bins on deleteAll().
   $settings['perf_redis_enabled'] = $perf_bool('REDIS_ENABLED', TRUE);
-  // The bins name cache.backend.redis. Our perf_redis_failopen module (Bo
-  // ruling 2026-09-25: fail open when Redis is down; installed by the recipe)
-  // DECORATES that service, so a Redis outage becomes cache misses instead of
+  // The bins name cache.backend.redis. The recipe's perf_redis_failopen module
+  // decorates that service, so a Redis outage becomes cache misses instead of
   // HTTP 500. Before the module is installed, while a recipe is applied and
   // after it is uninstalled the bins run on the plain backend.
   if ($settings['perf_redis_enabled']) {
@@ -221,7 +249,7 @@ if ($perf_env('REDIS_HOST') !== NULL
   // module is installed (for example while the recipe that installs it is
   // applied). Loaded with REDIS_ENABLED=0 too: the list is part of the service
   // container's cache key, so switching does not rebuild the container.
-  // Our choice (Bo ruling 2026-09-25): cache tag checksum, lock and flood stay
+  // Cache tag checksum, lock and flood stay
   // in the database, so example.services.yml from the README is not included.
   $settings['container_yamls'][] = $perf_redis_dir . '/redis.services.yml';
   $class_loader->addPsr4('Drupal\\redis\\', $perf_redis_dir . '/src');
@@ -229,8 +257,11 @@ if ($perf_env('REDIS_HOST') !== NULL
 
 // ---------------------------------------------------------------------------
 // Azure CDN / Front Door purge credentials from the environment. These
-// override config at runtime and are never exported by `drush cex`. Our
-// choice: the azure_cdn_purge README has them entered on its settings form.
+// override config at runtime and are never exported by `drush cex`.
+// The azure_cdn_purge README describes entering them on its settings form.
+// DO NOT replace or blank the strings in this map. Left = App Service ENV
+// name; right = Drupal configuration key, not a placeholder for its value.
+// Example: set AZURE_CDN_TENANT_ID in App Service; keep 'tenant_id' below.
 // ---------------------------------------------------------------------------
 $perf_azure_map = [
   'AZURE_CDN_TENANT_ID' => 'tenant_id',
@@ -244,8 +275,8 @@ $perf_azure_map = [
   'AZURE_CDN_API_VERSION' => 'api_version',
   'AZURE_CDN_ENDPOINT_TYPE' => 'endpoint_type',
 ];
-// Cloud: AZURE_CLOUD=usgovernment|public (needs the patch in patches/: OIG
-// sites are in Azure Government, Bo 2026-09-25; drupal.org #3427718 MR !6).
+// Cloud: AZURE_CLOUD=usgovernment|public (requires the patches/ series based
+// on drupal.org #3427718 MR !6 for Government support).
 $perf_cloud = strtolower((string) $perf_env('AZURE_CLOUD', ''));
 $perf_clouds = [
   'public' => 'azureCloud',
@@ -269,6 +300,8 @@ if ($perf_cloud !== '') {
     unset($perf_msg);
   }
 }
+// These are key mappings too. Put optional full URL overrides in App Service,
+// never in the right-hand strings. Government selection supplies defaults.
 $perf_azure_map['AZURE_LOGIN_HOST'] = 'login_host';
 $perf_azure_map['AZURE_MANAGEMENT_HOST'] = 'management_host';
 foreach ($perf_azure_map as $perf_var => $perf_key) {
@@ -278,11 +311,13 @@ foreach ($perf_azure_map as $perf_var => $perf_key) {
 }
 
 // ---------------------------------------------------------------------------
-// Front Door path purging: the path settings of the perf_purge_paths module
-// (an installed module; the recipe installs it). Its on/off switch is the
-// config perf_purge_paths.settings:enabled (see the top of this file). Our
-// module, no contrib README (docs/cache-sync.md).
+// Front Door path purging (perf_purge_paths). A nonempty App Service switch
+// overrides config; unset/empty preserves stored config. This does not change
+// Front Door edge caching or discard queued items. See docs/cache-sync.md.
 // ---------------------------------------------------------------------------
+if ($perf_env('AZURE_CDN_PURGE_PATHS_ENABLED') !== NULL) {
+  $config['perf_purge_paths.settings']['enabled'] = $perf_bool('AZURE_CDN_PURGE_PATHS_ENABLED', TRUE);
+}
 $settings['perf_purge_list_paths'] = (string) $perf_env('PERF_PURGE_LIST_PATHS', '/,/node,/rss.xml');
 $settings['perf_purge_sitewide_paths'] = (string) $perf_env('PERF_PURGE_SITEWIDE_PATHS', '');
 

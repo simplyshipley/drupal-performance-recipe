@@ -122,7 +122,7 @@ server {
 
   # Performance recipe: PDFs and Office files can be replaced at the same URL,
   # so browsers must check back each time (304 if unchanged) and Front Door
-  # doesn't cache them. Production will send the same (decided 2026-10-09).
+  # doesn't cache them. Production must use the same document cache policy.
   # A missing file still goes to Drupal's 404 (without this header).
   location ~* \.(pdf|docx?|xlsx?|pptx?)$ {
       try_files $uri /index.php?$query_string;

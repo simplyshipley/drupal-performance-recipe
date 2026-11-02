@@ -2,7 +2,7 @@
 
 **Example only.** One way (it compiles; it hasn't been deployed) to run the Redis container on Azure Container Apps and connect App Service to it. The team that runs it in Azure decides how to deploy; the requirements are in [HANDOFF.md](../docs/HANDOFF.md).
 
-Ruling (Bo, 2026-09-25): the Drupal sites use a **self-hosted Redis container**, not the managed service. Only the heavy cache bins use it. The fail-open wrapper keeps the site up when Redis is down (see `docs/azure.md` in the drupal-performance-recipe repository).
+This deployment uses a **self-hosted Redis container**. Only the heavy cache bins use it. The fail-open wrapper keeps the site up when Redis is down (see `docs/azure.md` in the drupal-performance-recipe repository).
 
 **Not deployed yet.** Settings below cite Microsoft Learn; what only a real deployment can show says **Confirm on qa**. Lab-verified:
 
@@ -147,7 +147,7 @@ An internal environment's apps resolve under `environmentDefaultDomain`. Steps a
    - Full list of the site's settings, with required and default values: [HANDOFF.md](../docs/HANDOFF.md#what-the-drupal-sites-need).
 
 3. **TLS. Default: off** (`REDIS_SCHEME=tcp`); traffic stays in the VNet.
-   - Why: TLS was deferred to DevOps (Bo, 2026-10-06). Learn lists TLS termination only for HTTP ingress, none for TCP [Learn: ingress overview, Protocol types], so Valkey itself would have to do TLS.
+   - Why: TLS was deferred to DevOps. Learn lists TLS termination only for HTTP ingress, none for TCP [Learn: ingress overview, Protocol types], so Valkey itself would have to do TLS.
    - When to change: when your security controls require encryption inside the VNet:
    - Set `REDIS_TLS=1` and the certificate files on the container ([docs/redis-image.md](../docs/redis-image.md)); don't add a start command. The port moves to 6380 (6379 closes), so the ingress target and exposed port and the probes move to 6380.
    - On the site: `REDIS_PORT=6380`, `REDIS_SCHEME=tls`. drupal/redis 1.11 passes `tls://<host>` to PhpRedis with no certificate options [V: redis `src/Client/PhpRedis.php:29-32`], so the certificate must chain to a CA the site container trusts. In the lab a private CA failed without its CA file and connected with it [V: lab TLS probe, 2026-10-05].

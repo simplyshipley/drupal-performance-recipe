@@ -69,7 +69,7 @@ git -C ../drupal-performance-recipe archive HEAD edge mock-afd scripts docs | ta
 - **Check:** `docroot/modules/custom/drupal-performance-modules/modules/perf_purge_paths` and `tests/performance/mock-afd` exist.
 - `git archive` copies only tracked files, without the `.git` folder.
 - **OIG's `.gitignore` also ignores `INSTALL.*`,** so `tests/performance/docs/install.md` is not committed on Mac/Windows git unless you add it by force (step 8): `git add -f tests/performance/docs/install.md`. [V: OIG site copy on Lando, 2026-10-08, OIG `.gitignore`]
-- **Two copies, two lifetimes:** `recipes/drupal-performance-recipe/` is deleted in step 6. `tests/performance/` stays, is committed, and belongs to the site (like `tests/behat` and `tests/phpunit`). Our choice (Bo, 2026-10-07).
+- **Two copies, two lifetimes:** `recipes/drupal-performance-recipe/` is deleted in step 6. `tests/performance/` stays, is committed, and belongs to the site (like `tests/behat` and `tests/phpunit`).
 
 <details>
 <summary><b>If this doesn't go smoothly</b></summary>
@@ -228,8 +228,8 @@ b. Add one line at the **end** of `docroot/sites/default/settings.php`:
 require __DIR__ . '/settings.performance.php';
 ```
 
-- **It's the site's own settings file now,** like `settings.php`. It runs on every environment, Prod included. Every feature in it switches on only when its environment variable is set.
-- **Why the end:** Our choice (Bo ruling 2026-10-07). Its first source, the fast_404 README, is gone with that module. On OIG sites the end is still after `settings.base.php`, so nothing in `settings.config.php`, `settings.{env}.php` or `settings.global.php` is lost.
+- **It's the site's own settings file now,** like `settings.php`. It runs on every environment, Prod included. Redis activates when its connection prerequisites hold; other sections apply defaults or their documented feature switches.
+- **Why the end:** Its first source, the fast_404 README, is gone with that module. On OIG sites the end is still after `settings.base.php`, so nothing in `settings.config.php`, `settings.{env}.php` or `settings.global.php` is lost.
 - **It's a `require`,** so a missing file stops the site loudly instead of silently running without Redis.
 - **Never include `settings.local-lab.php`** (same folder in the modules package) unguarded. It sends outbound requests to the mock Front Door. Step c includes it for Lando only.
 
@@ -242,7 +242,7 @@ if (getenv('LANDO') === 'ON') {
 }
 ```
 
-- **Why the name has no `example.` prefix:** OIG's `.gitignore` ignores `example.*` (line 42). Under its old `example.` prefix the file was never committed, so teammates' local purges went to the real Microsoft hosts [V: OIG site copy on Lando, 2026-10-08]. Our choice (Bo, 2026-10-08).
+- **Why the name has no `example.` prefix:** OIG's `.gitignore` ignores `example.*` (line 42). Under its old `example.` prefix the file was never committed, so teammates' local purges went to the real Microsoft hosts [V: OIG site copy on Lando, 2026-10-08].
 - **Why:** only `settings.local-lab.php` reads `PERF_MOCK_AFD_PROXY`, and nothing else includes it. Without this block, a local node save would send purges to the real Microsoft hosts, with the SYNTHETIC credentials from `.lando.yml`. [from code, not run on an OIG site]
 - **Safe on Prod:** the block runs only when `LANDO=ON`, which Lando sets and production does not. The file also checks `LANDO` / `IS_DDEV_PROJECT` itself. [from code, not run on an OIG site]
 - **Tested:** on the SYNTHETIC Lando lab, purges reached the mock with no watchdog errors [V: tmp/recipe-removable-20261007/12, 13b].
@@ -291,7 +291,7 @@ lando drush cr
   - **Upstream fix:** a `function_exists()` guard in oig-distro-assets' `settings.base.php`.
 - **`The configuration 'purge.plugins' exists already and does not match the recipe's configuration`.**
   - **Cause:** recipes are strict by default (core `Recipe/ConfigConfigurator.php`, `strict` defaults to TRUE). The site already has `purge.plugins`, from an earlier partial run or because it already uses Purge.
-  - **Strict on purpose:** stale or half-finished Purge config stops the run instead of being kept silently. Our choice (Bo, 2026-10-07).
+  - **Strict on purpose:** stale or half-finished Purge config stops the run instead of being kept silently.
   - **Check committed config first:** `git log -- config/sync/purge.plugins.yml`.
   - **Leftover local config (site never used Purge in production):** back up (`lando db-export before-purge-reset.sql`), uninstall the Purge modules so all their config goes, then rerun the recipe:
 
@@ -462,7 +462,7 @@ grep -c 'function perf_purge_paths_path_alias_insert' docroot/modules/custom/dru
 lando drush pm:list --status=enabled | grep -E 'fast404|themed_fast_404'  # no output
 ```
 
-**Coming from a version with `fast_404` / `themed_fast_404`:** follow [troubleshooting.md](troubleshooting.md#upgrading-a-site-that-already-applied-the-recipe). Sources: the recipe's own checks above; the removal is Our choice (ruling 2026-10-07).
+**Coming from a version with `fast_404` / `themed_fast_404`:** follow [troubleshooting.md](troubleshooting.md#upgrading-a-site-that-already-applied-the-recipe). Sources: the recipe's own checks above and the linked source guide.
 
 - Don't re-apply the recipe on a site that already has it. There is no upgrade path. Config changes come through `drush cex`/`cim`.
 

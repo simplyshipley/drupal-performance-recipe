@@ -2,7 +2,7 @@
 
 For the Azure team (DevOps). One section per item of the [quick start checklist](quickstart-azure-frontdoor.md#front-door-settings-azure-team), plus purging: where to set it, the value, how to test it, and what to do when the test fails. The quick start stays the one-page summary.
 
-Front Door **Premium** (the OIG profiles, Bo 2026-10-09), Azure Government. One Front Door endpoint per site per environment. Redis connects through the App Service (virtual network integration and app settings), not through Front Door: [section 11](#11-redis-cache-premium-environment).
+For Front Door **Premium** in Azure Government; verify the actual deployment SKU and feature availability. One Front Door endpoint per site per environment. Redis connects through the App Service (virtual network integration and app settings), not through Front Door: [section 11](#11-redis-cache-premium-environment).
 
 Labels:
 - **[Learn]**: quoted from Microsoft Learn (links under [Sources](#sources)). Learn's pages are written for commercial Azure; Azure Government uses the portal at [portal.azure.us](https://portal.azure.us).
@@ -177,7 +177,7 @@ This rule is limited to that public video directory. It does not override privat
 
 [Microsoft large-file caching guidance](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-caching#delivery-of-large-files) documents range/chunk delivery. On QA verify a valid range GET returns HTTP 206 with a correct `Content-Range`, that repeated eligible range/full GETs exhibit the expected edge-cache behavior, and that replacing a test video plus purging its path serves the replacement. A 206 alone is not proof of an edge HIT. The saved public receipt did not retain `Content-Range`, so it does not validate production range delivery. For large-file delivery Microsoft defines the `X-Cache` HIT/MISS value for the **first 8-MB chunk**; it does not establish the cache state of the entire 13.66-MB response. Validate the requested ranges and returned data accordingly. Do not infer video-cache behavior from a small-image test.
 
-### PDFs and Office files: `Cache-Control: no-cache` (decided, Bo 2026-10-09)
+### PDFs and Office files: `Cache-Control: no-cache`
 
 - **Why:** today they're served with no `Cache-Control`. Browsers then guess a lifetime, and with caching on "Front Door randomly determines a cache duration between one and three days" [Learn]. A replaced report would stay stale.
 - **What no-cache does:** the browser keeps the file but asks each time (304 if unchanged, the new file if replaced). Front Door "honors" `no-cache` and "doesn't cache the responses, even if you override the caching behavior by using the Rules Engine" [Learn].
@@ -249,7 +249,7 @@ What Learn says:
 | Theme files under `/themes` (logo, icons, sprites, fonts) | `StaticFiles` | **1 day** ([why](#theme-files-1-day-default)) | Same URL across deploys | Expiry within a day, or purge `/themes/*` after the deploy |
 | Public MP4 under `/sites/default/files/video/` | Separate recommended `PublicVideo` rule (section 4) | 1 day edge TTL; browser freshness separate | Confines caching to public video; range behavior requires QA validation | Explicit tested video-path purge on replacement, or expiry |
 | Uploaded images and image styles | `StaticFiles` | Same as theme files | Same URL when a file is replaced | The recipe purges the file and its image styles ([azure.md](azure.md#what-gets-purged-path-based-no-tags)) |
-| PDFs and Office files | Apache in the image: `no-cache` (decided, section 4) | Not cached | A replaced report must show at once | Browser asks each time (304) |
+| PDFs and Office files | Apache in the image: `no-cache` (section 4) | Not cached | A replaced report must show at once | Browser asks each time (304) |
 | Redirects (301) | Drupal page max-age (`max-age=900, public` on a 301 [V: lab `tmp/codex-oig/run4-smoke.log`; core `FinishResponseSubscriber.php:164-168`]) | Leave as is | Learn doesn't say whether Front Door caches a 301; either way it's 15 minutes at most. Confirm on qa: GET a `/node/<nid>` that has an alias twice and read `x-cache` | Purge the old path, or expiry |
 | `robots.txt` | The web server: no `Cache-Control`, only `Last-Modified` [V: live GET 2026-10-13] | Leave as is | Front Door then keeps it 1–3 days [Learn] | Purge `/robots.txt` after editing it |
 
@@ -295,7 +295,7 @@ drush ws --type=azurecdn --count=5
 
 **(c) Automatic, without touching deploys (optional, DevOps-owned).** [Example pipeline](examples/frontdoor-purge-after-deploy.yml): the same registry push that fires the webhook starts an Azure DevOps pipeline (the ACR trigger from [the Redis example](../redis/azure/pipelines/README.md)). It waits a fixed time, then runs `az afd endpoint purge`. It deploys nothing.
 
-- **Default wait: 10 minutes** (ruled 2026-10-09). **Why:** Learn gives no signal that a webhook pull has finished; it says the switch "might take a few minutes", and by default the platform waits up to 230 seconds for a container to start (`WEBSITES_CONTAINER_START_TIME_LIMIT`) [Learn]. 10 minutes covers the pull plus that wait. **When to change:** raise it if the app sets a longer `WEBSITES_CONTAINER_START_TIME_LIMIT`, or if the qa run shows an old theme file after the purge.
+- **Default wait: 10 minutes**. **Why:** Learn gives no signal that a webhook pull has finished; it says the switch "might take a few minutes", and by default the platform waits up to 230 seconds for a container to start (`WEBSITES_CONTAINER_START_TIME_LIMIT`) [Learn]. 10 minutes covers the pull plus that wait. **When to change:** raise it if the app sets a longer `WEBSITES_CONTAINER_START_TIME_LIMIT`, or if the qa run shows an old theme file after the purge.
 
 - Service connection: manual, Environment AzureUSGovernment, with ACR Contributor or Owner for the trigger and the purge role from section 8 on the endpoint.
 - Confirm on the first qa push: the items Learn doesn't document, listed in the [Redis example](../redis/azure/pipelines/README.md#not-documented-by-microsoft-learn-prove-with-the-first-live-run).
@@ -344,7 +344,7 @@ curl -s -o /dev/null -w 'front door %{http_code}\n' "$SITE/"
 
 ### Keep SSH (drush) and deployments working
 
-Needed (Bo, 2026-10-09): the team runs `drush` from the **SSH** link in the App Service's left sidebar in the portal, and that has to keep working; new containers are deployed through App Service **Deployment Center** continuous deployment (the registry webhook), never by a pipeline (Bo, 2026-10-09). Cloud Shell (`az webapp ssh`) isn't used for `drush`. Both go through the app's **advanced tool site** (SCM): `https://<app>.scm.azurewebsites.us`. Learn gives `<app>.scm.azurewebsites.net` (commercial) and `azurewebsites.us` for Government App Service, but no Government SCM form. Read the real one: App Service → Development Tools → **Advanced Tools** → **Go** opens it in a new tab.
+Needed: the team runs `drush` from the **SSH** link in the App Service's left sidebar in the portal, and that has to keep working; new containers are deployed through App Service **Deployment Center** continuous deployment (the registry webhook), never by a pipeline. Cloud Shell (`az webapp ssh`) isn't used for `drush`. Both go through the app's **advanced tool site** (SCM): `https://<app>.scm.azurewebsites.us`. Learn gives `<app>.scm.azurewebsites.net` (commercial) and `azurewebsites.us` for Government App Service, but no Government SCM form. Read the real one: App Service → Development Tools → **Advanced Tools** → **Go** opens it in a new tab.
 
 What Learn says:
 - The SCM site "is both the web deploy endpoint and the Kudu console" and "has an individual rules collection". With **Use main site rules** selected, "The SCM site uses the rules from the main site" [Learn]. Then only Front Door passes. The portal SSH session runs through Kudu and needs "network access to the SCM endpoint" [Learn, SSH], so SSH gets 403. The webhook gets 403 too (reported on Microsoft Q&A; confirm on qa with the webhook **Ping** below).
@@ -391,7 +391,7 @@ No Azure setting. Front Door sends `X-Azure-ClientIP`, `X-Azure-SocketIP`, and a
   - Mode: the policy's **Overview** page (switch Detection / Prevention). "When you create a WAF policy, the default mode is Detection."
   - Logs: Front Door profile → **Monitoring** → **Diagnostic settings** → **+ Add diagnostic setting** → **FrontDoor WebApplicationFirewall Log** and **FrontDoor Access Log** → **Send to Log Analytics** → **Save**. "Logs aren't enabled by default."
 - **Set:** Detection for about a week, review, then Prevention. Rules, rate limits and the header-consistency bot rule (JS challenge, never Block): [hardening.md](hardening.md#edge-front-door-waf).
-- **Tier:** "Managed rules are only supported in the Azure Front Door Premium tier" [Learn]. The OIG profiles were reported Premium (Bo, 2026-10-09); verify the actual environment's SKU and Government feature availability before requiring managed rules, bot protection or JS challenge.
+- **Tier:** "Managed rules are only supported in the Azure Front Door Premium tier" [Learn]. The OIG profiles were reported Premium; verify the actual environment's SKU and Government feature availability before requiring managed rules, bot protection or JS challenge.
 
 **QA test candidate** (a SQL-injection-looking query string; use only in an approved rule-specific test):
 
@@ -482,13 +482,13 @@ curl -s -o /dev/null -D - -H 'Accept-Encoding: br, gzip' "$SITE$CSS" | grep -iE 
 
 ## 11. Redis cache (Premium environment)
 
-- **Per site:** a site uses Redis only when its App Service sets `REDIS_HOST`; without it the site keeps Drupal's database cache ([hosting-and-cost.md, Summary](../redis/docs/hosting-and-cost.md#summary)). Bo, 2026-10-15: Azure Managed Redis, B0 for qa and B1 for production, for the sites that use Redis; the other sites on the shared base image "will NOT be using Redis at the moment". This section is for the sites that use Redis.
+- **Per site:** a site uses Redis only when its App Service sets `REDIS_HOST`; without it the site keeps Drupal's database cache ([hosting-and-cost.md, Summary](../redis/docs/hosting-and-cost.md#summary)). The managed-service sizing described here is B0 for qa and B1 for production where Redis is enabled; other sites sharing the base image can leave Redis disabled. This section is for the sites that use Redis.
 - **What each one does** [Learn]:
   - Front Door: "Azure Front Door is an advanced content delivery network (CDN) for the cloud." Its origin "refers to the application deployment that Azure Front Door retrieves contents from", and "An origin shouldn't be confused with your database tier or storage tier. The origin should be viewed as the endpoint for your application backend." Here the origin is the App Service (section 5).
   - Redis: the App Service reaches it through the virtual network. "Virtual network integration is used only to make outbound calls from your app into your virtual network."
   - The origin lock (section 5) is inbound: "Virtual network integration affects only outbound traffic from your app. To control inbound traffic to your app, use the access restrictions feature or private endpoints."
 - **Front Door settings:** sections 1–10 have no Redis setting.
-- **Service:** Azure Managed Redis (recommended), or Azure Cache for Redis, the fallback, if Managed Redis can't be created in US Gov Virginia or the security team requires a service in the FedRAMP table ([hosting-and-cost.md, Recommendation](../redis/docs/hosting-and-cost.md#recommendation-without-container-services), item 3, which prices Standard C1). The setup guide uses its Premium tier because Bo asked for it (2026-10-14). **Open for Bo:** his ruling of 2026-09-25 says OIG sites use "a **self-hosted Redis container**", "not the managed service" ([azure.md](azure.md#redis-self-hosted-container-ruled); [hosting-and-cost.md, Recommendation](../redis/docs/hosting-and-cost.md#recommendation-without-container-services)).
+- **Service:** Azure Managed Redis (recommended), or Azure Cache for Redis, the fallback, if Managed Redis can't be created in US Gov Virginia or the security team requires a service in the FedRAMP table ([hosting-and-cost.md, Recommendation](../redis/docs/hosting-and-cost.md#recommendation-without-container-services), item 3, which prices Standard C1). The setup guide shows the Premium tier; confirm the tier before purchasing. Managed services are an alternative deployment model to the **self-hosted Redis container**, so confirm which model applies to the target site ([azure.md](azure.md#redis-self-hosted-container); [hosting-and-cost.md, Recommendation](../redis/docs/hosting-and-cost.md#recommendation-without-container-services)).
 - **Where and how:** [paid-redis-setup.md](../redis/docs/paid-redis-setup.md):
   1. Create the cache in US Gov Virginia (its section 1).
   2. Private endpoint and App Service virtual network integration (section 2).

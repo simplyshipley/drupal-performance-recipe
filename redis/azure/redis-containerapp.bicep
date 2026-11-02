@@ -1,7 +1,7 @@
 // Self-hosted Redis for one Drupal site on Azure Container Apps.
-// Ruling (Bo, 2026-09-25): self-hosted Redis container, not the managed
-// service. Not deployed yet: compiles with `az bicep build`; settings cite
-// Microsoft Learn in azure/README.md. Confirm on qa: docs/SETUP-GUIDE.md section 3.
+// Cache-only; the example compiles with `az bicep build` but has not been
+// deployed. Settings cite Microsoft Learn in azure/README.md.
+// Confirm on qa: docs/SETUP-GUIDE.md section 3.
 //
 // - Internal-only Container Apps environment in an existing VNet subnet
 //   (delegated to Microsoft.App/environments; /27 minimum for this

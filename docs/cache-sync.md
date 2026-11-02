@@ -46,14 +46,14 @@ The fixes (small and in scope):
    | `*_list` | `PERF_PURGE_LIST_PATHS` (default `/,/node,/rss.xml`; `/news/*` allowed) |
    | Block content, menu links, menus, blocks | `PERF_PURGE_SITEWIDE_PATHS` (default empty) |
 
-   `$config['perf_purge_paths.settings']['enabled'] = FALSE;` in settings.php turns it off. It queues through azure's `path_queuer`, so the queue, processors and chunking are unchanged.
+   `AZURE_CDN_PURGE_PATHS_ENABLED=0` in App Service disables this module's automatic queuing; `1` enables it. Unset/empty preserves stored config (default enabled). A direct `$config['perf_purge_paths.settings']['enabled']` override is also supported; the ENV override wins when the settings include is last. It queues through azure's `path_queuer`, so existing queued items, processors and chunking are unchanged. This switch does not disable Front Door edge caching or other queuers. [Deployment and verification](install.md#8-turn-caching-off-per-environment).
 2. **`patches/azure_cdn_purge-wildcardpath-purged.patch`.** Wildcard invalidations are now sent to Azure. Add it to the root composer.json patches ([install.md](install.md)).
 3. **Alias and file hooks in `perf_purge_paths`** (formerly the optional `perf_purge_deleted` module). They run while the alias or file still exists, because tags arrive too late for a deleted one ([known gap 1](#defaults-for-the-known-gaps)). They use the same queuer, so switching path purging off turns them off too. Nothing to install ([install.md](install.md#deleted-and-renamed-aliases-and-deleted-files)).
 
    | Hook | Queues |
    |---|---|
    | `hook_path_alias_delete` | The alias and `alias/`, also when its node is deleted |
-   | `hook_path_alias_insert` | The new alias and `alias/`, so a 404 the edge cached before the page existed is purged when the page is published (Bo ruling 2026-10-07) |
+   | `hook_path_alias_insert` | The new alias and `alias/`, so a 404 the edge cached before the page existed is purged when the page is published |
    | `hook_path_alias_update` | The old alias and `old/`, when the alias text or its system path changed (a retarget queues the alias itself) |
    | `hook_file_delete` | The file URL and every image-style URL of the file |
 
@@ -82,7 +82,7 @@ These counts were measured with azure_cdn_purge's node hook removed by perf_purg
 | New node shows in listings (`/`, `/node`, `/rss.xml`, `?page=0`) | `sync_listing` | FAIL: all stale, new title missing | **PASS** |
 | Alias changed (UI-style update of the same alias) | `sync_alias_change` | FAIL: old alias served 200 from the edge | **PASS**: the old alias was purged and is now 404. The old alias was in the purge request (mock log) because the alias lookup still returned it when `node:N` was mapped. The `path_alias` update made no new revision. The timing no longer matters: `hook_path_alias_update` queues the old alias itself (`PerfPurgePathsHooks.php:149-159`) [V: Kernel test `testRenamingAnAliasQueuesTheOldAlias`]. |
 | Node deleted | `sync_delete` | FAIL: alias and `/node/N` stale | **PASS** with the delete hooks: alias and `/node/N` both 404 [V: tmp/lando-deleted-on.log]. **FINDING** without it [V: tmp/lando-deleted-off.log]: `/node/N` was purged (now 404), but the **alias stays cached** until its TTL. Cause [V: Drupal 10.6.17 core read in the Lando lab, 2026-10-05]: the alias is already deleted when the tags are mapped (ordering in known gap 1). |
-| Alias deleted on its own (the node stays) | `sync_alias_delete` | FINDING: alias and `alias/` stay `TCP_HIT` | **PASS** with the module: both purged (HIT → MISS). The hook also invalidates the node's tags, so Drupal's cached `200` for the alias is cleared (`PerfPurgePathsHooks.php:136-139`); PASS = nothing served from the edge cache and each URL fresh or a 404 (ruling x, 2026-10-06). FINDING without the module. |
+| Alias deleted on its own (the node stays) | `sync_alias_delete` | FINDING: alias and `alias/` stay `TCP_HIT` | **PASS** with the module: both purged (HIT → MISS). The hook also invalidates the node's tags, so Drupal's cached `200` for the alias is cleared (`PerfPurgePathsHooks.php:136-139`); PASS = nothing served from the edge cache and each URL fresh or a 404. FINDING without the module. |
 | File deleted (upload removed, cron cleanup) | `sync_file_delete` | FINDING: file and its image-style URL stay `TCP_HIT` | **PASS** with the module: both purged, now 404. FINDING without it. |
 | Image swapped, old file cleaned up | `sync_file_swap` | FINDING: old file and its image-style URL stay `TCP_HIT` | **PASS** with the module: old URLs purged (404), new file served with the right bytes. FINDING without it. |
 | Alias renamed on its own (admin "URL aliases" form) | probe only, no suite test | Old alias stays `TCP_HIT` (nothing is queued) | Old alias purged (HIT → MISS) with the module [V: tmp/lando-probe-alias-rename.log, module on and off] |
@@ -109,7 +109,7 @@ Each gap has a default the recipe ships today. Suite `FINDING` lines point here 
 1. **Old aliases (delete, rename, retarget).**
    - **Default: the alias and file hooks are on** whenever path purging is on (`PerfPurgePathsHooks.php:126-167`). Nothing to install or set.
    - **Why:** core invalidates a deleted node's tags after its alias is gone, so the tag mapping alone can't find the alias (below). Without the hooks a deleted page's alias stays cached at the edge until it expires [V: tmp/lando-deleted-off.log].
-   - **When to change:** never on its own. The hooks go off only with path purging (`$config['perf_purge_paths.settings']['enabled'] = FALSE;`).
+   - **When to change:** never on its own. The hooks go off with path purging (`AZURE_CDN_PURGE_PATHS_ENABLED=0`, or the equivalent config override).
    - **Verified ordering on delete** [V: Drupal 10.6.17 core, read in the Lando lab on 2026-10-05]:
    - **Consequence:** the tag-to-path mapping (`perf_purge_paths`, and any `hook_entity_delete` that builds a URL, such as index_now) runs too late: the alias is already deleted. The alias can still be read in `hook_entity_predelete` / `hook_node_predelete` on the node, and in `hook_path_alias_predelete` / `hook_path_alias_delete`: `PathFieldItemList.php:65` calls the `path_alias` storage `delete()`, which runs the predelete and delete hooks with the alias entity (`EntityStorageBase.php:452` and `:462`; hook names built at `:213-218`) inside the node's `doDelete()` (`:456`), before the node's `postDelete()` tag invalidation (`:460`). The delete hook was run in the lab and it works [V: tmp/lando-deleted-on.log].
 
