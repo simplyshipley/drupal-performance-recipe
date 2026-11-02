@@ -174,7 +174,7 @@ lando redis-cli info stats | grep -E 'evicted_keys|keyspace_hits|keyspace_misses
 - **4-A: no `PONG`.** The `cache` service is down: `lando logs -s cache`, then `lando restart`. The site keeps working without Redis (fail-open), just slower.
 - **4-B: policy `allkeys-lru`.** The site still has the old `redis.conf`: copy `lando/redis.conf` from the recipe clone to `.lando/redis.conf`, then `lando rebuild -y`.
 - **4-C: `# Keyspace` with nothing under it.**
-  1. `drush cr` empties Redis. Load a page (`curl -s -o /dev/null https://<project>.lndo.site/`), then check `info keyspace` again.
+  1. `drush cr` invalidates/rebuilds caches; it does not guarantee immediate physical deletion of every Redis key or return of allocated memory. Load a page (`curl -s -o /dev/null https://<project>.lndo.site/`), then compare activity for the correct site prefix/DB and hit/miss counters. See the [deployment checklist](guides/deployment-verification-checklist.md#4-redis-container-real-usage-and-recovery); a key count alone is insufficient proof of web Redis usage.
   2. Still empty: inspect the shared post-bootstrap diagnostic:
 
      ```bash

@@ -1,0 +1,16 @@
+{
+  "environment": "qa",
+  "front_door_id": "REPLACE_WITH_QA_FRONT_DOOR_ID_GUID",
+  "route_id": "REPLACE_WITH_FULL_QA_ROUTE_RESOURCE_ID",
+  "rule_set_ids": ["REPLACE_WITH_FULL_ASSOCIATED_RULE_SET_RESOURCE_ID_IN_ROUTE_ORDER"],
+  "rule_names": {},
+  "public_video": true,
+  "web_id": "REPLACE_WITH_FULL_QA_APP_SERVICE_RESOURCE_ID",
+  "redis_id": "REPLACE_WITH_FULL_QA_REDIS_CONTAINER_APP_RESOURCE_ID",
+  "redis_container": "redis",
+  "redis_cpu": 0.5,
+  "redis_memory": "1Gi",
+  "redis_exposed_port": 6378,
+  "redis_target_port": 6379,
+  "redis_maxmemory": "768mb"
+}

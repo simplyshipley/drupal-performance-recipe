@@ -1,0 +1,10 @@
+{
+  "profile": "qa",
+  "targets": [
+    { "name": "homepage", "kind": "public", "path": "/", "expectedMaxAge": 900, "syntheticBypass": true },
+    { "name": "inner-page", "kind": "public", "path": "/replace-with-public-inner-page", "expectedMaxAge": 900 },
+    { "name": "stylesheet", "kind": "static", "path": "/themes/custom/replace-with-theme/style.css", "contentType": "text/css" },
+    { "name": "login-bypass", "kind": "bypass", "path": "/user/login", "statuses": [200] },
+    { "name": "report-pdf", "kind": "document", "path": "/sites/default/files/replace-with-public-report.pdf" }
+  ]
+}

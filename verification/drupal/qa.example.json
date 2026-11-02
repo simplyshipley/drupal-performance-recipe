@@ -1,0 +1,10 @@
+{
+  "environment": "qa",
+  "page_max_age": 900,
+  "redis_port": 6378,
+  "redis_db": 0,
+  "redis_host_sha256": null,
+  "redis_prefix": null,
+  "reverse_proxy": true,
+  "trusted_proxy_addresses": null
+}

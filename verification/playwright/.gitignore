@@ -1,0 +1,5 @@
+node_modules/
+reports/
+test-results/
+targets.qa.json
+targets.prod.json

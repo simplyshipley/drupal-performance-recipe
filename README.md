@@ -67,6 +67,8 @@ include $app_root . '/modules/custom/drupal-performance-modules/settings/setting
 
 ## Docs
 
+**QA → production sign-off:** [Deployment verification checklist](docs/guides/deployment-verification-checklist.md) — effective settings, automated reports, headers, Redis, Front Door, invalidation, failure recovery and troubleshooting.
+
 1. **Start here: [setup guide](docs/setup-guide.md)** (nothing to working, verified; links every detail doc)
 2. [Install into an existing site](docs/install.md)
    - Where each setting comes from (module README or our choice): [sources.md](docs/sources.md)

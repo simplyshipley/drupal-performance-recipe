@@ -52,7 +52,7 @@ for i in 1 2 3; do curl -s -o /dev/null -D - "$SITE/" | grep -iE '^(x-cache|cach
 | You see | Meaning [Learn] | Do this |
 |---|---|---|
 | `x-cache: CONFIG_NOCACHE` on every page | "Request is configured to not cache in the Front Door profile" | Turn caching on for the route. Check no rule sets Caching **Disabled** for the page. You used GET, not `curl -I`? |
-| `x-cache: PRIVATE_NOSTORE` on an anonymous page | "Cache-Control response header is set to either private or no-store" | Drupal's "Browser and proxy cache maximum age" is 0 (Configuration → Performance). Set it to 15 minutes |
+| `x-cache: PRIVATE_NOSTORE` on an anonymous page | "Cache-Control response header is set to either private or no-store" | Inspect actual origin headers and Drupal response-policy/kill-switch caller, session and custom subscribers. Verify the intended 900-second baseline, but do not assume a zero max-age is the cause or force a private response public. See the [sign-off checklist](guides/deployment-verification-checklist.md#3-drupal-settings-modules-and-cacheability) |
 | Always `TCP_MISS` | Not cached or served from different edges | Check `cache-control` has `max-age`. Repeat a few times from one place |
 | `400` Bad Request | "no routing rules are found with a matching path" | The route's **Patterns to match** must include `/*` |
 | Old content | Expected until the page's max-age ends or a purge runs | Section 10 |
@@ -391,16 +391,16 @@ No Azure setting. Front Door sends `X-Azure-ClientIP`, `X-Azure-SocketIP`, and a
   - Mode: the policy's **Overview** page (switch Detection / Prevention). "When you create a WAF policy, the default mode is Detection."
   - Logs: Front Door profile → **Monitoring** → **Diagnostic settings** → **+ Add diagnostic setting** → **FrontDoor WebApplicationFirewall Log** and **FrontDoor Access Log** → **Send to Log Analytics** → **Save**. "Logs aren't enabled by default."
 - **Set:** Detection for about a week, review, then Prevention. Rules, rate limits and the header-consistency bot rule (JS challenge, never Block): [hardening.md](hardening.md#edge-front-door-waf).
-- **Tier:** "Managed rules are only supported in the Azure Front Door Premium tier" [Learn]. The OIG profiles are Premium (Bo, 2026-10-09), so managed rules, bot protection and the JS challenge action are available.
+- **Tier:** "Managed rules are only supported in the Azure Front Door Premium tier" [Learn]. The OIG profiles were reported Premium (Bo, 2026-10-09); verify the actual environment's SKU and Government feature availability before requiring managed rules, bot protection or JS challenge.
 
-**Test** (a harmless SQL-injection-looking query string):
+**QA test candidate** (a SQL-injection-looking query string; use only in an approved rule-specific test):
 
 ```bash
 curl -s -i "$SITE/?q=%27%20or%201=1" | grep -iE '^(HTTP|x-azure-ref)|request is blocked'
 ```
 
-- Detection: `200`, and a row in the WAF log a few minutes later.
-- Prevention: `403` and "The request is blocked." plus a reference string [Learn]. The `x-azure-ref` value is the log's `TrackingReference` [Learn].
+- The query is not guaranteed to match your configured rules. Record the response and correlate the actual rule/action in WAF logs; HTTP 200 or 403 alone is insufficient evidence.
+- For a confirmed matching rule, Detection logs without applying a block, while a configured Prevention Block action returns a block response. Other configured actions can differ. The `x-azure-ref` value is the log's `TrackingReference` [Learn].
 - Read-only query, from Learn (Log Analytics workspace → Logs). Remove the last line in Detection mode to see every match:
 
 ```text

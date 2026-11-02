@@ -1,0 +1,14 @@
+{
+  "name": "drupal-performance-verification",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:local": "node local-check.mjs",
+    "test:unit": "node --test policy.test.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1"
+  }
+}

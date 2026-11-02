@@ -1,0 +1,9 @@
+{
+  "environment": "qa",
+  "redis_port": 6378,
+  "redis_prefix": "synthetic-qa",
+  "redis_host_sha256": "93bea7e28a2bc03d1e8621a043d56ff29221d2fa2047729094f270856fc72174",
+  "trusted_proxy_addresses": [
+    "192.0.2.10"
+  ]
+}

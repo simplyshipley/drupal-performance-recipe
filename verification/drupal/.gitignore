@@ -1,0 +1,10 @@
+# Keep local environment identity and operational reports out of source control.
+profile.qa.json
+profile.prod.json
+profile.local.json
+qa.json
+prod.json
+*-settings.json
+*-settings.md
+settings-report.*
+reports/

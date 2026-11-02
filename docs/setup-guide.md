@@ -184,17 +184,13 @@ az webapp config appsettings set -g $RG -n <webapp> --settings \
 
 ### 3.8 WAF and edge rules
 
-Follow [hardening.md](hardening.md#edge-front-door-waf). JS challenge needs Front Door Premium [Learn: WAF JavaScript challenge]; OIG profiles are Premium (Bo, 2026-10-09). Start in Detection mode, review for a week, then Prevention. Header-consistency rule: JS challenge, never Block.
+Follow [hardening.md](hardening.md#edge-front-door-waf). JS challenge needs Front Door Premium [Learn: WAF JavaScript challenge]; OIG profiles were reported Premium (Bo, 2026-10-09). Verify the actual environment's SKU and Government feature availability. Start in Detection mode, review for a week, then Prevention. Header-consistency rule: JS challenge, never Block.
 
 ## Phase 4: Verify on Azure
 
-Proposed, not yet run on Azure. Use a non-production subscription. Each check mirrors a lab test in [tests.md](tests.md).
+Use the single [deployment verification checklist](guides/deployment-verification-checklist.md), including automated settings/Playwright reports, expected headers and linked troubleshooting. Record evidence against each environment; repository lab results do not certify Azure. [Existing lab tests](tests.md) remain development regression checks.
 
-1. `redis_in_use`: request two uncached pages. Pass: keys under `REDIS_PREFIX` grew (`redis-cli INFO keyspace`).
-2. `redis_down`: scale the Redis container app to zero; request home, a node, `/user/login`. Pass: all 200, one `perf_redis_failopen` warning. HTTP 500 means the perf_redis_failopen module is not installed ([troubleshooting.md](troubleshooting.md#redis-down-the-site-stays-up-fail-open)).
-3. `redis_recover`: start Redis, wait 32 s (the 30 s retry interval plus 2), request a node twice. Pass: second request `X-Drupal-Cache: HIT`.
-4. `purge_send`, `edge_purge_e2e`: `curl -s -o /dev/null -D - <node url>` twice (a GET; expect `x-cache: TCP_HIT`), edit the node, run `drush p:queue-volume` and `drush p:queue-work --finish`, wait up to about 10 minutes, request again. Pass: new content served, `drush p:diagnostics` shows no new errors.
-5. `bot_challenge`: request a node with a Chrome user agent and no `Sec-Fetch-Mode` / `Accept-Language`. Pass: Detection logs it; Prevention gives a JS challenge. The action is `JSChallenge` [Microsoft REST spec `ActionType`, 2024-02-01 and later].
+Run controlled outage/recovery, content-edit and WAF rule-specific tests in QA first. A cache key count or Drupal HIT alone does not prove Redis usage; a generic HTTP error does not identify its cause. Production gets the safe smoke subset and the approved operational test workflow.
 
 ## Phase 5: Operate
 

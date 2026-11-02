@@ -1,0 +1,4 @@
+__pycache__/
+reports/
+snapshots/
+profile.local.json
