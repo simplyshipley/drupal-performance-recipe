@@ -25,10 +25,11 @@
  * replace or blank out. No secret belongs in this file or exported config.
  * Redis is optional; cache-tuning defaults and debug flags are still set
  * when Redis is absent. Required values depend on the enabled feature.
- * Redis host/port/scheme and Redis/debug/reverse-proxy switches trim exterior
- * whitespace and quote characters. Switches accept 1/0, true/false, on/off and
- * yes/no case-insensitively; missing/empty/invalid values use their defaults.
- * Passwords and client secrets are never trimmed.
+ * Every present ENV value read here trims exterior whitespace and single/double
+ * quote characters, including passwords and client secrets. Embedded characters
+ * and the process environment remain unchanged. Empty after trimming uses the
+ * existing default. Switches accept 1/0, true/false, on/off and yes/no
+ * case-insensitively; missing/empty/invalid values use their defaults.
  *
  * Supported environment variables (full inventory: docs/azure.md):
  *
@@ -129,13 +130,9 @@ use Symfony\Component\HttpFoundation\Request;
 
 $perf_env = static function (string $name, ?string $default = NULL): ?string {
   $value = getenv($name);
-  // Typed connection fields tolerate shell-style exterior quoting. Credentials
-  // and all unlisted values retain their original bytes.
-  if ($value !== FALSE && in_array($name, [
-    'REDIS_HOST', 'REDIS_PORT', 'REDIS_SCHEME', 'REDIS_ENABLED',
-    'REDIS_PERSISTENT', 'REDIS_DEBUG', 'FRONTDOOR_DEBUG', 'DRUPAL_REVERSE_PROXY',
-    'AZURE_CDN_PURGE_PATHS_ENABLED',
-  ], TRUE)) {
+  // Normalize every present value consistently, including credentials. Only
+  // exterior whitespace/quote characters are removed; getenv() is not changed.
+  if ($value !== FALSE) {
     $value = trim($value, " \t\n\r\0\x0B\"'");
   }
   return ($value === FALSE || $value === '') ? $default : $value;
