@@ -1,10 +1,19 @@
-# Bounded cache/header verification with Playwright
+# Bounded Playwright deployment checks
 
-This suite makes explicit GET requests with Playwright's API request client. It does not render pages, crawl assets, submit forms, purge caches, stop Redis or change Azure. It produces an expected/actual/reason/troubleshooting report to support the [deployment checklist](../../docs/guides/deployment-verification-checklist.md). It cannot sign off the whole deployment.
+Two independently selected modes support the [deployment checklist](../../docs/guides/deployment-verification-checklist.md):
 
-## Install and run
+| Mode | Command | Purpose |
+|---|---|---|
+| Cache/header probes (default) | `npm test` | Explicit GET requests using Playwright's API client; no page rendering or browser download |
+| [Image-style browser checks](IMAGES.md) (opt-in) | `npm run test:images` | Chromium desktop/mobile checks against explicit image selectors, expected Drupal styles or reviewed exemptions |
 
-Node.js 20+ and npm are required. The pinned dependency and lockfile are local to this folder. Browser downloads are unnecessary: these are HTTP API probes, not browser UI tests.
+Both produce expected/actual/reason/troubleshooting reports and require an explicit environment/target file. Neither certifies the whole deployment. The instructions below describe the default cache/header mode; use [IMAGES.md](IMAGES.md) for browser installation, image expectations, bounds and interpretation.
+
+## Install and run cache/header probes
+
+**These commands run on your workstation/CI.** `BASE_URL`, `CACHE_PROFILE`, `CACHE_TARGETS` and optional `STRICT_EDGE_HIT` are test-runner variables, not Azure App Service settings; no PHP/module deployment is required to run the checks. Cache mode uses `CACHE_TARGETS`; image mode separately uses `IMAGE_TARGETS`.
+
+Node.js 20+ and npm are required. The pinned dependency and lockfile are local to this folder. Browser downloads are unnecessary for `npm test`: these are HTTP API probes. The separate image mode requires its own Chromium installation.
 
 ```sh
 cd verification/playwright
@@ -38,7 +47,7 @@ Use separate explicit targets for homepage and the previously affected inner pag
 
 Potentially mutating Drupal GET families (cron, batch, logout, one-time password-reset/login, account-cancellation confirmation, AJAX and entity action paths) are rejected. Exact edit/add/delete/revert/path-rule coverage remains a safe manual QA task. Custom GET endpoints can still have side effects: this guard is a conservative helper, not proof that an arbitrary application URL is safe.
 
-## Local verification only
+## Cache/header local verification only
 
 ```sh
 npm run test:unit

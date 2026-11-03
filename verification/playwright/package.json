@@ -6,7 +6,10 @@
   "scripts": {
     "test": "playwright test",
     "test:local": "node local-check.mjs",
-    "test:unit": "node --test policy.test.mjs"
+    "test:unit": "node --test policy.test.mjs",
+    "test:images": "playwright test --config playwright.images.config.mjs",
+    "test:images:unit": "node --test image-policy.test.mjs",
+    "test:images:local": "node image-local-check.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.61.1"

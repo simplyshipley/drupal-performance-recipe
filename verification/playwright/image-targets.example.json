@@ -1,0 +1,9 @@
+{
+  "profile": "qa",
+  "pages": [
+    { "name": "synthetic-reviewed-page", "path": "/synthetic-reviewed-image-page", "expectedTitle": "SYNTHETIC reviewed image page", "rules": [
+      { "name": "synthetic-content", "selector": "main img.synthetic-content", "allowedStyles": ["synthetic_card"], "maxRatio": 2, "requireResponsive": true, "requireLazyBelowFold": true },
+      { "name": "synthetic-logo", "selector": "header img.synthetic-logo", "exemption": { "kind": "logo", "reason": "SYNTHETIC example: reviewed fixed-size vector logo uses the original asset." } }
+    ] }
+  ]
+}

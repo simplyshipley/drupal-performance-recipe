@@ -2,3 +2,9 @@ vendor/
 *.log
 .env
 __pycache__/
+
+# Local browser audit results and environment-specific image policies.
+verification/playwright/image-test-results/
+verification/playwright/reports/
+verification/playwright/image-targets.*.json
+!verification/playwright/image-targets.example.json
