@@ -16,18 +16,23 @@ const names = /^[a-zA-Z0-9_-]{1,64}$/;
 const known = (object, keys) => object && typeof object === 'object' && !Array.isArray(object) && Object.keys(object).every((key) => keys.includes(key));
 const bounded = (value, min, max) => Number.isFinite(value) && value >= min && value <= max;
 
-export function validateImageConfig(env, data) {
-  if (!known(data, ['profile', 'pages', 'assetOrigins', 'viewports']) || !Array.isArray(data.pages)) throw new Error('IMAGE_TARGETS needs profile and pages; unknown properties are excluded.');
-  const base = validateConfig(env, { profile: data.profile, targets: data.pages.map((p) => ({ name: p?.name, kind: 'public', path: p?.path, expectedMaxAge: 0 })) });
-  const assetOrigins = [base.baseURL];
-  if (data.assetOrigins !== undefined && (!Array.isArray(data.assetOrigins) || data.assetOrigins.length > 12)) throw new Error('assetOrigins must be a reviewed list of at most 12 origins.');
-  for (const value of data.assetOrigins ?? []) {
+export function validateAssetOrigins(env, baseURL, origins) {
+  const assetOrigins = [baseURL];
+  if (origins !== undefined && (!Array.isArray(origins) || origins.length > 12)) throw new Error('assetOrigins must be a reviewed list of at most 12 origins.');
+  for (const value of origins ?? []) {
     let url; try { url = new URL(value); } catch { throw new Error('Invalid asset origin.'); }
-    const localQA = env.CACHE_PROFILE === 'qa' && new URL(base.baseURL).protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(new URL(base.baseURL).hostname) && url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+    const localQA = env.CACHE_PROFILE === 'qa' && new URL(baseURL).protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(new URL(baseURL).hostname) && url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
     if (url.username || url.password || url.pathname !== '/' || url.search || url.hash ||
         (url.protocol !== 'https:' && !localQA)) throw new Error('Asset origins must be HTTPS origins without credentials or paths (explicit loopback QA origins are allowed).');
     assetOrigins.push(url.origin);
   }
+  return [...new Set(assetOrigins)];
+}
+
+export function validateImageConfig(env, data) {
+  if (!known(data, ['profile', 'pages', 'assetOrigins', 'viewports']) || !Array.isArray(data.pages)) throw new Error('IMAGE_TARGETS needs profile and pages; unknown properties are excluded.');
+  const base = validateConfig(env, { profile: data.profile, targets: data.pages.map((p) => ({ name: p?.name, kind: 'public', path: p?.path, expectedMaxAge: 0 })) });
+  const assetOrigins = validateAssetOrigins(env, base.baseURL, data.assetOrigins);
   const viewports = data.viewports ?? [{ name: 'desktop', width: 1440, height: 900, deviceScaleFactor: 1 }, { name: 'mobile', width: 390, height: 844, deviceScaleFactor: 2 }];
   if (!Array.isArray(viewports) || viewports.length !== 2 || new Set(viewports.map((v) => v?.name)).size !== 2) throw new Error('Configure one desktop and one mobile viewport.');
   for (const v of viewports) if (!known(v, ['name', 'width', 'height', 'deviceScaleFactor']) || !['desktop', 'mobile'].includes(v.name) || !Number.isInteger(v.width) || !Number.isInteger(v.height) || !bounded(v.width, 320, 2560) || !bounded(v.height, 320, 2000) || !bounded(v.deviceScaleFactor, 1, 3)) throw new Error('Viewports need desktop/mobile names, bounded fixed dimensions and DPR 1–3.');

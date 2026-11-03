@@ -1,0 +1,7 @@
+{
+  "profile": "qa",
+  "candidate": "default-src 'self'; base-uri 'self'; object-src 'none'; script-src 'self'; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-src 'self'; form-action 'self'",
+  "pages": [
+    { "name": "synthetic-csp-page", "kind": "public", "path": "/synthetic-csp-page", "expectedTitle": "SYNTHETIC CSP fixture", "expectedVisibleSelectors": ["main.synthetic-ready"] }
+  ]
+}

@@ -182,7 +182,7 @@ the origin web server. The recommended values, and what the local edge sends by 
 | `Permissions-Policy` | `camera=(), microphone=(), geolocation=(), payment=(), usb=()` |
 | `Cross-Origin-Opener-Policy` | `same-origin` (test pop-ups first) |
 | `Content-Security-Policy-Report-Only` | The starter policy in [uspsoig-cache-bot-check.md](uspsoig-cache-bot-check.md#csp-rollout) |
-| `Content-Security-Policy` | `frame-ancestors 'self'`. frame-ancestors is ignored in Report-Only, so enforce it separately. |
+| `Content-Security-Policy` | `frame-ancestors 'self'`. Enforce framing protection separately: Report-Only does not prevent framing. The [local CSP checks](../verification/playwright/CSP.md) do not test inbound embedding ([CSP specification](https://www.w3.org/TR/CSP3/#directive-frame-ancestors)). |
 | `X-Frame-Options` | `SAMEORIGIN` (legacy browsers) |
 
 **Enforcing CSP later:** use the drupal.org `csp` module (2.2.4, Drupal 10.2+/11, security

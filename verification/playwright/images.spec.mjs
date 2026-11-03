@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { safePath } from './policy.mjs';
+import { fulfillWithoutRedirects } from './response-guard.mjs';
 import { loadImageConfig, IMAGE_BOUNDS, imageCheck, safeImageURL, drupalStyle, safeImageAssetPath, evaluateImages, outcome } from './image-policy.mjs';
 
 const config = loadImageConfig();
@@ -61,14 +62,15 @@ for (const target of config.pages) {
     });
     await context.route('**/*', async (route) => {
       const request = route.request(); attempted++;
-      let reason = '';
+      let reason = '', main = false;
       if (!['GET', 'HEAD'].includes(request.method())) reason = 'non-read-method';
       else if (attempted > IMAGE_BOUNDS.requests) reason = 'request-budget';
       else if (['media', 'websocket', 'eventsource'].includes(request.resourceType())) reason = 'excluded-resource';
       else if (request.isNavigationRequest()) {
-        if (request.frame() !== page.mainFrame()) reason = 'subframe-document';
+        let frame; try { frame = request.frame(); } catch { /* Initial popup requests may lack a frame. */ }
+        if (!frame || frame !== page.mainFrame()) reason = 'subframe-document';
         else if (navigations || request.url() !== target.url) { reason = 'extra-navigation'; extraNavigation++; }
-        else navigations++;
+        else { navigations++; main = true; }
       }
       if (!reason) {
         try {
@@ -79,7 +81,12 @@ for (const target of config.pages) {
         } catch { reason = 'unsafe-resource-path'; }
       }
       if (reason) { blocked[reason] = (blocked[reason] ?? 0) + 1; await route.abort(); }
-      else await route.continue();
+      else {
+        try { await fulfillWithoutRedirects(route, { timeoutMs: IMAGE_BOUNDS.navigationMs, inspect: ({ redirect }) => {
+          if (redirect) { const key = main ? 'main-redirect' : 'resource-redirect'; blocked[key] = (blocked[key] ?? 0) + 1; if (main) extraNavigation++; }
+        } }); }
+        catch { blocked['response-interception-failed'] = (blocked['response-interception-failed'] ?? 0) + 1; await route.abort().catch(() => {}); }
+      }
     });
     try {
       let response;
@@ -101,6 +108,8 @@ for (const target of config.pages) {
       }
       add('request-budget', attempted <= IMAGE_BOUNDS.requests ? 'PASS' : 'FAIL', `at most ${IMAGE_BOUNDS.requests} attempted requests`, attempted, 'Reduce the target scope or investigate runaway page requests; excess attempts are blocked.');
       add('navigation-budget', navigations === 1 && !extraNavigation ? 'PASS' : 'FAIL', 'one top-level navigation and no redirect/reload attempts', { navigations, extraNavigation }, 'Additional navigation was blocked; do not infer the original intended page remained stable.');
+      add('response-redirects', !blocked['main-redirect'] && !blocked['resource-redirect'] ? 'PASS' : 'FAIL', 'no followed main or asset redirects', { main: blocked['main-redirect'] ?? 0, assets: blocked['resource-redirect'] ?? 0 }, 'Redirect responses are aborted before fulfillment; review canonical page/asset URLs.');
+      if (blocked['response-interception-failed']) add('response-interception', 'INCONCLUSIVE', 'all allowed responses captured', blocked['response-interception-failed'], 'Transport or context failure is not proof of an image-policy pass.');
       observations.push({ configuredViewport: testInfo.project.use.viewport, observedViewport: snapshot.viewport, dpr: snapshot.dpr,
         attemptedRequests: attempted, blockedRequests: blocked });
     } catch {

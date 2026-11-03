@@ -26,7 +26,7 @@ For each item record **PASS / FAIL / BLOCKED / accepted N/A**, date, operator, a
 
 ## 2. Run the automated checks
 
-The default [Playwright cache/header checks](../../verification/playwright/README.md) perform bounded HTTP GET probes using Playwright's request client; they do not render pages or require a browser download. Separate opt-in [image-style browser checks](../../verification/playwright/IMAGES.md) inspect configured page images in Chromium desktop/mobile contexts. Each mode has its own target file and expected/actual/reason/troubleshooting reports. Run them on your workstation/CI: `BASE_URL`, `CACHE_PROFILE` and `CACHE_TARGETS`/`IMAGE_TARGETS` are test-runner inputs, not new Azure App Service ENV entries; no PHP/module deployment is needed to run these audits. Neither reads Azure configuration, edits content or conducts outage tests.
+The default [Playwright cache/header checks](../../verification/playwright/README.md) perform bounded HTTP GET probes using Playwright's request client; they do not render pages or require a browser download. Separate opt-in [image-style browser checks](../../verification/playwright/IMAGES.md) inspect delivered images, while [CSP browser checks](../../verification/playwright/CSP.md) rehearse a candidate policy inside controlled Chromium contexts. Each mode has its own target file and expected/actual/reason/troubleshooting reports. Run them on your workstation/CI: `BASE_URL`, `CACHE_PROFILE` and `CACHE_TARGETS`/`IMAGE_TARGETS`/`CSP_TARGETS` are test-runner inputs, not new Azure App Service ENV entries; no PHP/module deployment is needed to run these audits. Neither reads Azure configuration, edits content or conducts outage tests.
 
 ```bash
 cd verification/playwright
@@ -131,6 +131,8 @@ curl -sS -o /dev/null -D - "$SITE/about-us" \
 
 - [ ] **F7 — Record the header matrix.** Test homepage and inner pages, real logged-in test account, logout, forms/AJAX/oEmbed/private files, and anonymous negative controls. Synthetic nonsecret cookie/Authorization probes supplement a real authenticated account; they do not certify personalized isolation. Set-Cookie alone is not a safe caching guard: Front Door may remove it from cacheable responses. Keep sensitive captures restricted.
 - [ ] **F8 — Security/compression headers.** Agreed HSTS/CSP/framing/content-type policy appears on both cache HIT and bypass responses. Validate embeds, forms and third-party resources; use the approved policy, not an invented strict CSP or unreviewed HSTS subdomain scope. Eligible text compression works. [Compression](../frontdoor-setup-guide.md#9-compression); [hardening](../hardening.md).
+
+- [ ] **F9 — Rehearse candidate CSP before deployment.** Run the opt-in [CSP browser checks](../../verification/playwright/CSP.md) from workstation/CI with a reviewed candidate and explicit QA pages/title/interaction expectations. Save separate `csp-report.html`/`csp-report.json`; compare local report-only versus enforcement behavior while preserving existing policies. Anonymous success does not certify admin toolbar, editor, media/dialogs or manual save/AJAX workflows. Cache bypass is not CSP bypass. Review violations, inventory gaps and manual coverage before any separately approved live report-only/enforcement rollout.
 
 ## 6. Origin restrictions, client IP, WAF and purge
 

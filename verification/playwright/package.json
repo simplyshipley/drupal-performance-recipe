@@ -9,7 +9,10 @@
     "test:unit": "node --test policy.test.mjs",
     "test:images": "playwright test --config playwright.images.config.mjs",
     "test:images:unit": "node --test image-policy.test.mjs",
-    "test:images:local": "node image-local-check.mjs"
+    "test:images:local": "node image-local-check.mjs",
+    "test:csp": "playwright test --config playwright.csp.config.mjs",
+    "test:csp:unit": "node --test csp-policy.test.mjs",
+    "test:csp:local": "node csp-local-check.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.61.1"

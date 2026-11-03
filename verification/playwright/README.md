@@ -1,19 +1,20 @@
 # Bounded Playwright deployment checks
 
-Two independently selected modes support the [deployment checklist](../../docs/guides/deployment-verification-checklist.md):
+Three independently selected modes support the [deployment checklist](../../docs/guides/deployment-verification-checklist.md):
 
 | Mode | Command | Purpose |
 |---|---|---|
 | Cache/header probes (default) | `npm test` | Explicit GET requests using Playwright's API client; no page rendering or browser download |
 | [Image-style browser checks](IMAGES.md) (opt-in) | `npm run test:images` | Chromium desktop/mobile checks against explicit image selectors, expected Drupal styles or reviewed exemptions |
+| [CSP browser checks](CSP.md) (opt-in) | `npm run test:csp` | Compare a reviewed candidate in browser-local report-only and enforcement passes; no live header changes |
 
-Both produce expected/actual/reason/troubleshooting reports and require an explicit environment/target file. Neither certifies the whole deployment. The instructions below describe the default cache/header mode; use [IMAGES.md](IMAGES.md) for browser installation, image expectations, bounds and interpretation.
+All modes produce expected/actual/reason/troubleshooting reports and require an explicit environment/target file. None certifies the whole deployment. The instructions below describe the default cache/header mode; use [IMAGES.md](IMAGES.md) for image expectations or [CSP.md](CSP.md) for candidate policy, approved QA interactions and optional existing authentication state.
 
 ## Install and run cache/header probes
 
-**These commands run on your workstation/CI.** `BASE_URL`, `CACHE_PROFILE`, `CACHE_TARGETS` and optional `STRICT_EDGE_HIT` are test-runner variables, not Azure App Service settings; no PHP/module deployment is required to run the checks. Cache mode uses `CACHE_TARGETS`; image mode separately uses `IMAGE_TARGETS`.
+**These commands run on your workstation/CI.** `BASE_URL`, `CACHE_PROFILE`, `CACHE_TARGETS` and optional `STRICT_EDGE_HIT` are test-runner variables, not Azure App Service settings; no PHP/module deployment is required to run the checks. Cache mode uses `CACHE_TARGETS`; image mode uses `IMAGE_TARGETS`; CSP mode uses `CSP_TARGETS` and can read an approved local QA state file through `CSP_STORAGE_STATE`. These are independent inputs, not Azure environment variables.
 
-Node.js 20+ and npm are required. The pinned dependency and lockfile are local to this folder. Browser downloads are unnecessary for `npm test`: these are HTTP API probes. The separate image mode requires its own Chromium installation.
+Node.js 20+ and npm are required. The pinned dependency and lockfile are local to this folder. Browser downloads are unnecessary for `npm test`: these are HTTP API probes. The separate image/CSP browser modes require Chromium.
 
 ```sh
 cd verification/playwright
@@ -39,7 +40,7 @@ All paths are explicit, same-origin and reviewed by the operator. Maximum 12 tar
 | `document` | HTTP200, non-HTML type, no-cache and no edge HIT. PDF/Office replacement and conditional Last-Modified checks remain manual. |
 | `video` | Explicit `range: [0, 1023]` (maximum64KiB, endpoint must be long enough). HTTP206, video/mp4, matching Content-Range and actual returned byte length, uncompressed. Sample range checks do not validate the entire video or replacement/purge. |
 
-Optional `requiredHeaders` lists security header names whose **presence** must survive each ordinary response, e.g. `["strict-transport-security", "x-content-type-options"]`. Review actual agreed values separately; this suite does not invent or enforce a CSP. Security header values are not saved.
+Optional `requiredHeaders` lists security header names whose **presence** must survive each ordinary response, e.g. `["strict-transport-security", "x-content-type-options"]`. Review actual agreed values separately; this default cache/header mode does not invent or enforce a CSP. The separate [CSP mode](CSP.md) tests a reviewed candidate locally. Security header values are not saved.
 
 Public/static/video cases inspect X-Cache for an observed TCP_HIT/TCP_REMOTE_HIT. Existing POP state may give a first-request HIT or repeated MISS. Without an observed HIT the result is **INCONCLUSIVE** and the process can exit0 if policy checks pass. Select `STRICT_EDGE_HIT=1` only when edge caching is required and that bounded observation should fail the run. It does not promise a second-request HIT or retry until success. Review report outcomes even when exit status is0.
 

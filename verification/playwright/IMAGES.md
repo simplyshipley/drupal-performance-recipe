@@ -82,6 +82,7 @@ To choose real styles/selectors, inspect the field formatter, image/responsive-i
 |---|---|
 | Document title does not contain the configured literal `expectedTitle` | FAIL; confirm intended page, access and title expectation before interpreting shared-logo/image results |
 | Other page images lie outside the reviewed selectors | INCONCLUSIVE coverage; add reviewed role-specific rules/exemptions or record the remaining manual scope |
+| Page or image/asset response redirects | FAIL; main and allowed-resource redirects are aborted before browser fulfillment. Review canonical page/served asset URLs rather than relying on a redirect chain |
 | No images match the configured selector | FAIL; fix page/template/selector coverage. An empty selection is never a successful style check |
 | Loaded selected image uses an unapproved style/original without exemption | FAIL; review formatter/candidate selection or add a reasoned exemption if intentional |
 | Positive visible-layout raster dimensions exceed `maxRatio` | FAIL; review selected derivative, display dimensions and DPR before changing quality |
@@ -114,4 +115,4 @@ npm run test:images:unit
 npm run test:images:local
 ```
 
-These exercise image policy and browser behavior against explicitly synthetic local fixtures; they do not contact QA, production, Drupal, Redis or Azure. Install Chromium before the local browser fixture command. See the builder/test output for the exact cases run rather than treating this documentation as a deployed pass receipt.
+These exercise image policy and browser behavior against explicitly synthetic local fixtures, including main-document and image-resource redirects to a separate trap server: both are expected failures, and the trap must receive no request. Allowed responses use redirect-disabled fetches and abort redirect statuses before fulfillment; they do not contact QA, production, Drupal, Redis or Azure. Install Chromium before the local browser fixture command. See the builder/test output for the exact cases run rather than treating this documentation as a deployed pass receipt.

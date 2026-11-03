@@ -46,6 +46,7 @@ const fixture = (name) => {
     + img('synthetic-broken', '/synthetic-broken.png');
   if (name === '/synthetic-wrong-page') { title = 'SYNTHETIC login'; content = img('synthetic-style', one); }
   if (name === '/synthetic-inactive-picture') content = `<picture><source media="(min-width:9999px)" srcset="${one}" sizes="120px">${img('synthetic-picture', one)}</picture>`;
+  if (name === '/synthetic-redirect-image') content = img('synthetic-redirect', '/synthetic-redirect-asset.png');
   if (name === '/synthetic-inconclusive') content = img('synthetic-hidden', one, 'style="display:none"')
     + '<div style="height:20000px"></div>' + img('synthetic-lazy', '/sites/default/files/styles/synthetic_card/public/lazy.png', 'loading="lazy"');
   if (name === '/synthetic-no-images') content = '<main>SYNTHETIC page without images</main>';
@@ -55,6 +56,7 @@ const server = createServer((req, res) => {
   requests.push({ method: req.method, path: req.url });
   const path = new URL(req.url, 'http://synthetic.invalid').pathname;
   res.setHeader('Set-Cookie', 'SYNTHETIC_SECRET=must-not-appear');
+  if (path === '/synthetic-redirect-main' || path === '/synthetic-redirect-asset.png') { res.writeHead(302, { Location: `${trapOrigin}/synthetic-redirect-trap` }); return res.end(); }
   if (path.endsWith('.png')) {
     if (path === '/synthetic-broken.png') { res.writeHead(404); return res.end('SYNTHETIC missing image'); }
     res.writeHead(200, { 'Content-Type': 'image/png' }); return res.end(path.includes('large.png') ? large : small);
@@ -105,6 +107,8 @@ try {
     page('/synthetic-fail', ['synthetic-original', 'synthetic-wrong', 'synthetic-responsive', 'synthetic-oversize', 'synthetic-broken'].map((name) => rule(name, { requireResponsive: name === 'synthetic-responsive' }))),
     page('/synthetic-no-images', [rule('synthetic-style')]), page('/synthetic-wrong-page', [rule('synthetic-style')]),
     page('/synthetic-inactive-picture', [rule('synthetic-picture', { requireResponsive: true })]),
+    page('/synthetic-redirect-main', [rule('synthetic-style')]),
+    page('/synthetic-redirect-image', [rule('synthetic-redirect')]),
   ], 1, 'FAIL');
   for (const project of ['desktop', 'mobile']) {
     const failed = bad.results.find((r) => r.name === `synthetic-fail-${project}`).checks.filter((c) => c.outcome === 'FAIL').map((c) => c.id);
@@ -112,6 +116,8 @@ try {
     assert.ok(bad.results.find((r) => r.name === `synthetic-wrong-page-${project}`).checks.some((c) => c.id === 'page-identity' && c.outcome === 'FAIL'));
     assert.ok(bad.results.find((r) => r.name === `synthetic-no-images-${project}`).checks.some((c) => c.id === 'image-coverage' && c.outcome === 'FAIL'));
     assert.ok(bad.results.find((r) => r.name === `synthetic-inactive-picture-${project}`).checks.some((c) => c.id.endsWith('responsive') && c.outcome === 'FAIL'));
+    assert.ok(bad.results.find((r) => r.name === `synthetic-redirect-main-${project}`).checks.some((c) => c.outcome === 'FAIL'));
+    assert.ok(bad.results.find((r) => r.name === `synthetic-redirect-image-${project}`).checks.some((c) => c.id === 'response-redirects' && c.outcome === 'FAIL'));
   }
   await run('synthetic-inconclusive', [page('/synthetic-inconclusive', [rule('synthetic-hidden'), rule('synthetic-lazy', { requireLazyBelowFold: true })])], 0, 'INCONCLUSIVE');
   console.log(`PASS: actual Chromium positive/negative/deferred fixtures, desktop/mobile, network isolation and report privacy. Evidence retained: ${temp}`);

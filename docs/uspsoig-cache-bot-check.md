@@ -81,6 +81,8 @@ The homepage sends the basic headers but two need tightening and a few are missi
 
 ### CSP rollout
 
+For the current local browser workflow, use [Playwright CSP verification](../verification/playwright/CSP.md): compare a reviewed candidate in report-only and local enforcement passes, retain the existing policies, and test approved QA interactions. The dated homepage observations below are not a universal allowlist or an approved production policy; admin/editor/embed coverage still needs separate evidence.
+
 1. **Inventory third parties** the site loads (analytics such as the Digital Analytics Program, fonts, video embeds, forms). Oct 6 found Google Tag Manager and `hotlineform.uspsoig.gov` (below). Default: finish the list from the report-only reports in step 2, which name every blocked host.
 2. **Send `Content-Security-Policy-Report-Only`** with a starting policy, collecting reports for 2 to 4 weeks:
     `default-src 'self'; script-src 'self' <analytics hosts>; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' <analytics hosts>; frame-src <video hosts>; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests`
