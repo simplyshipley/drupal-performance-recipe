@@ -176,62 +176,40 @@ az network private-dns link vnet list -g <dns rg> -z <zone> -o table
   - Step 2: `internal` is `true`, as in section 2.
   - Step 3: `tcp`, `external` `true`; the examples use target/exposed `6379`. An existing QA exposed `6378` → target `6379` mapping is also compatible: connect using `REDIS_PORT=6378`.
   - Step 5: the App Service's VNet is listed.
-- **The real proof is 3c:** a private IP and `port open` from inside the App Service.
+- **Runtime verification follows in 3c and 3d:** network reachability from the App Service is one check; Drupal's configured client/backend and Apache web runtime need their own evidence.
 - Commands and fields are from the Learn references for [az webapp vnet-integration](https://learn.microsoft.com/en-us/cli/azure/webapp/vnet-integration?view=azure-cli-latest), [az containerapp env](https://learn.microsoft.com/en-us/cli/azure/containerapp/env?view=azure-cli-latest), [managedEnvironments](https://learn.microsoft.com/en-us/azure/templates/microsoft.app/managedenvironments), [containerApps](https://learn.microsoft.com/en-us/azure/templates/microsoft.app/containerapps), [private-dns link vnet](https://learn.microsoft.com/en-us/cli/azure/network/private-dns/link/vnet?view=azure-cli-latest) and [vnet peering](https://learn.microsoft.com/en-us/cli/azure/network/vnet/peering?view=azure-cli-latest). They haven't been run against a subscription.
 
 ### 3c. The site can reach it (App Service SSH console)
 
 ```bash
-set | egrep --color 'WEBSITE_PRIVATE_IP'                                         # VNet integration: the app has a private IP
-cat /proc/1/environ | tr '\0' '\n' | grep -aE '^REDIS_(HOST|PORT|PREFIX)='      # settings the site process sees
-getent hosts "$REDIS_HOST"                                                       # DNS: prints a private IP
-timeout 3 bash -c "</dev/tcp/$REDIS_HOST/${REDIS_PORT:-6379}" && echo "port open"               # network
-php -r '$r=new Redis(); $r->connect(getenv("REDIS_HOST"),(int)(getenv("REDIS_PORT") ?: 6379),2); $r->auth(getenv("REDIS_PASSWORD")); echo $r->ping(),PHP_EOL;'
+drush perf:diagnose --redis
 ```
 
-- Good: `WEBSITE_PRIVATE_IP=<IP address>`, the three settings, a private IP, `port open`, then `1` or `+PONG`.
-- These TCP-container checks use the client-facing `REDIS_PORT`, falling back to `6379` when unset/empty. Set `REDIS_PORT=6378` for the existing QA exposed `6378` → listener `6379` mapping; no ingress or listener change is required. The Drupal settings include also honors explicit `6378` under TLS; TLS changes the connection scheme, not an explicitly supplied port.
-- `WEBSITE_PRIVATE_IP` and the `curl` test are Learn's checks for Linux apps ([troubleshoot virtual network integration](https://learn.microsoft.com/en-us/troubleshoot/azure/app-service/troubleshoot-vnet-integration-apps)):
-  - Integration: "If the private IP is assigned successfully, you get the following output: WEBSITE_PRIVATE_IP=<IP address>". It's also on the app's Kudu `/Env` page.
-  - Connection (default-port example): "To test connectivity, use Curl directly with the following syntax: ... curl hostname:[port]". Against Redis, `curl -v "$REDIS_HOST:6379"` prints `Connected to <host> (<ip>) port 6379` when the network path works, then `Empty reply from server` and exit code 52, because Redis doesn't speak HTTP [V: lab Redis, 2026-10-23]. The `/dev/tcp` line above tests the same thing.
-- If `REDIS_HOST` is empty in the SSH session but present in `/proc/1/environ`, run `while IFS= read -r v; do export "$v"; done < <(tr '\0' '\n' < /proc/1/environ | grep -a '^REDIS_')` first. Learn: app settings are "injected into the process as environment variables", and in SSH "you might see only a few environment variables" ([custom container, Configure environment variables](https://learn.microsoft.com/en-us/azure/app-service/configure-custom-container#configure-environment-variables)).
+- Run from the correct site's root with the current `perf_redis_failopen` module and settings include installed. The shared report uses Drupal's **effective** settings, including normalized host/password/switches, scheme, port and selected Redis database. It checks DNS, TCP, connection/TLS, authentication, PING and short-lived synthetic read/write items without clearing application bins. Review each result; an unconfigured database selection can correctly be `SKIP` when Drupal uses database 0.
+- Compare the final configured port with the exposed ingress port. QA exposed `6378` → listener/target/probes `6379` uses `REDIS_PORT=6378`; no ingress or listener change is required. An explicit port remains unchanged for TCP or TLS. Only an absent/empty normalized port defaults to `6379` for TCP or `6380` for TLS.
+- Raw `getenv()` checks do not run the settings normalizer: quoted inputs can fail a standalone PHP connection while Drupal has normalized values. Do not replace the shared collector with another raw ENV connection script. The report keeps redacted raw-versus-effective metadata for that comparison.
+- CLI and Apache can see different environments. A successful Drush report is evidence for that CLI runtime only. For the actual web request, set `REDIS_DEBUG=1` on the App Service, inspect the protected existing `/admin/reports/redis` diagnostics, compare its SAPI/effective settings and outcomes, then turn the flag off. Full deployment, DNS and web/CLI guidance: [Azure Drush works but web requests do not use Redis](../../docs/troubleshooting-commands.md#azure-drush-works-but-web-requests-do-not-use-redis). Do not export every Redis value or print passwords to diagnose the difference.
+- For the separate Azure network checks, inspect `WEBSITE_PRIVATE_IP`, VNet integration and the configured endpoint/ports using [Microsoft's VNet troubleshooting guide](https://learn.microsoft.com/en-us/troubleshoot/azure/app-service/troubleshoot-vnet-integration-apps). Network reachability alone does not prove authentication or Drupal cache use.
 
 ### 3d. Drupal uses it
 
 ```bash
 drush php:eval "print get_class(\Drupal::cache('render')) . PHP_EOL;"
-drush php:eval "\$r = new Redis(); \$r->connect(getenv('REDIS_HOST'), (int) (getenv('REDIS_PORT') ?: 6379), 2); \$r->auth(getenv('REDIS_PASSWORD')); print \$r->dbSize() . ' keys' . PHP_EOL;"
+drush perf:diagnose --redis
 drush watchdog:show --type=perf_redis_failopen --count=10
 ```
 
 - Good:
   - `Drupal\perf_redis_failopen\Cache\FailOpenCacheBackend`.
-  - A key count that grows after you load a few pages.
-  - No recent "Redis unavailable" rows.
+  - Successful configured-client and backend round-trip outcomes, with no unresolved failure or cooldown/pending-flush skip.
+  - No new "Redis unavailable" rows during the test interval.
 - `DatabaseBackend` instead: Drupal isn't using Redis (see 4, "Render bin is DatabaseBackend").
 
-**Prove it with traffic.** The class name alone isn't proof: `FailOpenCacheBackend` also shows while Redis is unreachable, and then the site serves cache misses. Run this, load 3 or 4 pages as an anonymous visitor (a private window), then run it again:
+**Verify real web usage with traffic.** `FailOpenCacheBackend` also shows while Redis is unreachable and serving misses. First resolve the web report's effective settings and client/backend outcomes. Then compare the container's section 3e statistics before and after repeated approved anonymous requests that actually reach Drupal. A Front Door HIT can serve the page without touching origin Redis; account for that when selecting the QA traffic window. Diagnostic probes themselves perform synthetic cache operations, so their counter changes are not anonymous-traffic evidence.
 
-```bash
-redis_stats() { php -r '
-$s = getenv("REDIS_SCHEME") === "tls" ? "tls://" : "";
-$r = new Redis(); $r->connect($s . getenv("REDIS_HOST"), (int) (getenv("REDIS_PORT") ?: 6379), 3);
-if ((string) getenv("REDIS_PASSWORD") !== "") { $r->auth(getenv("REDIS_PASSWORD")); }
-$pre = getenv("REDIS_PREFIX"); $n = 0; $it = NULL; $r->setOption(Redis::OPT_SCAN, Redis::SCAN_RETRY);
-while (($k = $r->scan($it, $pre . ":*", 1000)) !== FALSE) { $n += count($k); }
-$i = $r->info("stats");
-printf("keys %s:* = %d   keyspace_hits = %d   keyspace_misses = %d\n", $pre, $n, $i["keyspace_hits"], $i["keyspace_misses"]);'; }
-redis_stats
-drush sqlq "SELECT COUNT(*) FROM cache_render"
-```
-
-- **Good:**
-  - The key count under the site's `REDIS_PREFIX` grows.
-  - `keyspace_hits` goes up when pages repeat.
-  - `cache_render` in the database stays at `0`: while Redis serves the bin, its table stays empty ([Redis bin switching in settings.performance.php](../../drupal-performance-modules/settings/settings.performance.php)).
-- Lab, 6 page loads: keys 123 → 201, hits 5 → 78, `cache_render` 0 → 0 [V: `tmp/az-vnet-20261023/redis-usage-lab.log`, 2026-10-23].
-- The key counts are only for this site's `REDIS_PREFIX`. `keyspace_hits` counts the whole Redis server, so other sites sharing it add to it.
-- **Not run on Azure Managed Redis.** If it refuses `INFO`, the key count and the empty `cache_render` are still the proof.
+- Correlate the correct Redis instance, selected database and site prefix with growing cache activity/repeated-request hits and the web diagnostics. Global `keyspace_hits` also includes other clients. A key count that does not grow can be normal for an already warm cache.
+- An empty database `cache_render` table is supplementary evidence only: fail-open can also leave that table empty while all web cache reads miss. Existing database rows can remain from an earlier database-cache interval. Neither that table count, a wrapper class nor a CLI PING proves web Redis use on its own.
+- Historical local observation, not an Azure acceptance receipt: 6 page loads produced keys 123 → 201, hits 5 → 78 and `cache_render` 0 → 0 [V: `tmp/az-vnet-20261023/redis-usage-lab.log`, 2026-10-23]. If a managed service restricts `INFO`/SCAN, record the measurement gap; do not treat missing counters as proof. Full acceptance checks: [Redis container, real usage and recovery](../../docs/guides/deployment-verification-checklist.md#4-redis-container-real-usage-and-recovery).
 
 **In the browser:** the redis module's report, `/admin/reports/redis`, needs the "access redis report" permission.
 - It shows the client, Keys, "Keys per cache bin" and Memory (`redis/src/Controller/ReportController.php:197-236`).
@@ -255,13 +233,13 @@ redis-cli dbsize
 | Log: `redis-entrypoint: set REDIS_PASSWORD (single site) or REDIS_APP_USERS (shared); refusing to start without authentication` [V] | No password reached the container | Env vars and Secrets on the container app | Add the secret and the `REDIS_PASSWORD` env var, then create a new revision |
 | Revision never starts; system log mentions pull or unauthorized | The registry identity lacks AcrPull, or the registry server isn't set | `az containerapp logs show -g <rg> -n <app> --type system` [Learn: `--type {console, system}`] | Give the identity AcrPull, and set the registry with that identity |
 | Can't create TCP ingress | The environment has no VNet | Environment settings | TCP ingress needs a VNet environment (Microsoft Learn) |
-| `getent hosts` prints nothing | Private DNS zone missing or not linked to the App Service VNet | Private DNS zone, VNet links | Zone = environment default domain, `*` A record → environment static IP, link to the VNet |
-| `port open` never prints | No VNet integration, the app's ingress is internal instead of external, or a network security group or route blocks 6379 | App Service → Networking; the container app's Ingress page; the subnets' security groups | Integrate the App Service; set ingress to external; allow 6379 from its subnet |
+| Effective DNS check fails | Host setting, private DNS zone or VNet link needs investigation | Compare web/CLI effective host and PHP resolver details; private DNS zone, VNet links | Correct the actual host or DNS configuration; for the documented private environment, zone = environment default domain, `*` A record → environment static IP, linked to the VNet |
+| Effective TCP check fails | No VNet integration, incorrect ingress/port mapping, or a network security group/route blocks the connection | App Service → Networking; container Ingress; compare exposed, target/listener and probe ports | Restore the intended network path. QA uses exposed `6378` → target/listener/probes `6379`; allow the appropriate port on each hop rather than changing every field to 6379 |
 | `NOAUTH Authentication required.` [V] | The client sent no password | `REDIS_PASSWORD` on the App Service | Set it, as a Key Vault reference |
 | `WRONGPASS invalid username-password pair or user is disabled.` [V] | The passwords differ, or the Key Vault reference isn't resolving | App Service → Configuration: the Key Vault reference shows a green check | Give the site's identity Key Vault Secrets User; make both sides use the same secret |
 | Works, then `WRONGPASS` after a password change | The container still has the old secret | Revision start time | Restart the revision. With a Key Vault reference (no version), Container Apps restarts it within 30 minutes |
 | `NOPERM User default has no permissions to run the 'flushall' command` [V] | Expected: the app login can't run FLUSHALL, CONFIG, KEYS, DEBUG and similar | – | Clear Drupal's cache with `drush cr`. Use the `admin` login (`REDIS_ADMIN_PASSWORD`) only for operator work |
-| Render bin is `DatabaseBackend` | `REDIS_HOST` not set for the site, or the app didn't restart | 3c, first line | Set the app settings; the App Service restarts |
+| Render bin is `DatabaseBackend` | Redis is disabled, activation prerequisites are absent, or another settings include overrides the bin | 3c effective settings and web/CLI comparison | Verify `REDIS_ENABLED`, normalized host, phpredis, module code and actual loaded includes; correct the configuration and allow the App Service restart |
 | "Redis unavailable, serving cache misses for … s" in Drupal's log | Drupal can't reach Redis; the site stays up, slower | 3a to 3c | Fix the cause. "Redis reachable again; emptied bin …" follows when it recovers |
 | Cache empty after a deploy or restart | Expected: nothing is saved to disk | `uptime_in_seconds` | None; Drupal refills it |
 | Memory alert or steady `evicted_keys` | Cache too small for the site | 3e | Raise container memory and `REDIS_MAXMEMORY` together (about 75 percent) |

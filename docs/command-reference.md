@@ -50,7 +50,7 @@ lando rebuild -y                             # good: all services start again
 ```
 
 - **Never run a full `drush cron` on a copy of a real site.** On the OIG copy it ran `block_inactive_users` and disabled 3 accounts. To send purges use `p:queue-work` (section 5).
-- Settings loaded: `lando drush php:eval "print getenv('REDIS_HOST');"` # good: `cache` (local), the Redis host on Azure.
+- Effective Redis settings and connectivity: `lando drush perf:diagnose --redis` (Azure SSH: omit `lando`). Inspect the configured host/port/bin metadata and each check. Raw `getenv()` is process input, not proof of the normalized effective Drupal settings. Compare with the protected web report for Apache evidence ([shared diagnostics](#shared-runtime-diagnostic-report)).
 - Config differences: `lando drush config:status` # good: no unexpected "Different" rows. Values overridden in `settings.php` differ on purpose.
 
 Source: [troubleshooting-commands.md](troubleshooting-commands.md) sections 1, 2, 7, 8; [quickstart-lando.md](quickstart-lando.md); Drush core commands.
@@ -277,7 +277,7 @@ Redis and settings:
 Dangerous or secret-printing, avoid:
 
 - **[SECRET]** `drush cget azure_cdn_purge.settings --include-overridden` prints the client secret. Use the section 5 form.
-- **[SECRET]** `printenv` / `env` in the container prints every secret. Check one variable: `drush php:eval "print getenv('REDIS_HOST');"`.
+- **[SECRET]** `printenv` / `env` in the container prints every secret. Use `drush perf:diagnose --redis` for redacted raw/effective setting metadata; do not print passwords or whole connection/config arrays.
 - **[SECRET]** `az keyvault secret show` prints the value ([redis/azure/README.md](https://github.com/simplyshipley/drupal-performance-recipe/blob/main/redis/azure/README.md) uses it only inside a deploy).
 
 Source: `docs/azure.md`, `redis/docs/redis-image.md`, `redis/azure/README.md`, `redis/bin/docker-*`, `docs/caching-guide.md`.

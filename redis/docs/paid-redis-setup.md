@@ -150,14 +150,14 @@ Where: the app → **Settings** → **Environment variables** → **App settings
 
 Set the `REDIS_*` values on each site's App Service, not in the Dockerfile, so every site has its own. Learn: "When your app runs, the App Service app settings are automatically injected into the process as environment variables." ([custom container](https://learn.microsoft.com/en-us/azure/app-service/configure-custom-container#configure-environment-variables)) The settings file reads them with `getenv()` ([environment helper in settings.performance.php](../../drupal-performance-modules/settings/settings.performance.php)).
 
-These variables are read by the [Redis backend settings](../../drupal-performance-modules/settings/settings.performance.php). Host, port and scheme trim exterior whitespace/quote characters; passwords remain unchanged:
+These variables are read by the [Redis backend settings](../../drupal-performance-modules/settings/settings.performance.php). Every supported ENV value uses the same exterior whitespace/single/double-quote trim, including passwords and other credentials. Embedded characters and the process environment remain unchanged; empty after trimming uses the setting's default. Do not print credentials to verify this:
 
 | App setting | A. Managed Redis | B. Premium | What the code does with it |
 |---|---|---|---|
 | `REDIS_HOST` | Host from **Overview** (1A) | `<name>.redis.cache.usgovcloudapi.net` | Unset/empty normalized host means no Redis at all |
 | `REDIS_SCHEME` | `tls` | `tls` | `tls` makes the normalized host `tls://<host>` |
 | `REDIS_PORT` | `10000` | `6380` | Default with `tls` is `6380`; an explicit normalized port wins |
-| `REDIS_PASSWORD` | Key Vault reference to the access key | Key Vault reference to the access key | Sent unchanged as the password (module `src/Client/PhpRedis.php:35-37`) |
+| `REDIS_PASSWORD` | Key Vault reference to the access key | Key Vault reference to the access key | Exterior whitespace/quotes are trimmed by the settings helper before the effective password is passed to the Redis client |
 | `REDIS_PREFIX` | One per site, for example `oig-<site>-qa` | Same | Becomes `cache_prefix`. `docs/azure.md` table, in the drupal-performance-recipe repository: "App setting, one per site" |
 
 - Key Vault reference format (Azure Government): `@Microsoft.KeyVault(SecretUri=https://<kv>.vault.usgovcloudapi.net/secrets/<name>)`. The app's identity needs **Key Vault Secrets User** (`docs/azure.md`, "Key Vault references (Azure Government)", in the drupal-performance-recipe repository).
@@ -179,50 +179,40 @@ Stop at the first check that fails and use the table in 5c.
 
 ### 5a. From the App Service SSH console
 
-If `REDIS_HOST` is empty in SSH, load the app settings first: Learn says that in SSH "you might see only a few environment variables" ([SETUP-GUIDE.md, 3c](SETUP-GUIDE.md#3c-the-site-can-reach-it-app-service-ssh-console) has the command).
+Run from the correct site's Drupal root, with the current diagnostic module and settings include installed. Use the existing collector so the checks use Drupal's effective normalized host/password, TLS scheme, explicit port and database selection rather than an independent raw `getenv()` connection:
 
 ```bash
-cat /proc/1/environ | tr '\0' '\n' | grep -aE '^REDIS_(HOST|PORT|SCHEME|PREFIX|ENABLED)='   # settings the site sees (not the password)
-php -r 'var_dump(extension_loaded("redis"));'                                     # phpredis loaded
-getent hosts "$REDIS_HOST"                                                        # DNS
-timeout 3 bash -c "</dev/tcp/$REDIS_HOST/$REDIS_PORT" && echo "port open"         # network
-php -r '$r=new Redis(); $r->connect("tls://".getenv("REDIS_HOST"),(int)getenv("REDIS_PORT"),2); $r->auth(getenv("REDIS_PASSWORD")); echo $r->ping(),PHP_EOL;'   # TLS + access key
+drush perf:diagnose --redis
 ```
 
 Good:
 
-- The four settings, plus `REDIS_ENABLED` only if it's set (unset means `1`, [Redis variable defaults in settings.performance.php](../../drupal-performance-modules/settings/settings.performance.php)); `bool(true)`.
-- A private IP address. Learn's check: "Run a command like nslookup <hostname> from within the VNet that is linked to the private endpoint to verify that the command resolves to the private IP address for the cache." ([private link FAQ](https://learn.microsoft.com/en-us/azure/azure-cache-for-redis/cache-private-link#how-do-i-verify-if-my-private-endpoint-is-configured-correctly))
-- `port open`.
-- `1` or `+PONG`, as in [SETUP-GUIDE.md, 3c](SETUP-GUIDE.md#3c-the-site-can-reach-it-app-service-ssh-console) (there without TLS). The TLS form is the one in [hosting-and-cost.md, section 4](hosting-and-cost.md#4-azure-managed-redis-not-in-the-azure-government-fedramp-table) and the Container Apps README's TLS check ([azure/README.md](../azure/README.md)).
+- PhpRedis is loaded; final connection settings match section 3, including TLS and the service's explicit `10000` or `6380` port. Unset `REDIS_ENABLED` means enabled when the activation prerequisites hold, not disabled.
+- The PHP DNS check resolves the intended private endpoint address, followed by successful TCP, connection/TLS, authentication and PING checks. Review actual error details before choosing a fix. A public address where private connectivity is intended needs the section 2 DNS/VNet review ([private link FAQ](https://learn.microsoft.com/en-us/azure/azure-cache-for-redis/cache-private-link#how-do-i-verify-if-my-private-endpoint-is-configured-correctly)).
+- The transport and actual Drupal backend checks can perform short-lived synthetic read/write operations without clearing application bins. An unconfigured database-selection row can correctly be `SKIP` for database 0; a cooldown/pending-flush backend skip remains unresolved evidence.
+- CLI success does not establish Apache success. Compare with protected `/admin/reports/redis` diagnostics under `REDIS_DEBUG=1`, then turn the flag off. See [web/CLI diagnostics](../../docs/troubleshooting-commands.md#azure-drush-works-but-web-requests-do-not-use-redis). Do not export or print every Redis variable; use redacted raw-versus-effective metadata to investigate differences.
 
 ### 5b. Drupal uses the recipe's backend
 
-Reuse [evidence/no-redis-check/bins.php](evidence/no-redis-check/bins.php). In the SSH console, from the Drupal project root:
+The shared report includes final bin assignments and a configured backend round trip. For the normal six-bin recipe defaults, the wrapper class is an additional configuration check:
 
 ```bash
-cat > /tmp/bins.php <<'PHP'
-<?php
-printf("date=%s | Drupal %s | PHP %s\n", gmdate("c"), \Drupal::VERSION, PHP_VERSION);
-printf("REDIS_HOST=%s\n", getenv("REDIS_HOST") === FALSE ? "(unset)" : getenv("REDIS_HOST"));
-foreach (["render","page","dynamic_page_cache","data","entity","menu"] as $b) { print $b . " => " . get_class(\Drupal::cache($b)) . PHP_EOL; }
-PHP
-drush php:script /tmp/bins.php
+drush php:eval 'foreach (["render","page","dynamic_page_cache","data","entity","menu"] as $bin) { print $bin . " => " . get_class(\Drupal::cache($bin)) . PHP_EOL; }'
+drush watchdog:show --type=perf_redis_failopen --count=10
 ```
 
 - Good: all six bins `Drupal\perf_redis_failopen\Cache\FailOpenCacheBackend`, as in the lab run with `REDIS_HOST` set ([result-site.txt](evidence/no-redis-check/result-site.txt)).
-- `drush php:script` runs a script given by its path: drush 13.7.6 `src/Commands/core/PhpCommands.php:61` (`file_exists($script)`).
-- Then the fail-open log: `drush watchdog:show --type=perf_redis_failopen --count=10` shows no recent "Redis unavailable" rows ([SETUP-GUIDE.md, 3d](SETUP-GUIDE.md#3d-drupal-uses-it)).
-- Then prove it with traffic. The class name also shows while Redis is unreachable. Run the `redis_stats` check in [SETUP-GUIDE.md, 3d](SETUP-GUIDE.md#3d-drupal-uses-it) before and after loading a few pages; it reads `REDIS_SCHEME=tls`, `REDIS_PORT=10000` and the access key from the app settings.
+- No new "Redis unavailable" rows during the test interval. A wrapper class alone does not prove successful cache reads; it also appears during fail-open misses.
+- Then verify traffic using [SETUP-GUIDE.md, 3d](SETUP-GUIDE.md#3d-drupal-uses-it): correlate the web runtime's effective settings and client/backend outcomes with the intended instance/database/prefix activity. A Front Door HIT need not reach origin Redis, diagnostic probes themselves add activity, and managed-service `INFO`/SCAN restrictions are a measurement gap. Empty database-cache tables or a key count alone do not establish web use.
 
 ### 5c. If a check fails
 
 | You see | Meaning | Do this |
 |---|---|---|
-| `bool(false)` from `extension_loaded` | No phpredis in the image | Section 0: add `redis-^6.3@stable` to the base image's `install-php-extensions` list, or `RUN install-php-extensions apcu redis-^6.3@stable` in the site Dockerfile's **final** stage (`docs/install.md`, section 1, in the drupal-performance-recipe repository). Then redeploy. |
-| `getent` prints nothing, or a public address | With `REDIS_HOST` set in this shell: the private DNS zone isn't linked to the app's virtual network, or the app isn't integrated | First, `echo "$REDIS_HOST"` must print the host name; if it's empty, load the settings (5a, first paragraph). Then section 2a, steps 3 and 5 |
-| No `port open` | Wrong port, no integration, or an outbound NSG rule blocks it: "Control the traffic by using NSG rules for outbound traffic on source clients." ([private link FAQ](https://learn.microsoft.com/en-us/azure/azure-cache-for-redis/cache-private-link#are-network-security-groups-nsg-enabled-for-private-endpoints)) | Port: 10000 (Managed Redis) or 6380 (Premium), section 3. Then section 2 |
-| An error from `auth`, or no `1`/`+PONG` after it | Access keys are off, or the Key Vault reference didn't resolve | Section 1 (access keys on); `docs/azure.md`, Key Vault references, in the drupal-performance-recipe repository: "If the reference doesn't resolve, the literal `@Microsoft.KeyVault(...)` text is passed to the site as the value" |
+| PhpRedis extension check fails | No phpredis in the reported runtime | Section 0: add `redis-^6.3@stable` to the base image's `install-php-extensions` list, or `RUN install-php-extensions apcu redis-^6.3@stable` in the site Dockerfile's **final** stage (`docs/install.md`, section 1, in the drupal-performance-recipe repository). Then redeploy and compare Apache with CLI. |
+| Effective DNS check fails, or resolves a public address where private access is intended | Host configuration or private DNS/VNet integration needs investigation | Compare the web and CLI effective host and resolver results, then section 2a, steps 3 and 5. Raw shell ENV alone does not establish the host Drupal uses. |
+| Effective TCP check fails | Wrong port, no integration, or an outbound NSG rule blocks it: "Control the traffic by using NSG rules for outbound traffic on source clients." ([private link FAQ](https://learn.microsoft.com/en-us/azure/azure-cache-for-redis/cache-private-link#are-network-security-groups-nsg-enabled-for-private-endpoints)) | Compare the effective port with 10000 (Managed Redis) or 6380 (Premium), section 3. Then section 2. |
+| Authentication/PING check fails | Access keys, credentials or Key Vault resolution need investigation; inspect the actual error | Section 1 (access keys on); `docs/azure.md`, Key Vault references, in the drupal-performance-recipe repository: "If the reference doesn't resolve, the literal `@Microsoft.KeyVault(...)` text is passed to the site as the value". All supported ENV credentials receive the same exterior trim. |
 | `MOVED` in an error (lab: a cross-slot MULTI returned `false` with no error, `evidence/cluster-policy-lab/result-crossslot.txt`) | The cache is clustered (Learn: "many MOVED redirection exceptions", section 1C) | Managed Redis: the policy can't change; create a new one with Non-clustered (1A). Premium: "You can't undo enabling clustering"; create a new one (1B) |
 | Bins are `DatabaseBackend` | One of the four conditions failed, or `REDIS_ENABLED=0` ([Redis enable/bin switch in settings.performance.php](../../drupal-performance-modules/settings/settings.performance.php)) | Section 4 list; check `REDIS_HOST` and `REDIS_ENABLED` in 5a |
 | Bins are `Drupal\redis\Cache\PhpRedis` | Redis in use, fail-open module not installed: the bins then "run on the plain backend" ([Redis backend decoration in settings.performance.php](../../drupal-performance-modules/settings/settings.performance.php)), the module's `Drupal\redis\Cache\PhpRedis` class for the PhpRedis interface (`src/Cache/CacheBackendFactory.php:64-65`; class name from `src/ClientFactory.php:34,209`) | Install `perf_redis_failopen` ("installed by the recipe", [fail-open backend selection in settings.performance.php](../../drupal-performance-modules/settings/settings.performance.php)) |

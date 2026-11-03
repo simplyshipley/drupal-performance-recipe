@@ -84,7 +84,7 @@ App Service settings on each site, for Redis. Read by the recipe's `settings.per
 |---|---|---|---|---|
 | `REDIS_HOST` | App setting | **Yes**, to use Redis | unset = no Redis | The container app's internal FQDN (Overview → Application Url without `https://`, or the Bicep output `redisHost`) |
 | `REDIS_PASSWORD` | App setting as a Key Vault reference | **Yes** (without it every read is a cache miss) | none | The same Key Vault secret as the container |
-| `REDIS_PORT` | App setting `6379` | No (set it anyway) | `6379`; `6380` when `REDIS_SCHEME=tls` | Port |
+| `REDIS_PORT` | App setting: exposed connection port | No (set it explicitly) | `6379`; `6380` when `REDIS_SCHEME=tls` | Client-facing port; an existing QA exposed `6378` → target/listener `6379` mapping uses `6378` |
 | `REDIS_SCHEME` | App setting `tcp` | No | `tcp` | `tls` only if the container runs with `REDIS_TLS=1` |
 | `REDIS_PREFIX` | App setting, different for each site | No by code; recommended | the redis module's own long prefix | Key prefix, a short name |
 | `REDIS_ENABLED` | Leave unset; `0` during a long outage | No | `1` | `0` = the cache goes back to the database. Back on: `1`, then `drush cr` |
@@ -105,8 +105,8 @@ App Service settings on each site, for Redis. Read by the recipe's `settings.per
 ## Must match on both sides
 
 - **Password:** the container's `REDIS_PASSWORD` and the site's `REDIS_PASSWORD` come from the **same Key Vault secret**. A mismatch gives `WRONGPASS`: every read is a miss, the site is slower but up.
-- **Port:** the container's listen port (6379, or 6380 with TLS) = ingress target port = exposed port = probe port = the site's `REDIS_PORT`.
-- **Scheme:** `REDIS_TLS=0` goes with `REDIS_SCHEME=tcp`; `REDIS_TLS=1` goes with `REDIS_SCHEME=tls` and port 6380. The Bicep example only does 6379 without TLS.
+- **Port:** the container's listener, ingress target and TCP probe port must agree. The site's `REDIS_PORT` must match the ingress **exposed** port, which can differ: QA exposed `6378` → target/listener/probes `6379` uses `REDIS_PORT=6378`. Keep that working mapping.
+- **Scheme:** `REDIS_TLS=0` goes with `REDIS_SCHEME=tcp`; `REDIS_TLS=1` goes with `REDIS_SCHEME=tls`. An explicit App Service `REDIS_PORT` is retained for either scheme; only an unset/empty port defaults to `6379` for TCP or `6380` for TLS. Match the actual TLS listener and ingress mapping. The Bicep example only does 6379 without TLS.
 - **Client certificates:** `REDIS_TLS_AUTH_CLIENTS` stays `no`; the site can't send one.
 - **Host:** the site's `REDIS_HOST` = the container app's ingress FQDN, resolvable through the private DNS zone linked to the App Service VNet.
 - **One site per Redis:** no `REDIS_APP_USERS` on the container; the site sends no user name.
@@ -123,11 +123,13 @@ From a site's App Service SSH console:
 drush php:eval "print get_class(\Drupal::cache('render')) . PHP_EOL;"
 # good: Drupal\perf_redis_failopen\Cache\FailOpenCacheBackend
 
-php -r '$r=new Redis(); $r->connect(getenv("REDIS_HOST"),6379,2); $r->auth(getenv("REDIS_PASSWORD")); echo $r->ping(),PHP_EOL;'
-# good: 1 or +PONG
+drush perf:diagnose --redis
+# Inspect DNS/TCP, connection/authentication, configured client and backend checks.
 ```
 
-If Redis is unreachable the sites stay up and get slower. Drupal logs it on the `perf_redis_failopen` channel.
+Run Drush from the correct site's root. It uses Drupal's effective connection settings, including the uniformly normalized ENV values, selected database and exposed port. The wrapper class alone is not proof of a live connection. CLI success does not establish Apache/web success: compare the protected `/admin/reports/redis` diagnostics with `REDIS_DEBUG=1` using the [web/CLI procedure](../../docs/troubleshooting-commands.md#azure-drush-works-but-web-requests-do-not-use-redis), then turn the flag off. These diagnostics use short-lived synthetic test keys; they do not clear application bins.
+
+If Redis is unreachable the sites stay up and get slower while `perf_redis_failopen` remains installed. Drupal logs it on the `perf_redis_failopen` channel; the wrapper returns misses rather than automatically writing a database fallback cache.
 
 ## Cost
 

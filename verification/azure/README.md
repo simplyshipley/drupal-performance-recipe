@@ -1,5 +1,7 @@
 # Compare Azure settings with the approved deployment profile
 
+**PDF deployment blocker:** this comparison retains the legacy static-extension list without PDFs and treats additional rules as requiring manual review. It does not model or certify the current public-PDF caching-with-replacement-purge requirement. See the [decision audit](../../docs/guides/caching-decision-audit.md#deployment-blocker-public-pdf-caching); a passing result here does not resolve PDF sign-off.
+
 This offline checker compares selected Azure configuration with the recipe's intended values. It reports **actual**, **expected**, **why** and a troubleshooting link for each check. It never logs in, contacts Azure, changes settings, purges, or reads App Service application settings. Run the [deployment checklist](../../docs/guides/deployment-verification-checklist.md) alongside it; configuration comparison cannot prove runtime behavior.
 
 ## Run

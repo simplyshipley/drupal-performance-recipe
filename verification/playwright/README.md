@@ -1,5 +1,7 @@
 # Bounded Playwright deployment checks
 
+**PDF deployment blocker:** the existing `document` kind and `report-pdf` example encode legacy no-cache/no-edge-HIT behavior. They do not implement the current public-PDF caching-with-replacement-purge requirement and must not be used to sign it off. See the [decision audit](../../docs/guides/caching-decision-audit.md#deployment-blocker-public-pdf-caching). This review leaves executable checks unchanged rather than inventing an approved document TTL/browser policy.
+
 Three independently selected modes support the [deployment checklist](../../docs/guides/deployment-verification-checklist.md):
 
 | Mode | Command | Purpose |
@@ -37,7 +39,7 @@ All paths are explicit, same-origin and reviewed by the operator. Maximum 12 tar
 | `public` | Explicit `expectedMaxAge` in seconds (recipe default 900). HTTP200, text/html, public max-age as configured, no origin private/no-cache/no-store or Drupal response-policy denial. DPC poor cacheability is an INCONCLUSIVE performance finding; it can coexist with public IPC HIT. Missing Drupal headers are INCONCLUSIVE for origin identification, and no header certifies Redis. |
 | `static` | Explicit `contentType`, e.g. text/css. HTTP200, correct type, origin eligible for caching. The one-day edge override must be separately inspected in Azure; browser Cache-Control does not prove edge TTL. |
 | `bypass` | Defaults HTTP200; `statuses: [200, 403]` may describe a known access-controlled fixture if that is the intended behavior. No shared edge HIT. CONFIG_NOCACHE proves configured noncaching; origin-only private is INCONCLUSIVE for the intended Azure rule. An expected403 alone does not prove WAF or private access correctness. |
-| `document` | HTTP200, non-HTML type, no-cache and no edge HIT. PDF/Office replacement and conditional Last-Modified checks remain manual. |
+| `document` | **Legacy no-cache check:** HTTP200, non-HTML type, no-cache and no edge HIT. This rejects cached PDFs and cannot sign off the current PDF requirement. Replacement and conditional Last-Modified checks remain manual. |
 | `video` | Explicit `range: [0, 1023]` (maximum64KiB, endpoint must be long enough). HTTP206, video/mp4, matching Content-Range and actual returned byte length, uncompressed. Sample range checks do not validate the entire video or replacement/purge. |
 
 Optional `requiredHeaders` lists security header names whose **presence** must survive each ordinary response, e.g. `["strict-transport-security", "x-content-type-options"]`. Review actual agreed values separately; this default cache/header mode does not invent or enforce a CSP. The separate [CSP mode](CSP.md) tests a reviewed candidate locally. Security header values are not saved.

@@ -149,7 +149,7 @@ The test now waits up to 180 s for the lock before running cron, and reports the
 ## Recommended settings
 
 - **HTML TTL:** 900 s, the recipe's value. It bounds every remaining gap ([why, and when to change it](frontdoor-setup-guide.md#anonymous-pages-15-minutes-default)).
-- **Static assets:** 1 day at Front Door ([why](frontdoor-setup-guide.md#theme-files-1-day-default)). Aggregates are content-hashed, and same-URL replacements are purged via `file:N`.
+- **Static assets:** 1 day at Front Door ([why](frontdoor-setup-guide.md#theme-files-1-day-default)). Aggregates are content-hashed, and same-URL replacements are purged via `file:N`. Public PDF caching with replacement purging is intended, but the legacy PDF headers and checks remain a [deployment blocker](guides/caching-decision-audit.md#deployment-blocker-public-pdf-caching). The existing `sync_file` fixture uses a synthetic TXT; it does not certify PDF replacement or live Azure purging. A filesystem-only overwrite without the file entity save/explicit invalidation does not trigger this path mapping.
 - **Processors:** cron processor on and cron every 5 minutes, plus `drush p:queue-work` in deploys.
 - **perf_purge_paths:**
   - Keep path purging on (the default).

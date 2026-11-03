@@ -96,7 +96,7 @@ There is no upgrade path. Apply this recipe to a site that has not run an older 
    - With path purging on (the default) the wildcard patch is needed for `*` list or site-wide paths.
    - Do not run `composer update <recipe> -W`: it pulled Twig 3.30.0 and broke every page.
 4. Include the settings file after `$databases` in `settings.php`, as the last include: [install.md](install.md#4-include-the-settings-file).
-   - To switch purging or Redis off for one environment (local, QA, Prod), add the `$config[...]` lines in [install.md](install.md#8-turn-caching-off-per-environment) to its `settings.php`.
+   - To switch automatic path queuing or Redis off for one environment (local, QA, Prod), set `AZURE_CDN_PURGE_PATHS_ENABLED=0` or `REDIS_ENABLED=0` in that environment. These are runtime ENV controls; leave the settings mapping code intact. The purge switch does not disable edge caching or stop existing queued purges. [Switching instructions](install.md#8-turn-caching-off-per-environment).
    - Switching Redis later needs no deploy: set `REDIS_ENABLED=0`; back on with `REDIS_ENABLED=1`, then `drush cr` ([install.md](install.md#8-turn-caching-off-per-environment)).
 5. Apply the recipe. Not a full `drush cron`: it runs every module's cron job ([install.md](install.md#5-apply-the-recipe)).
    ```bash
@@ -158,7 +158,7 @@ Step by step, with where to find each value, a test for each setting and trouble
 Background: [caching-guide.md](caching-guide.md#azure-front-door-for-drupal). The local edge models related behavior; it does not certify the expanded Azure rule matrix.
 - Associate and order the complete [cache-bypass matrix](frontdoor-setup-guide.md#3-bypass-the-cache-for-logged-in-users-and-admin-paths), then enable route caching and honour origin headers. The matrix covers independent session/Authorization, operational/private/oEmbed and generic entity-action bypasses. Required header/redirect/origin-selection actions must run before stopping bypasses.
 - Query strings: **Use Query String**, never Ignore. Optional ignore-specified tracking exclusions must use the [individual names](frontdoor-setup-guide.md#2-query-strings); `utm_*` is not a supported wildcard in that list.
-- Public static caching requires the guide's directory **AND** extension conditions, including `/libraries/` assets and TTF fonts. Apply its separate recommended `PublicVideo` rule for public MP4 and run the range/purge checks on QA. The 1-day edge TTL does not itself set browser freshness; PDFs/Office retain their no-cache policy.
+- Public static caching requires the guide's directory **AND** extension conditions, including `/libraries/` assets and TTF fonts. Apply its separate recommended `PublicVideo` rule for public MP4 and run the range/purge checks on QA. The 1-day asset edge TTL does not itself set browser freshness. Public PDFs need caching with replacement purging; the legacy no-cache configuration and checks are a [deployment blocker](guides/caching-decision-audit.md#deployment-blocker-public-pdf-caching), not the selected PDF policy.
 - Lock the origin to the `AzureFrontDoor.Backend` tag plus `X-Azure-FDID`.
 
 ### 3.7 App Service settings
@@ -166,6 +166,8 @@ Background: [caching-guide.md](caching-guide.md#azure-front-door-for-drupal). Th
 Secrets go in as Key Vault references. Full list, with required and default values: [azure.md](azure.md#app-service-application-settings-environment-variables). Front Door purge values for qa and prod, where to find each and how to check them: [quickstart-azure-frontdoor.md](quickstart-azure-frontdoor.md).
 
 Keep `settings.performance.php` code and mapping strings unchanged: the values on the right, such as `'tenant_id'`, are Drupal configuration keys. Put actual values in App Service. Government Front Door setup needs **eight identity/cloud/target entries**, not all supported overrides. `AZURE_CLOUD=usgovernment` selects login/management defaults and an empty scope derives `/.default`; API version and endpoint type come from recipe config. Existing nonempty stored overrides still take precedence over those defaults.
+
+The following Redis command is a **default-port example**, not a change to an existing deployment. For QA's working exposed `6378` → target/listener `6379` mapping, use `REDIS_PORT=6378`. The client port matches the exposed ingress port; target/listener/probe ports remain `6379`.
 
 ```bash
 az webapp config appsettings set -g $RG -n <webapp> --settings \

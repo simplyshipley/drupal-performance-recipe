@@ -2,6 +2,8 @@
 
 Start with the [deployment checklist](../docs/guides/deployment-verification-checklist.md). Keep a separate expected profile and evidence set for QA and production.
 
+**PDF limitation:** the [decision audit](../docs/guides/caching-decision-audit.md#deployment-blocker-public-pdf-caching) identifies an unresolved configuration/test mismatch. The existing Playwright document kind expects no-cache/no-HIT, and the Azure comparison does not model a cached-PDF rule. Neither can certify the current public-PDF caching-with-replacement-purge requirement. PDF sign-off remains BLOCKED even if other checks pass.
+
 | Tool | What it compares | Reports / instructions |
 |---|---|---|
 | [Playwright cache/header probes](playwright/README.md) | Explicit URLs against expected HTTP status, cache policy, Front Door headers and optional range behavior | HTML and JSON; `npm test`, configurable `BASE_URL` and cache target list; no browser download |

@@ -3,6 +3,9 @@
 A Drupal recipe plus a settings include for Drupal 10.6+ / 11 sites on Azure App Service behind Azure Front Door, with local DDEV and Lando test harnesses (including a mock Front Door purge endpoint) and a scripted test suite.
 For Drupal developers installing it.
 
+> [!IMPORTANT]
+> **Documentation review:** [Caching decision audit](docs/guides/caching-decision-audit.md). Public PDF caching with replacement purging is the current requirement, but the legacy no-cache instructions, Lando header and default verification checks are not aligned with it. PDF deployment sign-off is blocked; do not treat those legacy checks as proof of the intended PDF caching.
+
 > [!TIP]
 > **Start here:** [Quick start on an OIG Lando site](docs/quickstart-lando.md) (8 steps).
 > Full reference: [setup guide](docs/setup-guide.md).

@@ -148,7 +148,10 @@ curl -s -o /dev/null -D - -H 'Cookie: SESSsynthetic=1' "$SITE/" | grep -i '^x-ca
 
 For bypass rows expect `CONFIG_NOCACHE` from the matching rule; an origin `PRIVATE_NOSTORE` is also uncacheable but does not by itself verify the path rule. A real authenticated browser must never receive a shared edge HIT containing personalized content. If a bypass misses, check route association, rule-set order, OR values versus AND conditions, the lowercase transform and propagation before changing the policy.
 
-## 4. Static files (and keeping PDFs uncached)
+<a id="4-static-files-and-keeping-pdfs-uncached"></a>
+## 4. Static files and public documents
+
+**PDF deployment blocker:** the current requirement is public PDF caching with replacement purging. The legacy PDF no-cache procedure below implements the opposite policy; do not apply it for that requirement or use its tests for PDF sign-off. The [decision audit](guides/caching-decision-audit.md#deployment-blocker-public-pdf-caching) identifies the required origin, edge, Lando and verification alignment. Exact PDF TTL/browser freshness and Office-file scope were not recovered as approved decisions; this review does not choose them.
 
 ### Static files
 
@@ -156,7 +159,7 @@ For bypass rows expect `CONFIG_NOCACHE` from the matching rule; an origin `PRIVA
 - **Set:** rule `StaticFiles` with two conditions combined by **AND**: **Request path → Begins With** any of `core/`, `themes/`, `modules/`, `libraries/`, `sites/default/files/`, and **Request file extension → Equal** any of `css`, `js`, `png`, `jpg`, `jpeg`, `gif`, `svg`, `ico`, `webp`, `woff`, `woff2`, `ttf` (no leading dots). Apply **To lowercase** for case-insensitive matching. Use **Route configuration override → Caching: Enabled**, **Use Query String**, **Compression: Enabled**, **Override always**, **1 day** ([why 1 day, and when to change it](#theme-files-1-day-default)). Do not make the directory and extension alternatives separate cache-enable rules: both conditions must hold.
 - When a rule overrides the route "you must configure caching. Otherwise, caching gets disabled for the request" [Learn]. Fill in all the caching fields.
 - The local edge uses 7 days (`EDGE_STATIC_TTL`) [Lab]. CSS/JS aggregates change URL when they change; replaced images are purged by the recipe (section 10). Every kind of response: [How long Front Door caches each kind of response](#how-long-front-door-caches-each-kind-of-response).
-- No PDFs, Office files or MP4 video are in this extension list. Preserve the PDF/Office policy below; MP4 uses the separate `PublicVideo` rule below. The static rule changes the **edge TTL**; it does not automatically add a browser `Cache-Control` lifetime. Configure appropriate origin/browser freshness separately, with replacement/purge behavior for files overwritten at the same URL.
+- No PDFs, Office files or MP4 video are in this existing extension list. PDF caching remains blocked on the alignment above; do not infer that the omission implements the current PDF requirement. MP4 uses the separate `PublicVideo` rule below. The static rule changes the **edge TTL**; it does not automatically add a browser `Cache-Control` lifetime. Configure appropriate origin/browser freshness separately, with replacement/purge behavior for files overwritten at the same URL.
 
 ### Public MP4 video
 
@@ -177,9 +180,12 @@ This rule is limited to that public video directory. It does not override privat
 
 [Microsoft large-file caching guidance](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-caching#delivery-of-large-files) documents range/chunk delivery. On QA verify a valid range GET returns HTTP 206 with a correct `Content-Range`, that repeated eligible range/full GETs exhibit the expected edge-cache behavior, and that replacing a test video plus purging its path serves the replacement. A 206 alone is not proof of an edge HIT. The saved public receipt did not retain `Content-Range`, so it does not validate production range delivery. For large-file delivery Microsoft defines the `X-Cache` HIT/MISS value for the **first 8-MB chunk**; it does not establish the cache state of the entire 13.66-MB response. Validate the requested ranges and returned data accordingly. Do not infer video-cache behavior from a small-image test.
 
-### PDFs and Office files: `Cache-Control: no-cache`
+<a id="pdfs-and-office-files-cache-control-no-cache"></a>
+### Legacy no-cache configuration for PDFs and Office files
 
-- **Why:** today they're served with no `Cache-Control`. Browsers then guess a lifetime, and with caching on "Front Door randomly determines a cache duration between one and three days" [Learn]. A replaced report would stay stale.
+**Historical configuration, not the selected PDF caching policy.** This subsection records the previously implemented no-cache behavior and its tests so existing installations can be identified. It prevents Front Door PDF caching and conflicts with the current requirement. The Apache command, NoCacheDocs fallback and expected no-HIT results below must not be used as the PDF deployment procedure. See the [audit](guides/caching-decision-audit.md#deployment-blocker-public-pdf-caching); no Office-file policy change is implied.
+
+- **Historical motivation:** the 2026-10-09 report PDF check found no `Cache-Control`. Browsers could then guess a lifetime; Microsoft documents a one-to-three-day default edge duration when cache headers are absent [Learn]. This observation motivated the old procedure, not the current PDF requirement.
 - **What no-cache does:** the browser keeps the file but asks each time (304 if unchanged, the new file if replaced). Front Door "honors" `no-cache` and "doesn't cache the responses, even if you override the caching behavior by using the Rules Engine" [Learn].
 - **Not adopted:** a module adding `?cb=` tokens (Static Asset Cache Buster) was tested. It covers only file field links, not links typed into body text, and needs a patch ([#3375311](https://www.drupal.org/project/static_asset_cache_buster/issues/3375311) MR !6) to avoid a crash when an image is deleted.
 
@@ -249,7 +255,8 @@ What Learn says:
 | Theme files under `/themes` (logo, icons, sprites, fonts) | `StaticFiles` | **1 day** ([why](#theme-files-1-day-default)) | Same URL across deploys | Expiry within a day, or purge `/themes/*` after the deploy |
 | Public MP4 under `/sites/default/files/video/` | Separate recommended `PublicVideo` rule (section 4) | 1 day edge TTL; browser freshness separate | Confines caching to public video; range behavior requires QA validation | Explicit tested video-path purge on replacement, or expiry |
 | Uploaded images and image styles | `StaticFiles` | Same as theme files | Same URL when a file is replaced | The recipe purges the file and its image styles ([azure.md](azure.md#what-gets-purged-path-based-no-tags)) |
-| PDFs and Office files | Apache in the image: `no-cache` (section 4) | Not cached | A replaced report must show at once | Browser asks each time (304) |
+| Public PDFs | Current requirement: shared caching plus replacement purge; existing no-cache configuration conflicts | BLOCKED: exact PDF TTL/browser policy and implementation alignment remain unresolved | Edge purge cannot remove a browser's fresh local copy | Actual same-URL PDF replacement/purge QA proof required; [audit](guides/caching-decision-audit.md#deployment-blocker-public-pdf-caching) |
+| Office files | Existing no-cache configuration (section 4) | Existing behavior, not changed by the PDF requirement | Office scope was not established by the recovered PDF decision | Verify the separately approved document policy |
 | Redirects (301) | Drupal page max-age (`max-age=900, public` on a 301 [V: lab `tmp/codex-oig/run4-smoke.log`; core `FinishResponseSubscriber.php:164-168`]) | Leave as is | Learn doesn't say whether Front Door caches a 301; either way it's 15 minutes at most. Confirm on qa: GET a `/node/<nid>` that has an alias twice and read `x-cache` | Purge the old path, or expiry |
 | `robots.txt` | The web server: no `Cache-Control`, only `Last-Modified` [V: live GET 2026-10-13] | Leave as is | Front Door then keeps it 1–3 days [Learn] | Purge `/robots.txt` after editing it |
 
@@ -449,12 +456,18 @@ curl -s -o /dev/null -D - -H 'Accept-Encoding: br, gzip' "$SITE$CSS" | grep -iE 
 **Test, end to end** (qa first):
 
 1. Run [quick start check 1](quickstart-azure-frontdoor.md#check-it-worked-qa-first): seven `set` lines, never a value.
-2. Cache a test page through Front Door:
+2. Choose an existing published QA test page (label any invented test content synthetic). Use its canonical public alias through Front Door, and record the current title. If `/node/<nid>` redirects, inspect `Location` and select the canonical page first; a cached redirect is not proof that its destination page was cached.
 
    ```bash
-   URL="$SITE/node/<nid>"
-   curl -s -o /dev/null -D - "$URL" | grep -i '^x-cache:'   # repeat until TCP_HIT
+   URL="$SITE/<canonical-published-qa-alias>"
+   for attempt in 1 2 3; do
+     curl -sS --max-time 15 -o /dev/null -D - "$URL" \
+       | grep -iE '^(HTTP/|location:|cache-control:|x-cache:)'
+   done
+   curl -sS --max-time 15 "$URL" | grep -o '<title>[^<]*'
    ```
+
+   Require the intended HTTP 200 content and an observed `TCP_HIT` or `TCP_REMOTE_HIT` before treating the page as warmed. An existing cache can HIT immediately; request two need not HIT. If these bounded probes show only MISS, bypass, a redirect or the wrong content, stop and investigate the route/origin policy instead of repeating indefinitely. These commands do not follow redirects.
 
 3. Change the page title in Drupal and save.
 4. On the App Service (SSH console):
@@ -469,7 +482,7 @@ curl -s -o /dev/null -D - -H 'Accept-Encoding: br, gzip' "$SITE$CSS" | grep -iE 
 5. Wait up to 10 minutes, then:
 
    ```bash
-   curl -s "$URL" | grep -o '<title>[^<]*'
+   curl -sS --max-time 15 "$URL" | grep -o '<title>[^<]*'
    ```
 
 - Good: the new title. [Lab: purge_send, edge_purge_e2e PASS against the mock; Government hosts proven on the mock only ([azure.md](azure.md#azure-government-patched-azure_cdn_purge))].
@@ -477,8 +490,8 @@ curl -s -o /dev/null -D - -H 'Accept-Encoding: br, gzip' "$SITE$CSS" | grep -iE 
 | You see | Do this |
 |---|---|
 | An error in `drush ws` | The [quick start table](quickstart-azure-frontdoor.md#if-something-goes-wrong) (AADSTS, AuthorizationFailed, ResourceNotFound) |
-| Queue 0, no errors, old title after 10 minutes | The page's URL is an alias the recipe didn't queue. Purge the path by hand and report it ([azure.md, what gets purged](azure.md#what-gets-purged-path-based-no-tags)) |
-| Queue never empties | Cron isn't running on the App Service |
+| Queue 0, no errors, old title after 10 minutes | This does not identify one cause. Check the actual queued/purged path, the correct QA/production endpoint, purge completion/propagation and the canonical response/body/cache headers. Missing alias or dependency coverage is one possibility; inspect it before diagnosing or manually purging. If only a browser stays stale, check its freshness separately. [Path coverage](azure.md#what-gets-purged-path-based-no-tags) |
+| Queue never empties | Check scheduler/worker execution, `drush p:diagnostics`, queue progress and `azurecdn` logs. Missing runs, queued failures/retries and authorization errors are possibilities; establish the actual cause before changing the schedule, credentials or queue. |
 
 ## 11. Redis cache (Premium environment)
 
