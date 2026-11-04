@@ -249,8 +249,20 @@ help: `/views/ajax` is not an admin route (core `views.routing.yml`).
 [#3589682](https://www.drupal.org/project/redirect/issues/3589682): `RouteNormalizerRequestSubscriber`
 returns early for any request sent with `X-Requested-With: XMLHttpRequest`, plus a unit test. It applies
 to `8.x-1.13` and to `8.x-1.x` at `4b0c04d`. The redirect unit tests pass with it (17 tests), and the new
-test fails without the guard [V: Drupal 11 test site, PHP 8.4, 2026-11-04]. It has not yet been checked
-on a real Views AJAX page.
+test fails without the guard [V: Drupal 11 test site, PHP 8.4, 2026-11-04].
+
+In the DDEV lab (Drupal 10.6.17, redirect 1.13.0, patched with the composer-patches 2.x steps below), an
+AJAX view's request that the module normalizes (`/index.php/views/ajax?…`, or a trailing slash) got a 301
+before the patch and its JSON (200) after it. The same URL without the AJAX header still gets the 301
+[V: lab, 2026-11-04]. The lab did not reproduce the reordered query string itself: the view's real AJAX
+requests got 200 with and without the patch, both straight to Drupal and through the edge.
+
+**Clear caches after applying it.** Drupal's page cache and Front Door don't vary on the AJAX header, and
+the module's 301s are cacheable (`public, max-age=900` in the lab). A 301 cached before the patch keeps
+reaching AJAX requests until it expires: in the lab, `drush cr` cleared it [V: lab]. Run `drush cr`, then
+purge Front Door ([frontdoor-setup-guide.md](frontdoor-setup-guide.md#purge-after-a-deploy)). The reverse
+also holds: when an AJAX request reaches a non-canonical page URL first, its 200 is cached and normal
+visitors get that page instead of the 301 until it expires [V: lab].
 
 Composer-patches 1.x (OIG sites): copy the file to the site's `patches/`, add it under `extra.patches`, then
 run `composer update drupal/redirect`. That command can also move redirect to a newer 1.x release if the
