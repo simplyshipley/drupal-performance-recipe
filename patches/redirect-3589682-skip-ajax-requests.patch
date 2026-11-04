@@ -1,0 +1,55 @@
+diff --git a/src/EventSubscriber/RouteNormalizerRequestSubscriber.php b/src/EventSubscriber/RouteNormalizerRequestSubscriber.php
+index e1a1b5d295c2..b9ad16bf9bf0 100644
+--- a/src/EventSubscriber/RouteNormalizerRequestSubscriber.php
++++ b/src/EventSubscriber/RouteNormalizerRequestSubscriber.php
+@@ -20,7 +20,8 @@ use Symfony\Component\EventDispatcher\EventSubscriberInterface;
+  *
+  * The normalization can be disabled by setting the "_disable_route_normalizer"
+  * request parameter to TRUE. However, this should be done before
+- * onKernelRequestRedirect() method is executed.
++ * onKernelRequestRedirect() method is executed. AJAX requests (those sent with
++ * the "X-Requested-With: XMLHttpRequest" header) are never normalized.
+  */
+ class RouteNormalizerRequestSubscriber implements EventSubscriberInterface {
+ 
+@@ -100,6 +101,12 @@ class RouteNormalizerRequestSubscriber implements EventSubscriberInterface {
+       return;
+     }
+ 
++    // Never redirect AJAX requests, such as Views exposed filters and pagers.
++    // The caller expects an AJAX response, not a redirect.
++    if ($request->isXmlHttpRequest()) {
++      return;
++    }
++
+     if ($this->redirectChecker->canRedirect($request)) {
+       // The "<current>" placeholder can be used for all routes except the front
+       // page because it's not a real route.
+diff --git a/tests/src/Unit/RouteNormalizerRequestSubscriberTest.php b/tests/src/Unit/RouteNormalizerRequestSubscriberTest.php
+index cacf21ccd365..24506caf3da1 100644
+--- a/tests/src/Unit/RouteNormalizerRequestSubscriberTest.php
++++ b/tests/src/Unit/RouteNormalizerRequestSubscriberTest.php
+@@ -82,6 +82,23 @@ class RouteNormalizerRequestSubscriberTest extends UnitTestCase {
+     $subscriber->onKernelRequestRedirect($event);
+   }
+ 
++  /**
++   * @covers ::onKernelRequestRedirect
++   */
++  public function testSkipIfAjaxRequest() {
++    // This URL is normalized for a regular request, see getTestUrls().
++    $request_uri = 'https://example.com/index.php/';
++    $request_query = ['q' => 'node/1'];
++
++    $event = $this->getGetRequestEventStub($request_uri, http_build_query($request_query));
++    $event->getRequest()->headers->set('X-Requested-With', 'XMLHttpRequest');
++    // An AJAX request must leave onKernelRequestRedirect at the beginning, i.e.
++    // $this->redirectChecker->canRedirect($request) should never be called.
++    $subscriber = $this->getSubscriber($request_uri, TRUE, FALSE);
++    $subscriber->onKernelRequestRedirect($event);
++    $this->assertNull($event->getResponse());
++  }
++
+   /**
+    * @covers ::onKernelRequestRedirect
+    * @dataProvider getTestUrls

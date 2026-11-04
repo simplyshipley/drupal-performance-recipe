@@ -235,3 +235,39 @@ into it and is retired (`modules/__ARCHIVED_perf_purge_deleted`).
 
 Use `drupal/remove_http_headers` (^2.1) with `headers_to_remove: [X-Generator]` only. Its default list also strips
 `X-Drupal-Cache`/`X-Drupal-Dynamic-Cache`. See [hardening.md](hardening.md#generator-meta-tag).
+
+## Optional: redirect module, no canonical redirect on AJAX requests
+
+Only for sites that run `drupal/redirect` with **Enforce clean and canonical URLs** turned on. The recipe
+does not require `drupal/redirect`.
+
+With that setting on, Views AJAX requests (exposed filters, AJAX pagers) can get a 301 to a reordered
+query string, and the Views AJAX call fails. The **Ignore redirections on admin paths** setting does not
+help: `/views/ajax` is not an admin route (core `views.routing.yml`).
+
+`patches/redirect-3589682-skip-ajax-requests.patch` adds the fix proposed in
+[#3589682](https://www.drupal.org/project/redirect/issues/3589682): `RouteNormalizerRequestSubscriber`
+returns early for any request sent with `X-Requested-With: XMLHttpRequest`, plus a unit test. It applies
+to `8.x-1.13` and to `8.x-1.x` at `4b0c04d`. The redirect unit tests pass with it (17 tests), and the new
+test fails without the guard [V: Drupal 11 test site, PHP 8.4, 2026-11-04]. It has not yet been checked
+on a real Views AJAX page.
+
+Composer-patches 1.x (OIG sites): copy the file to the site's `patches/`, add it under `extra.patches`, then
+run `composer update drupal/redirect`. That command can also move redirect to a newer 1.x release if the
+site's constraint allows it.
+
+```json
+"drupal/redirect": {
+    "#3589682: no canonical redirect on AJAX requests": "patches/redirect-3589682-skip-ajax-requests.patch"
+}
+```
+
+Composer-patches 2.x:
+
+```bash
+cp recipes/drupal-performance-recipe/patches/redirect-3589682-skip-ajax-requests.patch patches/
+composer config --json extra.patches.drupal/redirect '[
+  {"description":"#3589682: no canonical redirect on AJAX requests","url":"patches/redirect-3589682-skip-ajax-requests.patch"}]'
+composer patches-relock
+composer patches-repatch
+```
