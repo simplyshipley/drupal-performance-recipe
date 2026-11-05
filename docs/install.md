@@ -251,11 +251,17 @@ returns early for any request sent with `X-Requested-With: XMLHttpRequest`, plus
 to `8.x-1.13` and to `8.x-1.x` at `4b0c04d`. The redirect unit tests pass with it (17 tests), and the new
 test fails without the guard [V: Drupal 11 test site, PHP 8.4, 2026-11-04].
 
-In the DDEV lab (Drupal 10.6.17, redirect 1.13.0, patched with the composer-patches 2.x steps below), an
-AJAX view's request that the module normalizes (`/index.php/views/ajax?…`, or a trailing slash) got a 301
+In the SYNTHETIC DDEV lab (Drupal 10.6.17, redirect 1.13.0, patched with the composer-patches 2.x steps below),
+the synthetic `perf_ajax_test` view's request that the module normalizes (`/index.php/views/ajax?…`, or a trailing slash) got a 301
 before the patch and its JSON (200) after it. The same URL without the AJAX header still gets the 301
 [V: lab, 2026-11-04]. The lab did not reproduce the reordered query string itself: the view's real AJAX
 requests got 200 with and without the patch, both straight to Drupal and through the edge.
+
+**Lab disposition (2026-11-05): keep the patch and synthetic test view for regression probes.**
+The synthetic view is test configuration at `/perf-ajax-test`, not evidence from a production site.
+The patch remains optional and has not been posted upstream. See the
+[local issue decision and unposted comment](upstream-issue-redirect-3589682.md) for the issue-queue
+comparison, retained test artifacts and limits of the lab result.
 
 **Clear caches after applying it.** Drupal's page cache and Front Door don't vary on the AJAX header, and
 the module's 301s are cacheable (`public, max-age=900` in the lab). A 301 cached before the patch keeps
